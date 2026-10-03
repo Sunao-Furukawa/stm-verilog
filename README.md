@@ -1,10 +1,9 @@
 # stm-verilog
 
+**日本語** | [English](README.en.md)
+
 STM-1.2 (2-way superscalar 32-bit RISC CPU, 1995) のハードウェア記述 (CHDL) を
 **Verilog HDL 2001** に変換したものです。元の配布物一式と、変換した Verilog を含みます。
-
-*A Verilog-2001 translation of STM-1.2, a 2-way superscalar 32-bit RISC CPU written in 1995
-in a C-like HDL called CHDL. The translation is cycle-exact against the original C simulator.*
 
 ## 内容
 
