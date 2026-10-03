@@ -1,31 +1,32 @@
 # stm-verilog
 
-**日本語** | [English](README.en.md)
+**English** | [日本語](README.ja.md)
 
-STM-1.2 (2-way superscalar 32-bit RISC CPU, 1995) のハードウェア記述 (CHDL) を
-**Verilog HDL 2001** に変換したものです。元の配布物一式と、変換した Verilog を含みます。
+A translation of the hardware description of **STM-1.2** (a 2-way superscalar 32-bit RISC CPU,
+1995) from CHDL into **Verilog HDL 2001**. The repository contains the complete original
+distribution together with the translated Verilog.
 
-## 内容
+## Contents
 
-| パス | 内容 |
-|------|------|
-| `verilog/` | **Verilog 2001 版** (今回追加)。詳しくは [verilog/README_ja.md](verilog/README_ja.md) |
-| `hard/` | 元のハードウェア記述 (CHDL `*.ch` と C ヘッダ `*.h`) |
-| `soft/` | 元のツール (CHDL→C 変換, アセンブラ, 命令セットシミュレータ) |
-| `vh/` | 元の CHDL→VHDL 変換ツールと VHDL モデル |
-| `bup0/`, `bup1/` | 回帰テスト用のアセンブリプログラム |
-| `samples/`, `work/` | サンプルと作業用ディレクトリ |
-| `doc/` | 元のドキュメント (英語 / 日本語) |
+| Path | Description |
+|------|-------------|
+| `verilog/` | **Verilog 2001 version** (newly added). See [verilog/README_en.md](verilog/README_en.md) for details |
+| `hard/` | Original hardware description (CHDL `*.ch` files and C headers `*.h`) |
+| `soft/` | Original tools (CHDL-to-C translator, assembler, instruction-set simulator) |
+| `vh/` | Original CHDL-to-VHDL translator and VHDL models |
+| `bup0/`, `bup1/` | Assembly programs for the regression tests |
+| `samples/`, `work/` | Samples and a working directory |
+| `doc/` | Original documentation (English / Japanese) |
 
-## Verilog 版の検証
+## Verification of the Verilog version
 
-* `iverilog -g2001 -Wall` で警告なし
-* `bup0` / `bup1` の全 64 本 × (キャッシュミス無し / 乱数キャッシュミス有り) = 128/128 成功
-* 元の C シミュレータと、65 本のプログラムで全サイクルの内部状態が完全一致
+* Compiles with `iverilog -g2001 -Wall` without warnings
+* All 64 programs in `bup0` / `bup1` × (no cache misses / random cache misses) = 128/128 pass
+* Every internal state compared cycle by cycle against the original C simulator over 65 programs: identical
 
-## 動かし方
+## Running
 
-Python 3 と Icarus Verilog が必要です (Perl は不要)。
+Requires Python 3 and Icarus Verilog (Perl is not needed).
 
 ```powershell
 cd verilog
@@ -33,21 +34,23 @@ powershell -ExecutionPolicy Bypass -File run_bup.ps1   # Windows PowerShell
 sh run_bup.sh                                          # sh / Git Bash
 ```
 
-## ドキュメントの文字コードについて
+## Character encoding of the documentation
 
-`doc/japanese/` の日本語ドキュメントは、元は **EUC-JP** (1995 年当時) でしたが、
-GitHub 上で読めるよう **UTF-8 に変換** してあります (内容は変更なし。UTF-8 → EUC-JP に
-戻すと元のファイルとバイト単位で一致することを確認済み)。
-元の `README` にある「`make doc.j` で EUC 漢字コードのファイルができる」という記述は
-変換前のもので、現在は `doc.j` も UTF-8 になります。
-`verilog/` 以下の追加ファイルもすべて UTF-8 です。
+The Japanese documents in `doc/japanese/` were originally written in **EUC-JP** (as of 1995) and
+have been **converted to UTF-8** so they can be read on GitHub. The content is unchanged:
+converting them back from UTF-8 to EUC-JP reproduces the original files byte for byte.
+The statement in the original `README` that `make doc.j` produces a file in EUC Kanji code
+predates this conversion; `doc.j` is now UTF-8 as well.
+All files added under `verilog/` are UTF-8.
 
-## ライセンス
+## License
 
-元の STM について、作者は次のように記しています。
+The author of the original STM wrote:
 
 * `doc/english/overview`: "It is free hardware; it is distributed under a condition similar to GPL."
 * `doc/japanese/intro`: 「STMはフリー・ハードウェアとします。… その他もろもろはGPLに従う、としましょう。」
+  ("STM is free hardware. … Everything else follows the GPL.")
 
-元の記述では GPL のバージョンが指定されていないため、このリポジトリ (Verilog 版を含む) は
-**GNU General Public License version 2 (GPL v2)** で配布します。全文は [LICENSE](LICENSE) を参照してください。
+Since the original does not specify a GPL version, this repository (including the Verilog version)
+is distributed under the **GNU General Public License version 2 (GPL v2)**. See [LICENSE](LICENSE)
+for the full text.
