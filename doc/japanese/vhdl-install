@@ -1,25 +1,25 @@
-������ �֣ȣģ̥��������������ߥ�졼�����
+３ー５ ＶＨＤＬソース生成、シミュレーション
 
-VHDL�ؤΥ���С�����ˡ�ϼ��ΤȤ���Ǥ����ʲ���STM�Υȥåץǥ��쥯�ȥ꤬
-�Ķ��ѿ�$STMDIR�˥��åȤ���Ƥ���Ȥ��ޤ���
+VHDLへのコンバート方法は次のとおりです。以下、STMのトップディレクトリが
+環境変数$STMDIRにセットされているとします。
 
-��Ȥ�$STMDIR/vh/temp�ǥ��쥯�ȥ�ǹԤʤ��ޤ����ޤ�ñ��make���ޤ���
+作業は$STMDIR/vh/tempディレクトリで行ないます。まず単にmakeします。
 
 	% cd $STMDIR/vh/temp
 	% make
 
-�����stmcntl.vbe��memory.vbe����������ޤ����⤷make���
-"Command not found"�ʤɤȽФ��顢perl�Υѥ�̾���㤦��ǽ�����⤤�Ǥ���
-���顼��å�������Ф������ƥåפ�perl������ץȥե��������Ƭ�Ԥ�
+これでstmcntl.vbeとmemory.vbeが生成されます。もしmake中に
+"Command not found"などと出たら、perlのパス名が違う可能性が高いです。
+エラーメッセージを出したステップのperlスクリプトファイルの先頭行の
 
 #!/usr/local/bin/perl
 
-��Ŭ�����Ѥ��Ʋ�������
+を適当に変えて下さい。
 
-�����ǥ�δ�ˤʤ�ƥ��ȥץ�������$STMDIR/work/tst.s�Ǥ���
+メモリモデルの基になるテストプログラムは$STMDIR/work/tst.sです。
 
-1.1�ǤǤϥ���С��ȥץ������˥Х������ꡢ��ǤǤ���stmcntl.vbe��
-����������ޤ��󡣶�������ޤ���1066,1067,1069,1070�Ԥ��
+1.1版ではコンバートプログラムにバグがあり、上でできたstmcntl.vbeは
+正しくありません。恐れ入りますが1066,1067,1069,1070行めの
 
 NIP_A_TMP <=  (B"00" & IF_REQ_AD(29)) when CLEAR_NIP_A else 
         ((B"0" & not ((SU_IF_CLH_NOCAN .....
@@ -27,7 +27,7 @@ NIP_A_TMP <=  (B"00" & IF_REQ_AD(29)) when CLEAR_NIP_A else
 NIP_B <= guarded (B"00" & IF_REQ_AD(29)) when CLEAR_NIP_B else 
         ((B"0" & not ((SU_IF_CLH_NOCAN .....
 
-�򤽤줾��
+をそれぞれ
 
 NIP_A_TMP <=  (B"11" & IF_REQ_AD(29)) when CLEAR_NIP_A else
                  ^^
@@ -38,11 +38,11 @@ NIP_B <= guarded (B"11" & IF_REQ_AD(29)) when CLEAR_NIP_B else
                     ^^
         ((B"1" & not ((SU_IF_CLH_NOCAN .....
             ^
-�˼�ǽ������Ʋ������������VHDL�������ΤǤ�������Ǥ���
+に手で修正して下さい。これでVHDLソースのできあがりです。
 
 
-Alliance(asimut)�ǥ��ߥ�졼����󤹤����ϰʲ��Τ褦�ˤ����Ĥ��δĶ��ѿ�
-�����ꤷ����asimut��¹Ԥ��Ʋ�������
+Alliance(asimut)でシミュレーションする方は以下のようにいくつかの環境変数
+を設定した後asimutを実行して下さい。
 
 	% setenv MBK_CATA_LIB 	.:$STMDIR/vh/behave
 	% setenv MBK_WORK_LIB  .
@@ -54,4 +54,4 @@ Alliance(asimut)�ǥ��ߥ�졼����󤹤����ϰʲ��Τ褦�ˤ����Ĥ��δĶ��ѿ�
 	% setenv MBK_CATAL_NAME $STMDIR/vh/behave/CATAL
 	% asimut sys pat result
 
-�����result.pat�ե�����˥��ߥ�졼������̤�����ޤ���
+これでresult.patファイルにシミュレーション結果が入ります。
