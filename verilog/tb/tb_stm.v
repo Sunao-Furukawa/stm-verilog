@@ -21,7 +21,7 @@ module tb_stm;
   reg         rnd_opclh = 1'b1, rnd_ifrdy = 1'b1, rnd_ifclh = 1'b1;
   wire [31:0] pc;
 
-  reg  [1023:0] hexfile;
+  reg  [8*1024-1:0] hexfile;     // +HEX= のファイル名 (最大 1024 文字)
   integer       cycles, maxcyc, seed;
   reg           use_random, trace, ctrace;
   reg  [31:0]   insn;

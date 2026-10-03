@@ -19,7 +19,7 @@
 //  定義する」順序になっている (確認済み) ので、順序に依存しない
 //  Verilog の連続代入にそのまま置き換えても同じ動作になる。
 //
-//  リセット: rst=1 で全 FF を 0 にし, PC だけ RESET_PC にする。
+//  リセット: rst=1 の間のクロックで全 FF を 0 にし, PC だけ RESET_PC にする (同期リセット)。
 //            (C 版で PC に開始番地を入れ, 他を 0 から始めたのと同じ。
 //             START-TRIGGER-BAR=0 なので最初のサイクルで命令フェッチが始まる)
 // =====================================================================
@@ -277,15 +277,7 @@ wire           DD_PREDICTING_TAKEN;
 wire [15:0]    DD_DISP;
 wire [31:0]    DD_TGT;
 // ---- 045-g-ram.ch
-wire [31:0]    GR_DT_1;
-wire [31:0]    GR_DT_2;
-wire [31:0]    GR_DT_B;
-wire [31:0]    GR_DT_S;
-wire [31:0]    MEM_DT_OP;
-wire [31:0]    MEM_DT_IF_H;
-wire [31:0]    MEM_DT_IF_L;
 // ---- 050-op-lb1.ch
-wire           RANDOM_FOR_OPCLH;
 wire           WW_WSR;
 wire           WW_RFE;
 wire           WW_LS_INT_V;
@@ -644,8 +636,6 @@ wire [31:0]    IF_REQ_AD;
 wire           IF_REQ_ID;
 wire           CANCEL_IB;
 // ---- 180-if-lbs.ch
-wire           RANDOM_FOR_IFRDY;
-wire           RANDOM_FOR_IFCLH;
 wire           SU_IF_CLH;
 wire           SU_IF_RDY;
 wire [31:0]    I_LBS_H;
@@ -772,8 +762,11 @@ wire [2:0]     AA_EXU_INT;
 //  FF の更新 (C 版の「サイクルの最後に X = X_NEW」に相当)
 // ---------------------------------------------------------------------
 // 【解説】すべての FF をここで一斉に更新する。各 X_NEW は ch/*.vh で
-//         CHDL の 'X := 式' から作った D 入力。非同期リセットで 0 (PC は RESET_PC)。
-always @(posedge clk or posedge rst) begin
+//         CHDL の 'X := 式' から作った D 入力。
+//         同期リセット: rst=1 の間のクロックで 0 (PC は RESET_PC) にする。
+//         (PC のリセット値が定数ではなく入力 RESET_PC なので、非同期リセットに
+//          すると FPGA ではラッチで代用されてしまう。そのため同期リセットにしている)
+always @(posedge clk) begin
   if (rst) begin
     TBR                     <= 0;
     CMPR                    <= 0;
