@@ -10,7 +10,7 @@ distribution together with the translated Verilog.
 
 | Path | Description |
 |------|-------------|
-| `verilog/` | **Verilog 2001 version** (newly added). See [verilog/README_en.md](verilog/README_en.md) for details |
+| `verilog/` | **Verilog 2001 version** (newly added). See [verilog/README.md](verilog/README.md) for details |
 | `hard/` | Original hardware description (CHDL `*.ch` files and C headers `*.h`) |
 | `soft/` | Original tools (CHDL-to-C translator, assembler, instruction-set simulator) |
 | `vh/` | Original CHDL-to-VHDL translator and VHDL models |

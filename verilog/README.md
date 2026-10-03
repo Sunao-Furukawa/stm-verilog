@@ -1,6 +1,6 @@
 # Verilog HDL 2001 version of the STM-1.2 hardware description
 
-[日本語](README_ja.md) | **English**
+**English** | [日本語](README.ja.md)
 
 This directory contains the CHDL sources (`*.ch`) and C headers (`*.h`) from `hard/`, translated
 into Verilog HDL 2001. The original files are left untouched.

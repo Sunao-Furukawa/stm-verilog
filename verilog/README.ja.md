@@ -1,6 +1,6 @@
 # STM-1.2 ハードウェア記述の Verilog HDL 2001 版
 
-**日本語** | [English](README_en.md)
+[English](README.md) | **日本語**
 
 `hard/` にある CHDL (`*.ch`) と C ヘッダ (`*.h`) を Verilog HDL 2001 に変換したものです。
 元ファイルには手を加えていません。

@@ -9,7 +9,7 @@ STM-1.2 (2-way superscalar 32-bit RISC CPU, 1995) のハードウェア記述 (C
 
 | パス | 内容 |
 |------|------|
-| `verilog/` | **Verilog 2001 版** (今回追加)。詳しくは [verilog/README_ja.md](verilog/README_ja.md) |
+| `verilog/` | **Verilog 2001 版** (今回追加)。詳しくは [verilog/README.ja.md](verilog/README.ja.md) |
 | `hard/` | 元のハードウェア記述 (CHDL `*.ch` と C ヘッダ `*.h`) |
 | `soft/` | 元のツール (CHDL→C 変換, アセンブラ, 命令セットシミュレータ) |
 | `vh/` | 元の CHDL→VHDL 変換ツールと VHDL モデル |
