@@ -47,4 +47,5 @@ GitHub 上では文字化けして表示されるので、読むときは `iconv
 * `doc/english/overview`: "It is free hardware; it is distributed under a condition similar to GPL."
 * `doc/japanese/intro`: 「STMはフリー・ハードウェアとします。… その他もろもろはGPLに従う、としましょう。」
 
-このリポジトリ (Verilog 版を含む) も同じ条件に従います。
+元の記述では GPL のバージョンが指定されていないため、このリポジトリ (Verilog 版を含む) は
+**GNU General Public License version 2 (GPL v2)** で配布します。全文は [LICENSE](LICENSE) を参照してください。
