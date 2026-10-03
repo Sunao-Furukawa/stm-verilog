@@ -1,0 +1,32 @@
+# =====================================================================
+#  stm_cntl.qsf - Quartus II project settings for the STM CPU core
+#  Tested with Quartus II 13.0sp1.
+#
+#  Only the CPU core (stm_cntl) is synthesized. The register file
+#  (stm_regfile) and memory (stm_memory) are simulation models and are
+#  not included: the memory has three asynchronous read ports and cannot
+#  be mapped to block RAM as is.
+#
+#  Device: Cyclone IV E EP4CE115F29C7 (as on the DE2-115 board).
+#  stm_cntl brings every register-file / memory signal out to pins
+#  (480 pins), so a large-package device is used. Change FAMILY / DEVICE
+#  to target another device. See ../README.md for details.
+# =====================================================================
+set_global_assignment -name FAMILY "Cyclone IV E"
+set_global_assignment -name DEVICE EP4CE115F29C7
+set_global_assignment -name TOP_LEVEL_ENTITY stm_cntl
+
+# ---- Sources (paths are relative to this file) ----
+set_global_assignment -name VERILOG_INPUT_VERSION VERILOG_2001
+set_global_assignment -name VERILOG_FILE ../../rtl/stm_cntl.v
+set_global_assignment -name VERILOG_FILE ../../rtl/stm_exu.v
+# ch/*.vh and stm_*.vh are `include'd from stm_cntl.v: only add the search path
+set_global_assignment -name SEARCH_PATH ../../rtl
+
+# ---- Timing constraints ----
+set_global_assignment -name SDC_FILE stm_cntl.sdc
+
+# ---- Output directory ----
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+
+set_global_assignment -name RESERVE_ALL_UNUSED_PINS "AS INPUT TRI-STATED"

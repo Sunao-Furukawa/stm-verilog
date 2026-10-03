@@ -9,3 +9,16 @@ sub.rpt
 # 元ツールの生成物
 doc.e
 doc.j
+# Quartus の生成物 (verilog/syn/quartus)
+db/
+incremental_db/
+output_files/
+*.qws
+*.qpf.bak
+*.qsf.bak
+# Vivado の生成物 (verilog/syn/vivado)
+.Xil/
+*.jou
+*.log
+*.dcp
+verilog/syn/vivado/reports/

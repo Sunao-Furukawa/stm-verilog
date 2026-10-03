@@ -40,6 +40,7 @@ verilog/
 │   ├── stm_regfile.v     <- GR[] in 045-g-ram.ch  (16 general-purpose registers)
 │   ├── stm_memory.v      <- Mem[] in 045-g-ram.ch (memory model for simulation)
 │   └── stm_sys.v         top level connecting everything (equivalent to vh/behave/sys.vst)
+├── syn/                  logic-synthesis setups for Quartus / Vivado (see syn/README.md)
 ├── tb/tb_stm.v           testbench
 ├── tools/
 │   ├── asm.py            assembler (Python port of soft/asm.pl; use this one normally)

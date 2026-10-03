@@ -39,6 +39,7 @@ verilog/
 │   ├── stm_regfile.v     <- 045-g-ram.ch の GR[]  (汎用レジスタ 16 本)
 │   ├── stm_memory.v      <- 045-g-ram.ch の Mem[] (シミュレーション用メモリ)
 │   └── stm_sys.v         全体を接続するトップ (VHDL 版 vh/behave/sys.vst 相当)
+├── syn/                  論理合成用の設定 (Quartus / Vivado, syn/README.ja.md 参照)
 ├── tb/tb_stm.v           テストベンチ
 ├── tools/
 │   ├── asm.py            アセンブラ (soft/asm.pl の Python 移植版。通常はこちらを使う)
