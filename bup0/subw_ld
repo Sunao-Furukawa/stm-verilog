@@ -1,0 +1,63 @@
+# simple test of byte/halfword LD
+#
+# Header start
+#
+USING   14,300
+USING_I 14,300
+EQU 300
+main:
+X   0,0,0
+O   14,0,%300
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+# Header end
+#
+EQU 200
+D1:
+01234567
+00000001
+00000023
+00000045
+00000067
+00000123
+00004567
+#
+EQU 400
+L1:
+# Byte load : adrs = 00
+O   10,0,%200
+L.b 1,10(0)
+C   1,10(4)
+BNE DEAD
+# Byte load : adrs = 01
+L.b 1,10(1)
+C   1,10(8)
+BNE DEAD
+# Byte load : adrs = 10
+L.b 1,10(2)
+C   1,10(C)
+BNE DEAD
+# Byte load : adrs = 11 L.b 1,10(3)
+L.b 1,10(3)
+C   1,10(10)
+BNE DEAD
+# Byte halfword : adrs = 00
+L.h 1,10(0)
+C   1,10(14)
+BNE DEAD
+# Byte halfword : adrs = 10
+L.h 1,10(2)
+C   1,10(18)
+BNE DEAD
+# Now succedded ; in case BNE not works...
+L.h 1,10(0)
+C   1,10(18)
+BNE SUCCESS
+B   DEAD

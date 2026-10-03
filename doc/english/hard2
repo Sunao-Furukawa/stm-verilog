@@ -1,0 +1,92 @@
+3-2 S-Unit Interface
+
+In general, the inside of a CPU is divided into a insn control unit
+and a memory (or cache) control unit.  In STM, we call them I-unit (IU)
+and S-unit (SU), respectively.  (Now you know what my background is:-)
+
+The interface between IU and SU needs some sort of handshaking.  Here 
+we will see typical behaviors of load and store insns.
+
+A) Load (or Mem-op) insn
+
+In a load or mem-op insn, IU sends the memory (or cache) access request
+signal to SU in A stage.  SU supplies a ready signal, which tells whether a 
+request can be accepted or not in the current cycle.  When RDY is on, the
+req is accepted.  When off, IU will stall in A stage.  This is called
+SU-Busy (SBS) interlock.
+
+If the memory data is available, SU returns the data and the cache-line-hit
+(CLH) signal in B stage.  IU will proceed to E stage, and, with CLH returned,
+IU will use the data for the execution (in mem-op insn) in E stage and
+proceed to W stage. 
+
+(Since the current design does not implement cache, CLH is just a random
+signal or, optionally, always set to one in logic siml.  If it had cache, 
+the cache tag would be read and checked for a match in B stage, and CLH
+would give the result of the check.)
+
+If cache miss occurs, i.e. CLH is off, IU still proceeds to E stage.  IU
+latches CLH in B stage, and will stall in E stage if it detects the absence
+of CLH in the previous B cycle.  This is called cache-line-miss (CLM)
+interlock.  When, after some cycles, CLH becomes on, IU is allowed to
+proceed.
+
+When such a cache miss occurs, it is possible that IU sends a second 
+request while SU is still dealing with a previous request.  To handle such
+cases, SU has a WAIT request buffer, where SU temporarily stores the
+second request.  While WAIT buffer has a valid entity, SU turns off the RDY
+signal described above, inhibiting IU to send a third request.  As SU
+sends the next CLH, the waiting req becomes ready for next memory-read
+operation.  See the diagram below.
+
+[diagram here]
+
+B) Store insn
+
+We will consider a store insn next.  It issues a req and waits for a CLH
+in A stage, just like a load does.  Current design assumes a copy-back
+cache of fetch-on-write type; with a cache miss on store, the corresponding
+cache line will be fetched first.  The store data is read from the reg
+file in B stage of IU.  (BTW, the RF port used for store data is the same
+one as that for the reg operand of a mem-op insn, thus reducing the 
+number of RF ports.)
+
+Because of a possible interruption, the store data should not actually be
+written into memory before W stage.  When a latched CLH is detected in
+E stage, store data is put in the store buffer.
+
+The number of store buffer is one of the important parameters in processor
+design.  The current design  has just set it to one.  Maybe this is one point
+that should be improved later.
+
+Once the data is put in the store buffer, it is already *logically* stored
+into memory; it will be reflected to memory even if an interruption occurs.
+For an actual writing, IU sends another request to SU.  At this time, the
+cache line is guaranteed to hit because it was fetched in the former
+request.  Therefore no need to wait for CLH.  (When we design a cache for
+multi-processor configuration in the future, we must make sure that a
+request for the corresponding line from another CPU is made to wait until
+this second request is accepted and executed.)
+
+So we have 3 kinds of requests; load, store 1st, and store 2nd.  SU can
+accept at most one per clock cycle.
+
+Assume that there are 4 consecutive insns, X, Y, Z and U, that X and Y
+are stores, and that Z and U are either load, store, or mem-op (i.e.
+issue requests).  They go through pipeline without interlock nor
+simultaneous issue, and they are now in W, E, B, A stages, respectively.
+Now X sends a store-2 request and U sends another request.  If SU decided
+to accept U's req, X couldn't leave the store buffer, Y couldn't proceed
+to W stage, Z couldn't proceed to E stage, and U couldn't proceed
+either.  This is pointless, so in such cases SU accepts X's req.
+
+If Y and Z are non-memory-use insns and all others being the same, Y and
+Z, and therefore U, can proceed, and X's req may be accepted in the next
+cycle hoping that no req is sent out of the next A stage.  For a more 
+effective usage of SU pipeline, U's req is accepted in such cases.
+
+If a store X is in W stage, another store Y is in E stage, B stage is a
+bubble (no insn), and the insn in A stage is sending a request, X can't
+leave the store buffer and hence Y cannot proceed.  So Y stalls in E
+stage.  This is called a store buffer wait (STB) interlock.
+

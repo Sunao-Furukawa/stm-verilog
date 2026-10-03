@@ -1,0 +1,78 @@
+（注１）
+RISC登場期はIFパイプと実行パイプは同期して動くプロセサが多かったですが、
+スーパスカラになると命令フェッチ時には発行命令数がわからないので非同期
+にならざるを得なくなり、命令をいったんIWQのようなバッファにプールする
+ようになりました。21064のInstruction Stream Buffer,SuperSparcの
+Sequential/Target Queueなどがそうです。もっともこの技術は新しいもの
+ではなく、可変長命令を持つCISCでは古くからあります（[6]）。
+
+（注２）
+SuperSparcでも21064でもやはり書き込みはWで一括して行ないます。R10000[7]
+ではWまで待たずに書き込み、レジスタリネーミングを行なっているようです。
+
+（注３）
+この種のバイパスは今やどんなプロセサでも行なっている「常識」と言って
+いいと思います。
+
+（注４）
+第２世代RISCでは大概オンチップキャッシュを持っているので、IU-SUインタ
+フェースはチップの中に隠されてしまって部外者には正確にはわからず、文献
+などの記述から推測するしかありません。しかし第１世代RISCではオンチップ
+キャッシュもMMUもなかったので、チップのデータブックを見ればSUインタ
+フェースはほぼ完全にわかります。たとえば第１世代のSPARCであるCY7C601[8]
+では、キャッシュにアクセスするときはINULL（SUリクエストの否定に相当）を
+inactiveにする、キャッシュがラインミスをするとMHOLD（RDYの否定に相当）
+をactiveにしてIUパイプラインをインタロックさせる、といったことがわかり
+ます。この辺のインタフェースは（信号名こそ違え）だいたいどのチップでも
+ほぼ同じようなものだと思います。
+
+（注５）
+このようにCLHをいったんラッチする方式はR4000が採用していることがうかが
+えます。R4000ではキャッシュリードサイクルの後に「タグチェック」サイクル
+を設け、キャッシュミスの時はキャッシュリードサイクルでなくこのタグチェッ
+クサイクルでパイプラインを進行させるか否かを決めます。（ただしR4000では
+インタロックはせず、いったんアボートして最初からやり直すようですが。）
+なぜこんな複雑なことをするのか、なぜ素直にBでインタロックしないのかと
+いうと、ディレイ上の理由からです。CLHの実体は、キャッシュのタグ部の
+RAMを読んでラインの物理アドレスを求め、それをTLBから読んだ変換後の
+アドレスと比較した一致信号ですから、ディレイ的にはかなり遅い信号になり
+ます。これをラッチせずに生でインタロックの検出に用い、CPUの全域に配って
+パイプラインの各ステージを止めるようなことをすれば、間違いなくクリティ
+カルパスになってしまうでしょう。
+
+（注６）
+21064も同様の制御をしています。21064ではキャッシュミスの後に命令が２つ
+発行される可能性があるので、必要ならそれらを'silo'に入れておき、順に
+処理していきます。
+
+（注７）
+命令用のバッファをsequential側とtarget側に分けて持つというのも、RISCでは
+第２世代からですが、たとえばIBM370/168は７０年代に既に採用していました。
+IBM3033では命令用バッファが３本あり、未決ブランチを２本発行できたよう
+です[6]。
+
+
+
+文献
+
+[1] MIPS R4000 Microprocessor User's Manual, Heinrich, J., Prentice-Hall,
+    1993.
+
+[2] The SuperSparc Microprocessor, Blanck et al, in  COMPCON 1992.
+
+[3] DECchip 21064-AA Microprocessor Hardware Reference Manual, 1992,
+    Digital Equipment Corporation.
+
+[4] Cache Memories, Smith, A.J., in Computing Surveys, Sep.1982.
+
+[5] Computer Architecture : A Quantitative Approach, Hennessy et al,
+    1990, Morgan Kaufmann Publishers Inc.
+
+[6] Branch Prediction Strategies and Branch Target Buffer Design,
+    Lee et al, in IEEE Computer, Jan.1984.
+
+[7] MIPS R10000の技術、UNIXマガジン９４年１２月号.
+
+[8] SPARC RISC User's Guide, Cypress Semiconductor, 1990.
+
+[9] Insider's Guide to PowerPC Computing, QUE Corp., 1994.

@@ -1,0 +1,60 @@
+# d-i01 : decoding I0 and I1
+
+I0-LS-STORE = ls_store(I0) 
+I0-LS-LENG = ls_leng(I0) 
+I0-LS-RD-RS = ls_rd_rs(I0) 
+I0-LS-RB = ls_rb(I0) 
+I0-LS-DISP16 = ls_disp16(I0) 
+
+I0-EX-OP2MODE = ex_op2mode(I0) 
+I0-EX-SETCC = ex_setcc(I0) 
+I0-EX-EXU-OPC = ex_exu_opc(I0) 
+I0-EX-RB1 = ex_rb1(I0) 
+I0-EX-RS2 = ex_rs2(I0) 
+I0-EX-RD = ex_rd(I0) 
+I0-EX-DISP12 = ex_disp12(I0) 
+
+I0-JB-COND = jb_cond(I0) 
+I0-JB-REG = jb_reg(I0) 
+I0-JB-LINK = jb_link(I0) 
+I0-JB-CMP = jb_cmp(I0) 
+I0-JB-RD-MASK = jb_rd_mask(I0) 
+I0-JB-RB1 = jb_rb1(I0) 
+I0-JB-R2-IMM4 = jb_r2_imm4(I0) 
+I0-JB-IMM12 = jb_imm12(I0) 
+
+I1-LS-STORE = ls_store(I1) 
+I1-LS-LENG = ls_leng(I1) 
+I1-LS-RD-RS = ls_rd_rs(I1) 
+I1-LS-RB = ls_rb(I1) 
+I1-LS-DISP16 = ls_disp16(I1) 
+
+I1-EX-OP2MODE = ex_op2mode(I1) 
+I1-EX-SETCC = ex_setcc(I1) 
+I1-EX-EXU-OPC = ex_exu_opc(I1) 
+I1-EX-RB1 = ex_rb1(I1) 
+I1-EX-RS2 = ex_rs2(I1) 
+I1-EX-RD = ex_rd(I1) 
+I1-EX-DISP12 = ex_disp12(I1) 
+
+I1-JB-COND = jb_cond(I1) 
+I1-JB-REG = jb_reg(I1) 
+I1-JB-LINK = jb_link(I1) 
+I1-JB-CMP = jb_cmp(I1) 
+I1-JB-RD-MASK = jb_rd_mask(I1) 
+I1-JB-RB1 = jb_rb1(I1) 
+I1-JB-R2-IMM4 = jb_r2_imm4(I1) 
+I1-JB-IMM12 = jb_imm12(I1) 
+
+I0-IS-LEGAL     = is-legal-opc(I0,PSW-USER)
+I1-IS-LEGAL     = is-legal-opc(I1,PSW-USER)
+
+I0-LS-OPC-H	= ls_opc_h(I0)
+I0-EX-OPC-H	= ex_opc_h(I0)
+I0-INSN-OPC	= insn_opc(I0)
+I0-PRIV-OPC	= priv_opc(I0)
+
+I1-LS-OPC-H	= ls_opc_h(I1)
+I1-EX-OPC-H	= ex_opc_h(I1)
+I1-INSN-OPC	= insn_opc(I1)
+

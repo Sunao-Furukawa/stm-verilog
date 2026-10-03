@@ -1,0 +1,58 @@
+#!/bin/csh
+unset noclobber
+if ( -f sub.rpt ) rm -f sub.rpt
+if ( x$1 == x   ) then
+  echo -n "enter level (0/1/a):"
+  set temp = $<
+else
+  set temp = $1
+endif
+
+if ( x$temp == 'xa' ) then 
+   set lvl = ( 0 1 )
+else
+   set lvl = ( $temp )
+endif
+
+echo "lvl = $lvl"
+date > sub.rpt
+
+foreach lv ( $lvl )
+echo "start lvl = $lv" >> sub.rpt
+ foreach x ( ../bup$lv/* )
+  set yy = $x:t
+  set y = $yy:r
+  if ( $y != head ) then
+#    if ( -f tt.s ) rm -f tt.s
+#    cp  ../bup/$y tt.s
+#    make siml.res
+    ../soft/asm.pl $x 250 > mem.dat
+
+    stmsiml
+    set s = `egrep " .03f0  " siml.res`
+    if ( "x$s" == "x" ) then
+      echo "$y     err" >>  sub.rpt
+    else
+      echo "$y     ok"  >>  sub.rpt
+    endif
+
+    stmsiml -r
+    set s = `egrep " .03f0  " siml.res`
+    if ( "x$s" == "x" ) then
+      echo "$y (r) err" >>  sub.rpt
+    else
+      echo "$y (r) ok"  >>  sub.rpt
+    endif
+
+  endif
+ end
+end
+date >> sub.rpt
+
+grep err sub.rpt > /tmp/sub.errs
+set stat = `wc -l /tmp/sub.errs | sed -e " s+/tmp/sub.errs++" `
+if ( $stat == 0 ) then 
+    echo 'No errors.  Congratulations! '
+ else
+    echo "$stat errors detected.  Check out! "
+ endif

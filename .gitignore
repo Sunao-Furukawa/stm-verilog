@@ -1,0 +1,11 @@
+# Verilog シミュレーションの生成物
+verilog/work/
+*.vvp
+*.vcd
+mem.dat
+mem.hex
+siml.res
+sub.rpt
+# 元ツールの生成物
+doc.e
+doc.j

@@ -1,0 +1,80 @@
+entity BARREL_SHIFT is port(
+        ARI,DIR : in bit;
+        AMT : in bit_vector(0 to  4);
+        X   : in bit_vector(0 to 31);
+        Z   : out bit_vector(0 to 31)
+ ); end BARREL_SHIFT;
+
+architecture BEHAV of BARREL_SHIFT is
+  signal sign : bit_vector(0 to 31);
+  signal zero : bit_vector(0 to 31);
+ begin
+  sign <= X"ffff_ffff" when ARI and X(0) else X"0000_0000";
+  zero <= X"0000_0000";
+  with DIR & AMT select Z <=
+	X 				when B"0_00000" | B"1_00000",
+	X(1 to 31) & zero(0) 		when B"0_00001",
+	X(2 to 31) & zero(0 to 1) 	when B"0_00010",
+	X(3 to 31) & zero(0 to 2) 	when B"0_00011",
+	X(4 to 31) & zero(0 to 3) 	when B"0_00100",
+	X(5 to 31) & zero(0 to 4) 	when B"0_00101",
+	X(6 to 31) & zero(0 to 5) 	when B"0_00110",
+	X(7 to 31) & zero(0 to 6) 	when B"0_00111",
+	X(8 to 31) & zero(0 to 7) 	when B"0_01000",
+	X(9 to 31) & zero(0 to 8) 	when B"0_01001",
+	X(10 to 31) & zero(0 to 9) 	when B"0_01010",
+	X(11 to 31) & zero(0 to 10) 	when B"0_01011",
+	X(12 to 31) & zero(0 to 11) 	when B"0_01100",
+	X(13 to 31) & zero(0 to 12) 	when B"0_01101",
+	X(14 to 31) & zero(0 to 13) 	when B"0_01110",
+	X(15 to 31) & zero(0 to 14) 	when B"0_01111",
+	X(16 to 31) & zero(0 to 15) 	when B"0_10000",
+	X(17 to 31) & zero(0 to 16) 	when B"0_10001",
+	X(18 to 31) & zero(0 to 17) 	when B"0_10010",
+	X(19 to 31) & zero(0 to 18) 	when B"0_10011",
+	X(20 to 31) & zero(0 to 19) 	when B"0_10100",
+	X(21 to 31) & zero(0 to 20) 	when B"0_10101",
+	X(22 to 31) & zero(0 to 21) 	when B"0_10110",
+	X(23 to 31) & zero(0 to 22) 	when B"0_10111",
+	X(24 to 31) & zero(0 to 23) 	when B"0_11000",
+	X(25 to 31) & zero(0 to 24) 	when B"0_11001",
+	X(26 to 31) & zero(0 to 25) 	when B"0_11010",
+	X(27 to 31) & zero(0 to 26) 	when B"0_11011",
+	X(28 to 31) & zero(0 to 27) 	when B"0_11100",
+	X(29 to 31) & zero(0 to 28) 	when B"0_11101",
+	X(30 to 31) & zero(0 to 29) 	when B"0_11110",
+	X(      31) & zero(0 to 30) 	when B"0_11111",
+
+	sign(1 to 31) & X(0) 		when B"1_11111",
+	sign(2 to 31) & X(0 to 1) 	when B"1_11110",
+	sign(3 to 31) & X(0 to 2) 	when B"1_11101",
+	sign(4 to 31) & X(0 to 3) 	when B"1_11100",
+	sign(5 to 31) & X(0 to 4) 	when B"1_11011",
+	sign(6 to 31) & X(0 to 5) 	when B"1_11010",
+	sign(7 to 31) & X(0 to 6) 	when B"1_11001",
+	sign(8 to 31) & X(0 to 7) 	when B"1_11000",
+	sign(9 to 31) & X(0 to 8) 	when B"1_10111",
+	sign(10 to 31) & X(0 to 9) 	when B"1_10110",
+	sign(11 to 31) & X(0 to 10) 	when B"1_10101",
+	sign(12 to 31) & X(0 to 11) 	when B"1_10100",
+	sign(13 to 31) & X(0 to 12) 	when B"1_10011",
+	sign(14 to 31) & X(0 to 13) 	when B"1_10010",
+	sign(15 to 31) & X(0 to 14) 	when B"1_10001",
+	sign(16 to 31) & X(0 to 15) 	when B"1_10000",
+	sign(17 to 31) & X(0 to 16) 	when B"1_01111",
+	sign(18 to 31) & X(0 to 17) 	when B"1_01110",
+	sign(19 to 31) & X(0 to 18) 	when B"1_01101",
+	sign(20 to 31) & X(0 to 19) 	when B"1_01100",
+	sign(21 to 31) & X(0 to 20) 	when B"1_01011",
+	sign(22 to 31) & X(0 to 21) 	when B"1_01010",
+	sign(23 to 31) & X(0 to 22) 	when B"1_01001",
+	sign(24 to 31) & X(0 to 23) 	when B"1_01000",
+	sign(25 to 31) & X(0 to 24) 	when B"1_00111",
+	sign(26 to 31) & X(0 to 25) 	when B"1_00110",
+	sign(27 to 31) & X(0 to 26) 	when B"1_00101",
+	sign(28 to 31) & X(0 to 27) 	when B"1_00100",
+	sign(29 to 31) & X(0 to 28) 	when B"1_00011",
+	sign(30 to 31) & X(0 to 29) 	when B"1_00010",
+	sign(      31) & X(0 to 30) 	when B"1_00001";
+ end;
+

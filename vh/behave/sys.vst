@@ -1,0 +1,269 @@
+entity SYS is port ( 
+  CK,INIT,RANDOM_FOR_IFCLH,RANDOM_FOR_OPCLH,RANDOM_FOR_IFRDY : in bit 
+ ); end SYS;
+
+architecture STRUCT of SYS is
+component FOUR2FIVE port (
+  X   : in  bit_vector(0 to 3);
+  Z   : out bit_vector(0 to 4)
+ ); end component;
+
+component EXU port (
+  X,Y : in  bit_vector(0 to 31);
+  OPC : in  bit_vector(0 to  4);
+  Z   : out bit_vector(0 to 31);
+  CC  : out bit_vector(0 to  1);
+  INTR: out bit_vector(0 to  2)
+ ); end component;
+
+component REGFILE  port (
+  ck    : in bit;
+  we1,we2               : in bit;
+  wad1,wad2,rad1,rad2,radb,rads : in bit_vector(0 to 3);
+  wdt1,wdt2             : in bit_vector(0 to 31);
+  rdt1,rdt2,rdtb,rdts   : out bit_vector(0 to 31) 
+ ); end component;
+
+component MEMORY port (
+ IFADIN,OPADIN,STDT  : in  bit_vector(0 to 31) ;
+ WE,INIT,CK      : in  bit ;
+ IFDTH,IFDTL,OPDT : out bit_vector(0 to 31)  
+); end component;
+
+component ADD_32_4 port (
+ X    : in  bit_vector(0 to 31) ; -- PC_OR_IFINCR1
+ Y   : in  bit_vector(0 to 4) ;  -- AMT_OR_IFINCR2
+ Z  : out bit_vector(0 to 31)   -- NEXT_PC_OR_IFAD
+); end component;
+
+component ADD_32_16 port (
+ X       : in  bit_vector(0 to 31) ; 	-- OPB
+ Y       : in  bit_vector(0 to 15) ; 	-- DISP
+ Z       : out bit_vector(0 to 31) 	-- EAG
+); end component;
+
+component ADD_32_5_20 port (
+ X   : in  bit_vector(0 to 31) ;	-- PART1
+ Y   : in  bit_vector(0 to 5) ;		-- PART2
+ Z   : in  bit_vector(0 to 19) ;	-- IMM20
+ U     : out bit_vector(0 to 31) 	-- TGT
+); end component;
+
+component STMCNTL port (
+  CK : in bit;
+
+  AA_EAG_OUTPUT : in bit_vector(0 to 31);
+  OUT_AA_OP1 : out bit_vector(0 to 31);
+  OUT_AA_OP2 : out bit_vector(0 to 31);
+  OUT_AA_OPB : out bit_vector(0 to 31);
+  OUT_DD_JB_INSN_AD_PART1 : out bit_vector(0 to 31);
+  OUT_DD_JB_INSN_AD_PART2 : out bit_vector(0 to 5);
+  OUT_DD_RAD1 : out bit_vector(0 to 3);
+  OUT_DD_RAD2 : out bit_vector(0 to 3);
+  OUT_DD_RADB : out bit_vector(0 to 3);
+  DD_TGT : in bit_vector(0 to 31);
+  OUT_EE_MEMOP : out bit_vector(0 to 31);
+  OUT_EE_OPS : out bit_vector(0 to 31);
+  GR_DT_1 : in bit_vector(0 to 31);
+  GR_DT_2 : in bit_vector(0 to 31);
+  GR_DT_B : in bit_vector(0 to 31);
+  GR_DT_S : in bit_vector(0 to 31);
+  OUT_IF_INCR_1 : out bit_vector(0 to 31);
+  OUT_IF_INCR_2 : out bit_vector(0 to 4);
+  IF_INCR_OUT : in bit_vector(0 to 31);
+  OUT_IJB_IMM20 : out bit_vector(0 to 19);
+  INCREMENTED_PC : in bit_vector(0 to 31);
+  MEM_DT_IF_H : in bit_vector(0 to 31);
+  MEM_DT_IF_L : in bit_vector(0 to 31);
+  MEM_DT_OP : in bit_vector(0 to 31);
+  OUT_PC_INCR_AMOUNT : out bit_vector(0 to 4);
+  RANDOM_FOR_IFCLH : in bit;
+  RANDOM_FOR_IFRDY : in bit;
+  RANDOM_FOR_OPCLH : in bit;
+  AA_EXU_CC : in bit_vector(0 to 1);
+  AA_EXU_INT : in bit_vector(0 to 2);
+  AA_EXU_OUTPUT : in bit_vector(0 to 31);
+  EE_ALU_CC : in bit_vector(0 to 1);
+  EE_ALU_INT : in bit_vector(0 to 2);
+  EE_ALU_OUTPUT : in bit_vector(0 to 31);
+  OUT_A_DISP : out bit_vector(0 to 15);
+  OUT_A_EX_OPCODE : out bit_vector(0 to 3);
+  OUT_B_LS_RADS : out bit_vector(0 to 3);
+  OUT_E_LS_OPCODE : out bit_vector(0 to 4);
+  OUT_IB_AD : out bit_vector(0 to 31);
+  OUT_LBS_AD : out bit_vector(0 to 31);
+  OUT_LBS_DT : out bit_vector(0 to 31);
+  OUT_LBS_WE : out bit;
+  OUT_PC : out bit_vector(0 to 31);
+  OUT_W_WAD1 : out bit_vector(0 to 3);
+  OUT_W_WAD2 : out bit_vector(0 to 3);
+  OUT_W_WDT1 : out bit_vector(0 to 31);
+  OUT_W_WDT2 : out bit_vector(0 to 31);
+  OUT_W_WE1 : out bit;
+  OUT_W_WE2 : out bit
+); end component;
+
+signal  AA_EAG_OUTPUT :  bit_vector(0 to 31);
+signal  AA_OP1 :  bit_vector(0 to 31);
+signal  AA_OP2 :  bit_vector(0 to 31);
+signal  AA_OPB :  bit_vector(0 to 31);
+signal  DD_JB_INSN_AD_PART1 :  bit_vector(0 to 31);
+signal  DD_JB_INSN_AD_PART2 :  bit_vector(0 to 5);
+signal  DD_RAD1 :  bit_vector(0 to 3);
+signal  DD_RAD2 :  bit_vector(0 to 3);
+signal  DD_RADB :  bit_vector(0 to 3);
+signal  DD_TGT :  bit_vector(0 to 31);
+signal  EE_MEMOP :  bit_vector(0 to 31);
+signal  EE_OPS :  bit_vector(0 to 31);
+signal  GR_DT_1 :  bit_vector(0 to 31);
+signal  GR_DT_2 :  bit_vector(0 to 31);
+signal  GR_DT_B :  bit_vector(0 to 31);
+signal  GR_DT_S :  bit_vector(0 to 31);
+signal  IF_INCR_1 :  bit_vector(0 to 31);
+signal  IF_INCR_2 :  bit_vector(0 to 4);
+signal  IF_INCR_OUT :  bit_vector(0 to 31);
+signal  IJB_IMM20 :  bit_vector(0 to 19);
+signal  INCREMENTED_PC :  bit_vector(0 to 31);
+signal  MEM_DT_IF_H :  bit_vector(0 to 31);
+signal  MEM_DT_IF_L :  bit_vector(0 to 31);
+signal  MEM_DT_OP :  bit_vector(0 to 31);
+signal  PC_INCR_AMOUNT :  bit_vector(0 to 4);
+signal  AA_EXU_CC :  bit_vector(0 to 1);
+signal  AA_EXU_INT :  bit_vector(0 to 2);
+signal  AA_EXU_OUTPUT :  bit_vector(0 to 31);
+signal  EE_ALU_CC :  bit_vector(0 to 1);
+signal  EE_ALU_INT :  bit_vector(0 to 2);
+signal  EE_ALU_OUTPUT :  bit_vector(0 to 31);
+signal  A_DISP :  bit_vector(0 to 15);
+signal  A_EX_OPCODE :  bit_vector(0 to 3);
+signal  B_LS_RADS :  bit_vector(0 to 3);
+signal  E_LS_OPCODE :  bit_vector(0 to 4);
+signal  IB_AD :  bit_vector(0 to 31);
+signal  LBS_AD :  bit_vector(0 to 31);
+signal  LBS_DT :  bit_vector(0 to 31);
+signal  LBS_WE :  bit;
+signal  PC :  bit_vector(0 to 31);
+signal  W_WAD1 :  bit_vector(0 to 3);
+signal  W_WAD2 :  bit_vector(0 to 3);
+signal  W_WDT1 :  bit_vector(0 to 31);
+signal  W_WDT2 :  bit_vector(0 to 31);
+signal  W_WE1 :  bit;
+signal  W_WE2 :  bit;
+
+signal  A_EX_OPCODE_EXT :  bit_vector(0 to 4);
+begin
+
+A_EXU: EXU port map (
+  X => AA_OP1 , Y => AA_OP2 , 
+  OPC => A_EX_OPCODE_EXT ,
+  Z => AA_EXU_OUTPUT ,
+  CC => AA_EXU_CC ,
+  INTR => AA_EXU_INT 
+ ); 
+
+E_ALU: EXU port map (
+  X => EE_OPS , Y => EE_MEMOP , 
+  OPC => E_LS_OPCODE ,
+  Z => EE_ALU_OUTPUT ,
+  CC => EE_ALU_CC ,
+  INTR => EE_ALU_INT 
+ ); 
+
+REG: REGFILE  port map (
+  ck => CK,
+  we1 => W_WE1 ,we2 => W_WE2,
+  wad1 => W_WAD1 , wad2 => W_WAD2 , rad1 => DD_RAD1 , 
+  rad2 => DD_RAD2 , radb => DD_RADB , rads => B_LS_RADS ,
+  wdt1 => W_WDT1 ,wdt2 => W_WDT2,
+  rdt1 => GR_DT_1 , rdt2 => GR_DT_2 , rdtb => GR_DT_B , rdts  => GR_DT_S
+ );
+
+MEM: MEMORY port map (
+ IFADIN => IB_AD , OPADIN => LBS_AD ,STDT   => LBS_DT ,
+ WE=> LBS_WE,INIT => INIT ,CK   => CK ,
+ IFDTH => MEM_DT_IF_H ,IFDTL=> MEM_DT_IF_L,OPDT => MEM_DT_OP
+);
+
+ADD4A: ADD_32_4 port map (
+ X    => PC ,
+ Y   => PC_INCR_AMOUNT ,
+ Z  => INCREMENTED_PC 
+);
+
+ADD4B: ADD_32_4 port map (
+ X    => IF_INCR_1 ,
+ Y   => IF_INCR_2      ,
+ Z  => IF_INCR_OUT    
+);
+
+ADD16: ADD_32_16 port map (
+ X     => AA_OPB ,
+ Y    => A_DISP ,
+ Z     => AA_EAG_OUTPUT
+);
+
+ADD5_20: ADD_32_5_20 port map (
+ X   => DD_JB_INSN_AD_PART1 ,
+ Y   => DD_JB_INSN_AD_PART2 ,
+ Z   => IJB_IMM20 ,
+ U     => DD_TGT
+);
+
+OPC_EXT: FOUR2FIVE   port map (
+ X   => A_EX_OPCODE         ,
+ Z   => A_EX_OPCODE_EXT     
+);
+
+stm: STMCNTL port map (
+  CK => CK ,
+
+   AA_EAG_OUTPUT  =>   AA_EAG_OUTPUT  , 
+   OUT_AA_OP1  =>   AA_OP1  , 
+   OUT_AA_OP2  =>   AA_OP2  , 
+   OUT_AA_OPB  =>   AA_OPB  , 
+   OUT_DD_JB_INSN_AD_PART1  =>   DD_JB_INSN_AD_PART1  , 
+   OUT_DD_JB_INSN_AD_PART2  =>   DD_JB_INSN_AD_PART2  , 
+   OUT_DD_RAD1  =>   DD_RAD1  , 
+   OUT_DD_RAD2  =>   DD_RAD2  , 
+   OUT_DD_RADB  =>   DD_RADB  , 
+   DD_TGT  =>   DD_TGT  , 
+   OUT_EE_MEMOP  =>   EE_MEMOP  , 
+   OUT_EE_OPS  =>   EE_OPS  , 
+   GR_DT_1  =>   GR_DT_1  , 
+   GR_DT_2  =>   GR_DT_2  , 
+   GR_DT_B  =>   GR_DT_B  , 
+   GR_DT_S  =>   GR_DT_S  , 
+   OUT_IF_INCR_1  =>   IF_INCR_1  , 
+   OUT_IF_INCR_2  =>   IF_INCR_2  , 
+   IF_INCR_OUT  =>   IF_INCR_OUT  , 
+   OUT_IJB_IMM20  =>   IJB_IMM20  , 
+   INCREMENTED_PC  =>   INCREMENTED_PC  , 
+   MEM_DT_IF_H  =>   MEM_DT_IF_H  , 
+   MEM_DT_IF_L  =>   MEM_DT_IF_L  , 
+   MEM_DT_OP  =>   MEM_DT_OP  , 
+   OUT_PC_INCR_AMOUNT  =>   PC_INCR_AMOUNT  , 
+   RANDOM_FOR_IFCLH  =>   RANDOM_FOR_IFCLH  , 
+   RANDOM_FOR_IFRDY  =>   RANDOM_FOR_IFRDY  , 
+   RANDOM_FOR_OPCLH  =>   RANDOM_FOR_OPCLH  , 
+   AA_EXU_CC  =>   AA_EXU_CC  , 
+   AA_EXU_INT  =>   AA_EXU_INT  , 
+   AA_EXU_OUTPUT  =>   AA_EXU_OUTPUT  , 
+   EE_ALU_CC  =>   EE_ALU_CC  , 
+   EE_ALU_INT  =>   EE_ALU_INT  , 
+   EE_ALU_OUTPUT  =>   EE_ALU_OUTPUT  , 
+   OUT_A_DISP  =>   A_DISP  , 
+   OUT_A_EX_OPCODE  =>   A_EX_OPCODE  ,
+   OUT_B_LS_RADS  =>   B_LS_RADS  , 
+   OUT_E_LS_OPCODE  =>   E_LS_OPCODE  , 
+   OUT_IB_AD  =>   IB_AD  , 
+   OUT_LBS_AD  =>   LBS_AD  , 
+   OUT_LBS_DT  =>   LBS_DT  , 
+   OUT_LBS_WE  =>   LBS_WE  , 
+   OUT_PC  =>   PC  , 
+   OUT_W_WAD1  =>   W_WAD1  , 
+   OUT_W_WAD2  =>   W_WAD2  , 
+   OUT_W_WDT1  =>   W_WDT1  , 
+   OUT_W_WDT2  =>   W_WDT2  , 
+   OUT_W_WE1  =>   W_WE1  , 
+   OUT_W_WE2  =>   W_WE2   
+ ); end;

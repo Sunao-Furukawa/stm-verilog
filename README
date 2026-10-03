@@ -1,0 +1,9 @@
+Welcome to STM!  STM is a 2-way superscalar, 32-bit RISC CPU.
+
+First, please type 'make' in the top directory of this package.
+You will see the file 'doc.e', which contains the whole document for this
+package.  It is a plain ascii text file.  If you prefer to read Japanese 
+document, type 'make doc.j' instead.  You will get 'doc.j' file which is
+a Japanese plain text file in EUC Kanji code.  For the rest of the
+information, please refer to those files.
+

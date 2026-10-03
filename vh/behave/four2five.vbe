@@ -1,0 +1,10 @@
+entity FOUR2FIVE is port (
+        x : in bit_vector(0 to 3);
+        z : out bit_vector(0 to 4)
+ ); end FOUR2FIVE;
+
+architecture BEHAV of FOUR2FIVE is
+ begin
+  z  <= '0' & x  ;
+ end;
+

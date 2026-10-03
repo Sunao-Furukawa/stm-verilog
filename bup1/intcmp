@@ -1,0 +1,49 @@
+# Compare interruption simple test
+#
+USING   14,300
+USING_I 14,300
+#		main program starts here
+EQU 300
+main:
+X   0,0,0
+O   14,0,%300
+O   13,0,%500
+WSR 2,13
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+EQU 400
+L1:
+#
+#	test program starts here
+#
+C 0,%1 		# set cc to 1
+O 1,0,%0800
+WSR 3,1		# set CMPR to 800
+L 2,0(700) 	# will not interrupt here
+L 2,0(800) 	# will interrupt here
+B DEAD
+#
+EQU 500
+#
+# Interrupt routine starts here
+#
+SETHI 2,%0002	# expected PSW  : INTCODE = 2 (CMP)
+SETHI 3,%1000	# expected XPSW
+RSR   4,0	# PSW
+RSR   8,4	# XPSW
+RSR   9,5	# XPC
+C     4,2
+BNE   DEAD
+C     8,3
+BNE   DEAD
+C     9,%410	# expected XPC  : 410 (Interruption address)
+BNE   DEAD
+B     SUCCESS
+

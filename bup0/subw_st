@@ -1,0 +1,128 @@
+# simple test of byte/halfword ST
+#
+# Header start
+#
+USING   14,300
+USING_I 14,300
+EQU 300
+main:
+X   0,0,0
+O   14,0,%300
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+# Header end
+#
+EQU 200
+D1:
+89abcdef
+89abcdef
+89abcdef
+89abcdef
+89abcdef
+89abcdef
+01234567
+EQU 150
+D2:
+67abcdef
+8967cdef
+89ab67ef
+89abcd67
+4567cdef
+89ab4567
+#
+EQU 400
+L1:
+O   10,0,%200
+O   11,0,%150
+# GR2 = 01234567
+L   2,10(18)
+# Byte store : adrs = 00
+ST.b 2,10(0)
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+L   1,10(0)
+CU  1,11(0)
+BNE DEAD
+#
+# Byte store : adrs = 01
+ST.b 2,10(5)
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+L   1,10(4)
+CU  1,11(4)
+BNE DEAD
+#
+# Byte store : adrs = 10
+ST.b 2,10(a)
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+L   1,10(8)
+CU  1,11(8)
+BNE DEAD
+#
+# Byte store : adrs = 11
+ST.b 2,10(f)
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+L   1,10(c)
+CU  1,11(c)
+BNE DEAD
+#
+# Halfword store : adrs = 00
+ST.h 2,10(10)
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+L   1,10(10)
+CU  1,11(10)
+BNE DEAD
+#
+# Halfword store : adrs = 10
+ST.h 2,10(16)
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+L   1,10(14)
+CU  1,11(14)
+BNE DEAD
+# Now succedded ; in case BNE not works...
+ST.h 2,10(14)
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+C  4,5
+L   1,10(14)
+CU  1,11(14)
+BNE SUCCESS
+B   DEAD

@@ -1,0 +1,57 @@
+３ー５ ＶＨＤＬソース生成、シミュレーション
+
+VHDLへのコンバート方法は次のとおりです。以下、STMのトップディレクトリが
+環境変数$STMDIRにセットされているとします。
+
+作業は$STMDIR/vh/tempディレクトリで行ないます。まず単にmakeします。
+
+	% cd $STMDIR/vh/temp
+	% make
+
+これでstmcntl.vbeとmemory.vbeが生成されます。もしmake中に
+"Command not found"などと出たら、perlのパス名が違う可能性が高いです。
+エラーメッセージを出したステップのperlスクリプトファイルの先頭行の
+
+#!/usr/local/bin/perl
+
+を適当に変えて下さい。
+
+メモリモデルの基になるテストプログラムは$STMDIR/work/tst.sです。
+
+1.1版ではコンバートプログラムにバグがあり、上でできたstmcntl.vbeは
+正しくありません。恐れ入りますが1066,1067,1069,1070行めの
+
+NIP_A_TMP <=  (B"00" & IF_REQ_AD(29)) when CLEAR_NIP_A else 
+        ((B"0" & not ((SU_IF_CLH_NOCAN .....
+
+NIP_B <= guarded (B"00" & IF_REQ_AD(29)) when CLEAR_NIP_B else 
+        ((B"0" & not ((SU_IF_CLH_NOCAN .....
+
+をそれぞれ
+
+NIP_A_TMP <=  (B"11" & IF_REQ_AD(29)) when CLEAR_NIP_A else
+                 ^^
+        ((B"1" & not ((SU_IF_CLH_NOCAN .....
+            ^
+
+NIP_B <= guarded (B"11" & IF_REQ_AD(29)) when CLEAR_NIP_B else
+                    ^^
+        ((B"1" & not ((SU_IF_CLH_NOCAN .....
+            ^
+に手で修正して下さい。これでVHDLソースのできあがりです。
+
+
+Alliance(asimut)でシミュレーションする方は以下のようにいくつかの環境変数
+を設定した後asimutを実行して下さい。
+
+	% setenv MBK_CATA_LIB 	.:$STMDIR/vh/behave
+	% setenv MBK_WORK_LIB  .
+	% setenv MBK_IN_LO     vst
+	% setenv MBK_OUT_LO    vst
+	% setenv MBK_MAXERR    10 
+	% setenv VH_BEHSFX     vbe
+	% setenv VH_PATSFX     pat
+	% setenv MBK_CATAL_NAME $STMDIR/vh/behave/CATAL
+	% asimut sys pat result
+
+これでresult.patファイルにシミュレーション結果が入ります。

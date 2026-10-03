@@ -1,0 +1,34 @@
+Welcome to STM!  STM (Sarudemo Tsukureru Microprocessor -- never mind
+the meaning:-) is a 2-way superscalar, 32-bit RISC CPU.  It is free 
+hardware; it is distributed under a condition similar to GPL.
+
+STM comes with ABSOLUTELY NO WARRANTY.  Its specifications MAY BE
+CHANGED ANY TIME WITHOUT NOTICE.
+
+This package contains the design data of the CPU, a simulator, an assembler,
+and some other tools.  The design has been done with an HDL called 
+CHDL, which is my invention and quite close to C language.  It is 
+mostly described in RTL (Register Transfer Level).  The CHDL source
+code can be converted to VHDL; a converter program is contained in
+the package.
+
+Sofar, only logic siml has been done.  I'm planning to implement it
+physically with FPGA.  Current (and rough) estimation of the size is
+about 30,000 gates, excluding TLB and cache.
+
+Design of the instruction pipeline has been done in RTL.  The Execution
+unit and the register file is simulated with a behavioral model.  TLB
+and cache have not been designed yet.  It has no FPU.
+
+Though I wouldn't claim that STM is faster than 21164:-), it is 
+designed to be *fairly* fast.  Its internal architecture is (hopefully)
+comparable to second generation RISCs, such as supersparc and R4000.
+
+The rest of the document is divided into four parts : Architecture,
+Hardware Implementation, Tools, and Future Plans.  The Architecture
+section describes the programmer's view of STM, and why it was so
+designed.  In the next section, the internal architecture and
+implementation details are described, especially the pipeline.  The
+Tools section is about how the design is simulated, tested, and 
+converted to VHDL.  Lastly, I'll tell you about my future plans (dreams?).
+

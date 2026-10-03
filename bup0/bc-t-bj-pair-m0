@@ -1,0 +1,100 @@
+# BC(TKN), then immediately BC/B/J ;  CC set by EXRM, before 3 NOPs
+#
+# Header start
+#
+USING   14,300
+USING_I 14,300
+EQU 300
+main:
+X   0,0,0
+O   14,0,%300
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+# Header end
+#
+EQU 400
+#N = 4 (# of cases)
+#BLK = 0x40 (16 insns)
+L1:
+O   1,0,%0
+# N*BLK
+O   4,0,%100
+L2:
+#LL0
+JAL 5,1(500)
+L3:
+C   1,2
+BNE DEAD
+# BLK
+A   1,1,%40
+C   1,4
+BL  L2
+B   SUCCESS
+#
+# data
+D0:
+00000000
+D1:
+00000001
+#
+# i = 0
+EQU 500
+LL0:
+# BLK*i
+O   2,0,%0
+L   8,D0
+C   0,D0
+BE  TT0
+BNE DEAD
+BE DEAD
+EQU 4F0
+TT0:
+BE  L3
+B  DEAD
+#
+# i = 1
+EQU 540
+LL1:
+# BLK*i
+O   2,0,%40
+L   8,D0
+C   0,D1
+BL  TT1
+BNE DEAD
+BE DEAD
+TT1:
+BL  L3
+B  DEAD
+# i = 2
+EQU 580
+LL2:
+O   2,0,%80
+L   8,D0
+C   0,D0
+BE  TT2
+O   2,0,%66
+BNE DEAD
+BE DEAD
+TT2:
+BE  L3
+O   2,0,%66
+# i = 3
+EQU 5C0
+LL3:
+O   2,0,%C0
+L   8,D0
+C   0,D1
+BL  TT3
+JAL 7,TT1
+BNE DEAD
+BE DEAD
+TT3:
+BL  L3
+JAL 7,TT1

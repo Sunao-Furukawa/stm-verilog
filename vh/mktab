@@ -1,0 +1,64 @@
+#!/usr/local/bin/perl
+#
+# script to make C-decl file for symbol table
+#
+# usage :	% mktab		/* read ../{prop,assi}.tab ; write sym.dcl */
+#
+$K_FF  = 1 ;	# kind for FF
+$K_NET = 2 ;	# kind for net
+$K_IN  = 8 ;	# kind for in pin
+$K_OUT = 9 ;	# kind for out pin
+%tablename = ( "prop" , $K_NET , "assi" , $K_FF ) ;
+$acc = 0 ;
+
+open( F_DCL , "> sym.dcl" ) ;
+
+print F_DCL "#include \"symhead.dcl\"\n\n" ;
+print F_DCL "struct sym {int kind,leng,src,io; char name[40]; }" ; 
+print F_DCL "  symtab[MAXSYM] =\n" ;
+print F_DCL "{\n" ;
+
+foreach ( keys %tablename ) {
+  $kind = $_ ;			#  either "prop" or "assi"
+  open( F_SIG , "< ../$kind.tab" ) ;
+  
+  while (<F_SIG>) {
+   if (/^#/) { next; }
+   /(\w+)(\s+(\d+))?\??(\s+(IN|OUT))?/ ;
+   # print "# $1 %" ;
+   if ( $3 eq "" ) { $leng = 1 ;} else { $leng = $3 ; }
+   if ( $5 eq "OUT" ) { $io = $K_OUT ;} elsif ( $5 eq "IN" ) { $io = $K_IN ; }
+    else { $io = 0 ; }
+   $name = "\"" . $1 . "\"" ;
+   print F_DCL "  { $tablename{$kind} , $leng , -1 , $io , $name } , \n" ;
+   $acc ++ ;
+  }
+  
+  close(F_SIG) ;
+  print F_DCL "\n" ;
+}
+print F_DCL "};\n\n" ;
+close(F_DCL);
+
+open( F_DCL , "> symhead.dcl" ) ;
+$acc1 = $acc + 1;
+print F_DCL "#define MAXSYM  $acc1 \n" ;
+close(F_DCL);
+
+#  format of symbol table and list
+#   example : DD-RADB  = A-STAT & (xxx | yyy)      /* which is untrue :-) */
+#
+#    symtab                              lists                         .
+#    leng  name      kind  io  src           kind op1 op2 op3 leng         .
+#  +-----+----------+----+---+----+         +----+---+---+---+----+        .
+#  |  4  | DD_RADB  |net |   |  *-|--+      |    |   |   |   |    |        .
+#  +-----+----------+----+---+----+  |      +----+---+---+---+----+        .
+#ps|  4  | A_STAT   | FF |   |*-..|  |      |    |   |   |   |    |        .
+#  +-----+----------+----+---+----+  |      +----+---+---+---+----+        .
+#  |     |          |    |   |    |  +----> |AND |p1 |p2 |   | 4  |        .
+#  +-----+----------+----+---+----+         +----+---+---+---+----+        .
+#  |     |          |    |   |    |       p1|SYM |ps |   |   | 4  |        .
+#  +-----+----------+----+---+----+         +----+---+---+---+----+        .
+#  |     |          |    |   |    |       p2|OR  |.. |.. |   | 4  |        .
+#  +-----+----------+----+---+----+         +----+---+---+---+----+        .
+#  |     |          |    |   |    |         |    |   |   |   |    |        .

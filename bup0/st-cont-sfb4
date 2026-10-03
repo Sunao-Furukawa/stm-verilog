@@ -1,0 +1,63 @@
+# Continuous store , then load (Store Fetch Bypass) : after 3 insns
+#
+# Header start
+#
+USING   14,300
+USING_I 14,300
+EQU 300
+main:
+X   0,0,0
+O   14,0,%300
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+# Header end
+##########################################
+EQU 400
+# GR1-6 = tmp area for store data
+# GR7 = load data
+# GR8 = base adrs of D0
+# GR9 = base adrs of D1
+L1:
+O   8,0,%700
+O   9,0,%740
+L   1,8(0)
+L   2,8(4)
+L   3,8(8)
+L   4,8(C)
+L   5,8(10)
+L   6,8(14)
+X   0,0,0
+X   0,0,0
+X   0,0,0
+X   0,0,0
+X   0,0,0
+ST  1,9(0)
+ST  2,9(4)
+ST  3,9(8)
+ST  4,9(C)
+ST  5,9(10)
+ST  6,9(14)
+# i = 3 : load from 9(4*i)
+L   7,9(C)
+C   7,8(C)
+BNE DEAD
+B   SUCCESS
+#
+# D0 = original data
+EQU 700
+D0:
+ABCDEF98
+E0E0E0E9
+3872910F
+DC7489A9
+845729A9
+DC438691
+EQU 740
+D1:

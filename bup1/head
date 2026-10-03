@@ -1,0 +1,33 @@
+# comments and/or title here
+#
+USING   14,300
+USING_I 14,300
+#		main program starts here
+EQU 300
+main:
+X   0,0,0
+O   14,%500
+WSR 2,14	# set TBR  : trap routine starts at 500
+O   14,%4FC
+WSR 3,14	# set CMPR : access to 4FC causes CMP trap
+O   14,0,%300
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+EQU 400
+L1:
+#
+#	test program starts here
+#
+####################################
+#
+EQU 500
+#
+# Interrupt routine starts here
+#

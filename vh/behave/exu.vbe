@@ -1,0 +1,151 @@
+entity EXU is port (
+  X,Y : in  bit_vector(0 to 31);
+  OPC : in  bit_vector(0 to  4);
+  Z   : out bit_vector(0 to 31);
+  CC  : out bit_vector(0 to  1);
+  INTR: out bit_vector(0 to  2)
+); end EXU;
+
+architecture BEHAV of EXU is 
+
+  signal bs_ari,bs_dir : bit;
+  signal bs_amt        : bit_vector(0 to  4) ;
+  signal bs_in,bs_out  : bit_vector(0 to 31) ;
+  signal bs_zero,bs_sign  : bit_vector(0 to 31) ;
+
+  signal ad_cin,ad_cout,ad_ovf,ad_or31: bit;
+  signal ad_in1,ad_in2,ad_out  : bit_vector(0 to 31) ;
+  signal ad_cc 		: bit_vector(0 to  1) ;
+  signal ad_intr	: bit_vector(0 to  2) ;
+  signal ad_cry		: bit_vector(0 to 32) ;
+
+  signal z_out 		: bit_vector(0 to 31) ;
+
+  constant opc_a	: bit_vector(0 to  4) := B"00001";
+  constant opc_s	: bit_vector(0 to  4) := B"00010";
+  constant opc_c	: bit_vector(0 to  4) := B"00011";
+  constant opc_au	: bit_vector(0 to  4) := B"00101";
+  constant opc_su	: bit_vector(0 to  4) := B"00110";
+  constant opc_cu	: bit_vector(0 to  4) := B"00111";
+  constant opc_n 	: bit_vector(0 to  4) := B"01000";
+  constant opc_o 	: bit_vector(0 to  4) := B"01001";
+  constant opc_x 	: bit_vector(0 to  4) := B"01010";
+  constant opc_sl 	: bit_vector(0 to  4) := B"01011";
+  constant opc_sra 	: bit_vector(0 to  4) := B"01100";
+  constant opc_srl 	: bit_vector(0 to  4) := B"01101";
+  constant opc_sethi 	: bit_vector(0 to  4) := B"01110";
+
+ begin
+ad_in1 	<= X;
+ad_in2 	<= Y when OPC(3)='0' else not Y;
+ad_cin	<= OPC(3);
+
+-- 32-bit adder body
+-- should be : a1:add_32 port map(ad_cin,ad_in1,ad_in2,ad_cout,ad_out);
+  ad_cry <= ( (ad_in1(0 to 31) and ad_in2(0 to 31)) 
+	or (ad_in1(0 to 31) and ad_cry(1 to 32))
+	or (ad_in2(0 to 31) and ad_cry(1 to 32))  )       & ad_cin;
+  ad_out <=    ad_in1(0 to 31) xor ad_in2(0 to 31) xor ad_cry(1 to 32);
+  ad_cout <= ad_cry(0);
+  ad_ovf  <= ad_cry(0) xor ad_cry(1);
+  ad_or31 <= (ad_out(1 to 31) /= B"000_0000_0000_0000_0000_0000_0000_0000");
+  ad_cc   <= ad_ovf & ad_or31 ;
+  ad_intr <= B"100" when ad_ovf else B"000";  -- INTCODE_OVF = 4
+-- 32-bit adder body end
+
+
+bs_dir 	<= (OPC = opc_sra) or (OPC = opc_srl) ;  
+bs_ari 	<= (OPC = opc_sra);
+bs_amt 	<= Y(27 to 31)  when OPC /= opc_sethi else B"10000"; 
+bs_in  	<= X            when OPC /= opc_sethi else Y       ;
+
+-- 32-bit barrel-shifter body
+-- should be : b1:barrel_shift port map(bs_ari,bs_dir,bs_amt,bs_in,bs_out);
+  bs_sign <= X"ffff_ffff" when bs_ari and bs_in(0) else X"0000_0000";
+  bs_zero <= X"0000_0000";
+  with bs_dir & bs_amt select bs_out <=
+        bs_in                               when B"0_00000" | B"1_00000",
+        bs_in(1 to 31) & bs_zero(0)            when B"0_00001",
+        bs_in(2 to 31) & bs_zero(0 to 1)       when B"0_00010",
+        bs_in(3 to 31) & bs_zero(0 to 2)       when B"0_00011",
+        bs_in(4 to 31) & bs_zero(0 to 3)       when B"0_00100",
+        bs_in(5 to 31) & bs_zero(0 to 4)       when B"0_00101",
+        bs_in(6 to 31) & bs_zero(0 to 5)       when B"0_00110",
+        bs_in(7 to 31) & bs_zero(0 to 6)       when B"0_00111",
+        bs_in(8 to 31) & bs_zero(0 to 7)       when B"0_01000",
+        bs_in(9 to 31) & bs_zero(0 to 8)       when B"0_01001",
+        bs_in(10 to 31) & bs_zero(0 to 9)      when B"0_01010",
+        bs_in(11 to 31) & bs_zero(0 to 10)     when B"0_01011",
+        bs_in(12 to 31) & bs_zero(0 to 11)     when B"0_01100",
+        bs_in(13 to 31) & bs_zero(0 to 12)     when B"0_01101",
+        bs_in(14 to 31) & bs_zero(0 to 13)     when B"0_01110",
+        bs_in(15 to 31) & bs_zero(0 to 14)     when B"0_01111",
+        bs_in(16 to 31) & bs_zero(0 to 15)     when B"0_10000",
+        bs_in(17 to 31) & bs_zero(0 to 16)     when B"0_10001",
+        bs_in(18 to 31) & bs_zero(0 to 17)     when B"0_10010",
+        bs_in(19 to 31) & bs_zero(0 to 18)     when B"0_10011",
+        bs_in(20 to 31) & bs_zero(0 to 19)     when B"0_10100",
+        bs_in(21 to 31) & bs_zero(0 to 20)     when B"0_10101",
+        bs_in(22 to 31) & bs_zero(0 to 21)     when B"0_10110",
+        bs_in(23 to 31) & bs_zero(0 to 22)     when B"0_10111",
+        bs_in(24 to 31) & bs_zero(0 to 23)     when B"0_11000",
+        bs_in(25 to 31) & bs_zero(0 to 24)     when B"0_11001",
+        bs_in(26 to 31) & bs_zero(0 to 25)     when B"0_11010",
+        bs_in(27 to 31) & bs_zero(0 to 26)     when B"0_11011",
+        bs_in(28 to 31) & bs_zero(0 to 27)     when B"0_11100",
+        bs_in(29 to 31) & bs_zero(0 to 28)     when B"0_11101",
+        bs_in(30 to 31) & bs_zero(0 to 29)     when B"0_11110",
+        bs_in(      31) & bs_zero(0 to 30)     when B"0_11111",
+
+        bs_sign(1 to 31) & bs_in(0)            when B"1_11111",
+        bs_sign(2 to 31) & bs_in(0 to 1)       when B"1_11110",
+        bs_sign(3 to 31) & bs_in(0 to 2)       when B"1_11101",
+        bs_sign(4 to 31) & bs_in(0 to 3)       when B"1_11100",
+        bs_sign(5 to 31) & bs_in(0 to 4)       when B"1_11011",
+        bs_sign(6 to 31) & bs_in(0 to 5)       when B"1_11010",
+        bs_sign(7 to 31) & bs_in(0 to 6)       when B"1_11001",
+        bs_sign(8 to 31) & bs_in(0 to 7)       when B"1_11000",
+        bs_sign(9 to 31) & bs_in(0 to 8)       when B"1_10111",
+        bs_sign(10 to 31) & bs_in(0 to 9)      when B"1_10110",
+        bs_sign(11 to 31) & bs_in(0 to 10)     when B"1_10101",
+        bs_sign(12 to 31) & bs_in(0 to 11)     when B"1_10100",
+        bs_sign(13 to 31) & bs_in(0 to 12)     when B"1_10011",
+        bs_sign(14 to 31) & bs_in(0 to 13)     when B"1_10010",
+        bs_sign(15 to 31) & bs_in(0 to 14)     when B"1_10001",
+        bs_sign(16 to 31) & bs_in(0 to 15)     when B"1_10000",
+        bs_sign(17 to 31) & bs_in(0 to 16)     when B"1_01111",
+        bs_sign(18 to 31) & bs_in(0 to 17)     when B"1_01110",
+        bs_sign(19 to 31) & bs_in(0 to 18)     when B"1_01101",
+        bs_sign(20 to 31) & bs_in(0 to 19)     when B"1_01100",
+        bs_sign(21 to 31) & bs_in(0 to 20)     when B"1_01011",
+        bs_sign(22 to 31) & bs_in(0 to 21)     when B"1_01010",
+        bs_sign(23 to 31) & bs_in(0 to 22)     when B"1_01001",
+        bs_sign(24 to 31) & bs_in(0 to 23)     when B"1_01000",
+        bs_sign(25 to 31) & bs_in(0 to 24)     when B"1_00111",
+        bs_sign(26 to 31) & bs_in(0 to 25)     when B"1_00110",
+        bs_sign(27 to 31) & bs_in(0 to 26)     when B"1_00101",
+        bs_sign(28 to 31) & bs_in(0 to 27)     when B"1_00100",
+        bs_sign(29 to 31) & bs_in(0 to 28)     when B"1_00011",
+        bs_sign(30 to 31) & bs_in(0 to 29)     when B"1_00010",
+        bs_sign(      31) & bs_in(0 to 30)     when B"1_00001";
+-- 32-bit barrel-shifter body end
+
+with OPC select z_out <=
+  X and Y when opc_n,
+  X or  Y when opc_o,
+  X xor Y when opc_x,
+  bs_out  when opc_sl | opc_sra | opc_srl | opc_sethi  ,
+  ad_out  when others ;
+
+Z <= z_out;
+
+with OPC select CC <=
+  ad_cc   	when opc_a | opc_s | opc_c | opc_au | opc_su | opc_cu,
+  '0' & (z_out /= X"0000_0000") when others ;
+
+with OPC select INTR <=
+  ad_intr   when opc_a | opc_s | opc_c | opc_au | opc_su | opc_cu,
+  B"000"    when others ;
+
+end BEHAV;
+

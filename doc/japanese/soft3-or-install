@@ -1,0 +1,46 @@
+３ー２ インストール、使用法
+
+シミュレータ、アセンブラ等のインストール方法と使用法を述べます。
+
+まず、STMを解凍したディレクトリ（README.1st,hard,softなどを含むディレクトリ）
+を$STMDIRにsetenvして下さい。
+
+	% setenv STMDIR <directory-name>
+
+（これはcsh系の場合。B-shell系は'STMDIR=XXXX ; export STMDIR' とか何とか）
+
+次に$STMDIR/softに行き、そこにある"chc"を実行します。
+
+	% cd $STMDIR/soft
+	% ./chc
+
+perlのありかは/usr/local/bin/perlであることが想定されていますので、
+そうでないシステムで使用するときは、$STMDIR/soft/{asm.pl,perlcmd1}の
+先頭行を
+
+#!/usr/local/bin/perl
+
+からしかるべく変更してご使用下さい。
+
+chc は $STMDIR/work と /tmp をテンポラリとして使用します。
+サンプルを動かしてみるには $STMDIR/work へ行き、makeするだけです。
+
+	% cd $STMDIR/work
+	% make siml.res
+
+でsiml.resができます。中身を見てみて下さい。アーキテクチャシミュレーションを
+するには
+
+	% make asim.res
+
+でできます。これも中身を見てみて下さい。
+
+$STMDIR/bup にはテストプログラムがいろいろ入っています。このどれかを走らせる
+には、work/tst.sにコピーした後でまたmakeをします。全てのテストプログラムを
+走らせるには、workディレクトリで
+
+	% subbup a
+
+とすればできます。結果レポートがsub.rptファイルにできます。1.1版ではハード
+に一つバグがあり、エラーが一つ出ます。興味のある方はどこがおかしいのか
+調べてみて下さい。

@@ -1,0 +1,75 @@
+entity REGFILE is port (
+  ck	: in bit;
+  we1,we2		: in bit;
+  wad1,wad2,rad1,rad2,radb,rads	: in bit_vector(0 to 3);
+  wdt1,wdt2		: in bit_vector(0 to 31);
+  rdt1,rdt2,rdtb,rdts	: out bit_vector(0 to 31) 
+ ); end;
+
+architecture BEHAV of REGFILE is
+  signal r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,ra,rb,rc,rd,re,rf : 
+	reg_vector(0 to 31) register;
+ begin
+samewrite:	assert ( not (we1 and we2 and (wad1 = wad2)) )
+    		report "Writing same GR at the same time"
+    		severity ERROR ;
+reg:  block (ck and not ck'STABLE) begin
+    r0 <= guarded wdt1 when we1 and (wad1 = X"0") else
+    		  wdt2 when we2 and (wad2 = X"0") else r0 ;
+    r1 <= guarded wdt1 when we1 and (wad1 = X"1") else
+    		  wdt2 when we2 and (wad2 = X"1") else r1 ;
+    r2 <= guarded wdt1 when we1 and (wad1 = X"2") else
+    		  wdt2 when we2 and (wad2 = X"2") else r2 ;
+    r3 <= guarded wdt1 when we1 and (wad1 = X"3") else
+    		  wdt2 when we2 and (wad2 = X"3") else r3 ;
+    r4 <= guarded wdt1 when we1 and (wad1 = X"4") else
+    		  wdt2 when we2 and (wad2 = X"4") else r4 ;
+    r5 <= guarded wdt1 when we1 and (wad1 = X"5") else
+    		  wdt2 when we2 and (wad2 = X"5") else r5 ;
+    r6 <= guarded wdt1 when we1 and (wad1 = X"6") else
+    		  wdt2 when we2 and (wad2 = X"6") else r6 ;
+    r7 <= guarded wdt1 when we1 and (wad1 = X"7") else
+    		  wdt2 when we2 and (wad2 = X"7") else r7 ;
+    r8 <= guarded wdt1 when we1 and (wad1 = X"8") else
+    		  wdt2 when we2 and (wad2 = X"8") else r8 ;
+    r9 <= guarded wdt1 when we1 and (wad1 = X"9") else
+    		  wdt2 when we2 and (wad2 = X"9") else r9 ;
+    ra <= guarded wdt1 when we1 and (wad1 = X"a") else
+    		  wdt2 when we2 and (wad2 = X"a") else ra ;
+    rb <= guarded wdt1 when we1 and (wad1 = X"b") else
+    		  wdt2 when we2 and (wad2 = X"b") else rb ;
+    rc <= guarded wdt1 when we1 and (wad1 = X"c") else
+    		  wdt2 when we2 and (wad2 = X"c") else rc ;
+    rd <= guarded wdt1 when we1 and (wad1 = X"d") else
+    		  wdt2 when we2 and (wad2 = X"d") else rd ;
+    re <= guarded wdt1 when we1 and (wad1 = X"e") else
+    		  wdt2 when we2 and (wad2 = X"e") else re ;
+    rf <= guarded wdt1 when we1 and (wad1 = X"f") else
+    		  wdt2 when we2 and (wad2 = X"f") else rf ;
+  end block;
+
+  with  rad1 select rdt1 <=
+    r0 when X"0", r1 when X"1", r2 when X"2", r3 when X"3", 
+    r4 when X"4", r5 when X"5", r6 when X"6", r7 when X"7", 
+    r8 when X"8", r9 when X"9", ra when X"a", rb when X"b", 
+    rc when X"c", rd when X"d", re when X"e", rf when X"f"; 
+
+  with  rad2 select rdt2 <=
+    r0 when X"0", r1 when X"1", r2 when X"2", r3 when X"3", 
+    r4 when X"4", r5 when X"5", r6 when X"6", r7 when X"7", 
+    r8 when X"8", r9 when X"9", ra when X"a", rb when X"b", 
+    rc when X"c", rd when X"d", re when X"e", rf when X"f"; 
+
+  with  radb select rdtb <=
+    r0 when X"0", r1 when X"1", r2 when X"2", r3 when X"3", 
+    r4 when X"4", r5 when X"5", r6 when X"6", r7 when X"7", 
+    r8 when X"8", r9 when X"9", ra when X"a", rb when X"b", 
+    rc when X"c", rd when X"d", re when X"e", rf when X"f"; 
+
+  with  rads select rdts <=
+    r0 when X"0", r1 when X"1", r2 when X"2", r3 when X"3", 
+    r4 when X"4", r5 when X"5", r6 when X"6", r7 when X"7", 
+    r8 when X"8", r9 when X"9", ra when X"a", rb when X"b", 
+    rc when X"c", rd when X"d", re when X"e", rf when X"f"; 
+end BEHAV;
+

@@ -1,0 +1,14 @@
+#!/usr/local/bin/perl
+#
+# script to count the number of FF/net.
+#
+# usage : 	% count < assi.tab
+#
+$acc = 0 ;
+while (<>) {
+ /[\w][ 	]+(\d+)?/ ;
+ # print "# $1 %" ;
+ if ( $1 eq "" ) { $acc += 1 ;} else { $acc += $1 ; }
+}
+print "# of signals = $acc \n" ;
+

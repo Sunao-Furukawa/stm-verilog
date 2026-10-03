@@ -1,0 +1,50 @@
+# Overflow interruption simple test (by LS pipe)
+#
+USING   14,300
+USING_I 14,300
+#		main program starts here
+EQU 300
+main:
+X   0,0,0
+O   14,0,%300
+O   13,0,%500
+WSR 2,13
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+EQU 400
+L1:
+#
+#	test program starts here
+#
+C 0,%1 		# set cc to 1
+X 2,0,0
+SETHI 1,%5678
+ST 1,0(700)	# GR1 = Mem(700) = 56780000
+A 3,2,0(700) 	# will not interrupt here
+A 3,1,0(700) 	# will interrupt here
+B DEAD
+#
+EQU 500
+#
+# Interrupt routine starts here
+#
+SETHI 2,%0004	# expected PSW  : INTCODE = 4 (OVF)
+SETHI 3,%1000	# expected XPSW
+RSR   4,0	# PSW
+RSR   8,4	# XPSW
+RSR   9,5	# XPC
+C     4,2
+BNE   DEAD
+C     8,3
+BNE   DEAD
+C     9,%414	# expected XPC  : 414 (Interruption address)
+BNE   DEAD
+B     SUCCESS
+

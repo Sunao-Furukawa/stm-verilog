@@ -1,0 +1,77 @@
+3-3 Insn Fetch and Branch Control
+
+Insns fetched from I-cache are first latched in a buffer called Insn
+Word Queue (IWQ).  IWQ consists of 6 words x 2 'sides'.  Those sides are 
+called A side and B side, switching from one to the other on conditional
+branches.  Each side has its own Next Insn Pointer (NIP) and Insn Fetch
+Address (IF-AD) registers.  Effective ID (EID) tells which side is 
+currently being used.  In D stage, 2 words that are in the current side
+and addressed by the corresponding NIP are taken out of IWQ and fed to
+the exec pipeline.
+
+[diagram here]
+
+Cache data is always fetched into the rightmost two words of IWQ.  Every
+time data is fetched, IWQ is shifted left by two words.  This action is 
+called Shift-up.
+
+Insn fetch is always done in 8 bytes and on 8-byte boundary.  Therefore
+a branch to addresses like xx4 or xxC will inhibit a superscalar execution
+right after the branch, because only one effective insn word is received
+from I cache in the first target fetch.  If possible, compilers should
+align branch target addresses to 8-byte boundary.
+
+In STM arch, branch insns are classified into 3 categories: A) PC-relative
+unconditional, B) PC-relative conditional, C) GR-relative unconditional.
+Furthermore, A) and C) have a linking option.  We call PC-relative branches
+"branches", and GR-relative ones "jumps" (which may not be a widely 
+accepted convention).  We don't have conditional branches with link or
+conditional jumps.
+
+Control flow insns are handled in three ways:
+
+A) conditional branches with cc not yet decided ('undecided branch')
+
+	Issue a target fetch in D stage using the opposite side of
+	the current ID.  Branch prediction is done statically; if the
+	offset of a branch insn is positive, it is predicted not to be
+	taken, and insn fetching continues with the current side.
+	Otherwise it is predicted to be taken, EID is switched to the
+	other side, and insn fetching starts on the new EID from the
+	next cycle.
+
+B) unconditional branches, or conditional branches with cc already
+   available ('decided branch')
+
+	ID is not changed.  NIP of the current side is cleared and
+	a target fetch is issued using that side in D stage.  The
+	fetch in IB stage at this cycle is cancelled, because it is
+	for those insns which follow the branch and therefore will
+	not be executed.
+
+C) jumps
+	
+	Cancel IB stage and clear NIP in D stage.  The target address
+	is not yet available in D stage.  Issue a request in A stage
+	using the current ID.
+
+SU interface of the IF pipe is different from that of the exec pipe.
+SU returns CLH, but not RDY.  When IWQ is full (i.e. NIP<=1), IU does
+not receive the fetched insn words even if CLH is being sent, because
+there's no place to retain the words.
+
+It may look weird at first sight, but  it does work if IU issues insn
+fetch requests and addresses as follows:
+
+o if a jump is in A stage,
+	IU issues a request with the target address.
+
+o elif a branch is in D stage,
+	IU issues a request with the target address.
+
+o elif a jump is in D stage,
+	IU does not issue a request.
+
+o elif IB stage is valid and IB-ID == EID
+	IU does not issue a request.
+

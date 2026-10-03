@@ -1,0 +1,16 @@
+entity ADD_32_16 is port (
+        x   : in bit_vector(0 to 31);
+        y   : in bit_vector(0 to 15);
+        z   : out bit_vector(0 to 31)
+ ); end ADD_32_16;
+
+architecture BEHAV of ADD_32_16 is
+  signal c : bit_vector(0 to 32);
+  signal yy: bit_vector(0 to 31);
+ begin
+  yy <= X"FFFF"  & y when y(0) else X"0000"  & y ;
+  c <=  ( (X(0 to 31) and yy(0 to 31)) or (X(0 to 31) and c(1 to 32))
+       or (yy(0 to 31) and c(1 to 32))  ) 		& '0';
+  z <=    X(0 to 31) xor YY(0 to 31) xor c(1 to 32);
+ end;
+

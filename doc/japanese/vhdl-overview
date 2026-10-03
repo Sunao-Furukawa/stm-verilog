@@ -1,0 +1,77 @@
+３ー４ VHDL環境
+
+CHDLのソースをVHDLに変換するツールが用意されています。これによって既存の
+VHDLツールでシミュレーションしたり論理合成を試みたりすることができます。
+
+このコンバートツールを使用するにはcc,perlの他にyacc,lexが必要になります。
+
+メモリ、レジスタファイル、演算器などは合成向きではないので、これらを
+除いた制御部だけを一つのモジュール（’エンティティ’）として動作モデル
+を作ります。メモリのモデルはstmsimlのオブジェクトファイル（mem.dat）から
+やはりプログラムで生成します。その他の動作モデルと全体を結合するストラ
+クチャモデルはvh/behaveディレクトリの下に別途作ってあります。
+
+下にモデルの構成を示します。'.vbe'は動作モデルの、'.vst'はストラクチャ
+モデルのサフィックスです。
+
+
+     Whole system 'sys.vst'
+   +------------------------------------------------------------------+
+   |                                                                  |
+   |         ALU of EX-pipe      ALU of LS-pipe                       |
+   |         'exu.vbe'           'exu.vbe'                            |
+   |                      \           |                               |
+   |                       \          |                               |
+   |   Instruction-         \         |                 Operand Adrs. |
+   |   Fetch Adrs.           \        |                 Adder         |
+   |   Adder                                          'add_32_16.vbe' |
+   |   'add_32_4.vbe'  -----   Controller     --------                |
+   |                         (generated from                          |
+   |                          CHDL source)                            |
+   |   Branch Target    ----  'stmcntl.vbe'   --------  PC Incrementor|
+   |   Adder                                           'add_32_4.vbe' |
+   |   'add_32_5_20.vbe'      /        |                              |
+   |                         /         |                              |
+   |                        /          |                              |
+   |                       /           |                              |
+   |              Memory             Register File                    |
+   |           (generated from      'regfile.vbe'                     |
+   |            object file)                                          |
+   |            'memory.vbe'                                          |
+   |                                                                  |
+   |                                                                  |
+   |                                                                  |
+   +------------------------------------------------------------------+
+
+
+なおこれはVHDLでシミュレーションをするために便宜上分割しただけであり、
+実際の製作時にこのように分割するわけではありません。
+
+
+
+※Allianceの特殊性について
+
+私はフリーのVHDLツールであるallianceを使っています。allianceにlogicという
+合成ツールがあり、stmcntl.vbeを合成にかけてゲート数を出したかったのですが、
+logicがコケてしまいました。もし別のVHDLツールをお持ちの方がいらっしゃいま
+したら、stmcntl.vbeを合成させてみてその結果を教えていただけるととてもあり
+がたいですm(__)m
+
+シミュレーションはallianceのツールであるasimutで動いています。ただしasimut
+はパターンファイルという特別なファイル(vh/behave/pat.pat)を使うので、普通
+のVHDLツールでシミュレーションするにはいわゆるテストベンチを作る必要がある
+でしょう。しかし私が使えるのはallianceしかないので、テストベンチを作っても
+デバッグできません。手持ちのVHDLツールでSTMを動かしたいという方は
+itou@volga.mfd.cs.fujitsu.co.jp までメール下さい。テストベンチ作成に協力
+させていただきます。
+
+もう一点：allianceではFFは
+
+	signal X : reg_bit register ;
+	signal Y : reg_vector (0 to 7) register ;
+
+のような形式で宣言することに決められています。私はalliance以外知らないの
+ですが、これは他のVHDLツールでは標準的ではないと思います。他のツールで
+合成／シミュレーションしたい方はこの点にご注意願います。その他の点では
+allianceが扱えるのはVHDLの＊かなり＊小さいサブセットなので、他のツールでは
+問題なく通ると思います。

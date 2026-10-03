@@ -1,0 +1,193 @@
+# Bypass to R2 ;  R2 set by EXRR, before 0-5 NOPs
+#
+# Header start
+#
+USING   14,300
+USING_I 14,300
+EQU 300
+main:
+X   0,0,0
+O   14,0,%300
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+# Header end
+##########################################
+EQU 400
+# BLK = 0x40 (size of test routines : 16 insns)
+# GR1 = loopcnt
+# GR3 = loopcnt * BLK (adrs of test routine - 500)
+# GR4 = global data for test
+# GR5 = ret adrs
+# GR6 = base adrs of D0
+# GR7 = base adrs of D1
+L1:
+O   1,0,%0
+L   4,GLOBDATA
+O   6,0,%700
+O   7,0,%740
+SL  3,1,%6
+L2:
+JAL 5,3(500)
+L3:
+A   1,1,%1
+SL  3,1,%6
+C   1,LOOPS
+BL  L2
+B   SUCCESS
+#
+# D0 = original data
+EQU 700
+D0:
+ABCDEF98
+E0E0E0E9
+3872910F
+DC7489A9
+845729A9
+DC438691
+EQU 740
+# D1 = D0 & GLOBDATA(0f0f0f0f)
+D1:
+0B0D0F08
+00000009
+0802010F
+0C040909
+04070909
+0C030601
+# N = 6 (# of cases)
+LOOPS:
+00000006
+# GLOBDATA = data to be and'ed with D0
+GLOBDATA:
+0F0F0F0F
+##########################################
+# GR8  = i * 4
+# GR9  = i * 4 + D0 (adrs of original data)
+# GR10 = i * 4 + D1 (adrs of expected data)
+#
+# Compares M(i * 4 + D0) & GLOBDATA   and   M(i * 4 + D1) ,  i.e.
+# N   11,4,9(0)
+# C   11,10(0)
+#
+# i = 0
+#
+# 500+BLK*i
+EQU 500
+SL  8,1,%2
+A   10,8,7   
+A   9,8,6   
+L   12,9(0)
+# bypass source insn
+O   13,0,12
+# dummy insns
+# bypass destination insn
+N   11,4,13   
+C   11,10(0)
+BNE DEAD
+B   L3
+#
+# i = 1
+#
+# 500+BLK*i
+EQU 540
+SL  8,1,%2
+A   10,8,7   
+A   9,8,6   
+L   12,9(0)
+# bypass source insn
+O   13,0,12
+# dummy insns
+O   0,0,0
+# bypass destination insn
+N   11,4,13
+C   11,10(0)
+BNE DEAD
+B   L3
+#
+# i = 2
+#
+# 500+BLK*i
+EQU 580
+SL  8,1,%2
+A   10,8,7   
+A   9,8,6   
+L   12,9(0)
+# bypass source insn
+O   13,0,12
+# dummy insns
+O   0,0,0
+O   0,0,0
+# bypass destination insn
+N   11,4,13
+C   11,10(0)
+BNE DEAD
+B   L3
+#
+# i = 3
+#
+# 500+BLK*i
+EQU 5C0
+SL  8,1,%2
+A   10,8,7   
+A   9,8,6   
+L   12,9(0)
+# bypass source insn
+O   13,0,12
+# dummy insns
+O   0,0,0
+O   0,0,0
+O   0,0,0
+# bypass destination insn
+N   11,4,13
+C   11,10(0)
+BNE DEAD
+B   L3
+#
+# i = 4
+#
+# 500+BLK*i
+EQU 600
+SL  8,1,%2
+A   10,8,7   
+A   9,8,6   
+L   12,9(0)
+# bypass source insn
+O   13,0,12
+# dummy insns
+O   0,0,0
+O   0,0,0
+O   0,0,0
+O   0,0,0
+# bypass destination insn
+N   11,4,13
+C   11,10(0)
+BNE DEAD
+B   L3
+#
+# i = 5
+#
+# 500+BLK*i
+EQU 640
+SL  8,1,%2
+A   10,8,7   
+A   9,8,6   
+L   12,9(0)
+# bypass source insn
+O   13,0,12
+# dummy insns
+O   0,0,0
+O   0,0,0
+O   0,0,0
+O   0,0,0
+O   0,0,0
+# bypass source insn
+N   11,4,13
+C   11,10(0)
+BNE DEAD
+B   L3

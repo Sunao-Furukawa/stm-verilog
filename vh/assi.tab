@@ -1,0 +1,165 @@
+A_DISP			16	OUT
+A_EX_OP1_DT             32
+A_EX_OP1_IS_GR
+A_EX_OP2_DT             32
+A_EX_OP2_IS_GR
+A_EX_OPCODE              4	OUT
+A_EX_RAD1                4
+A_EX_RAD2                4
+A_EX_SETCC
+A_EX_SOLVING_BC
+A_FIRST_IS_EX
+A_INTCODE                3
+A_IS_SUPERSCALAR
+A_JB_IS_BC
+A_JB_SUBJECT_TO_BC
+A_JB_V
+A_LATTER_IS_JB
+A_LS_LD_V
+A_LS_OPB_DT             32
+A_LS_OPB_IS_GR
+A_LS_OPCODE              5
+A_LS_OPS_IS_GR
+A_LS_RADB                4
+A_LS_RADS                4
+A_LS_SETCC
+A_LS_SOLVING_BC
+A_LS_ST_V
+A_PRIVCODE               2
+A_SET_EAG_TO_TGT
+A_TGT                    32
+A_V
+A_WAD1                    4
+A_WAD2                    4
+A_WE1
+A_WE2
+B_EX_CC			  2
+B_EX_RAD2                 4
+B_EX_RES                 32
+B_EX_SETCC
+B_FIRST_IS_EX
+B_INTCODE                 3
+B_IS_SUPERSCALAR
+B_JB_IS_BC
+B_JB_SUBJECT_TO_BC
+B_JB_V
+B_LATTER_IS_JB
+B_LS_LD_V
+B_LS_LOG_AD              32
+B_LS_OPCODE               5?
+B_LS_OPS_IS_GR
+B_LS_RADS                 4	OUT
+B_LS_SETCC
+B_LS_SOLVING_BC
+B_LS_ST_V
+B_PRIVCODE                2
+B_TGT                    32
+B_V
+B_WAD1                    4
+B_WAD2                    4
+B_WE1
+B_WE2
+CMPR                     32
+CUR_IWQ_ID
+D_IF_AD_A                32
+D_IF_AD_B                32
+E_EX_CC                   2
+E_EX_INTCODE              3
+E_EX_RES                 32
+E_EX_SETCC
+E_FIRST_IS_EX
+E_IS_SUPERSCALAR
+E_JB_IS_BC
+E_JB_SUBJECT_TO_BC
+E_JB_V
+E_LATTER_IS_JB
+E_LS_INTCODE              3
+E_LS_LD_DT               32
+E_LS_LD_V
+E_LS_LOG_AD              32
+E_LS_OPCODE               5?	OUT
+E_LS_OPS_DT              32
+E_LS_OPS_IS_GR
+E_LS_RADS                 4
+E_LS_SETCC
+E_LS_SOLVING_BC
+E_LS_ST_V
+E_OPCLH_LCH
+E_PRIVCODE                2
+E_TGT                    32
+E_V
+E_WAD1                    4
+E_WAD2                    4
+E_WE1
+E_WE2
+G_BC_JUST_SOLVED
+G_BC_JUST_TAKEN
+G_BC_MASK                 4
+G_BC_PENDING
+G_BC_TKN_PREDICTED
+IB_AD                    32	OUT
+IB_ID
+IB_V
+IWQ_A_0                  32
+IWQ_A_1                  32
+IWQ_A_2                  32
+IWQ_A_3                  32
+IWQ_A_4                  32
+IWQ_A_5                  32
+IWQ_A_V01
+IWQ_A_V23
+IWQ_A_V45
+IWQ_B_0                  32
+IWQ_B_1                  32
+IWQ_B_2                  32
+IWQ_B_3                  32
+IWQ_B_4                  32
+IWQ_B_5                  32
+IWQ_B_V01
+IWQ_B_V23
+IWQ_B_V45
+LBS_AD                   32	OUT
+LBS_DT                   32	OUT
+LBS_WE				OUT
+NIP_A_REG                 3
+NIP_B                     3
+OP_B_OPC                  2
+OP_B_SUBJECT_TO_BC
+OP_B_V
+OP_WAIT_AD               32
+OP_WAIT_DT               32
+OP_WAIT_OPC               2
+OP_WAIT_SUBJECT_TO_BC
+OP_WAIT_V
+OP_WAIT_WE
+PC                       32	OUT
+PSW_CC                    2
+PSW_TYPE                  8
+PSW_USER
+START_TRIGGER_BAR
+STB_AD                   32
+STB_DT                   32
+STB_V
+SVR0                     32
+SVR1                     32
+TBR                      32
+W_CC                      2
+W_COMPLETE
+W_EX_INTCODE              3
+W_FIRST_IS_EX
+W_IS_SUPERSCALAR
+W_JB_V
+W_LATTER_IS_JB
+W_LS_INTCODE              3
+W_PRIVCODE                2
+W_SETCC
+W_TGT                    32
+W_WAD1                    4	OUT
+W_WAD2                    4	OUT
+W_WDT1                   32	OUT
+W_WDT2                   32	OUT
+W_WE1				OUT
+W_WE2				OUT
+XLA                      32
+XPC                      32
+XPSW                     32

@@ -1,0 +1,29 @@
+# simple test of BA, BC-!PRED-!TKN
+USING   14,304
+USING_I 12,180
+#
+EQU 200
+D1:
+00000003
+D2:
+00000007
+#
+EQU 300
+main:
+BAL 14,%4
+L   10,D1
+A   13,10,%4
+L   1 ,D2
+C   13,1
+BNE  L2
+B   L3  
+EQU 400
+L2:
+DD000000
+EQU 450
+L3:
+B   L9  
+EQU 3f0
+L9:
+DF000000
+ 

@@ -1,0 +1,180 @@
+#! /usr/local/bin/perl
+$L_NOCOLON	= 1 ;	# lines that are never colon-added
+$L_PROPAG 	= 2 ;	# lines including  '='
+$L_ASSIGN 	= 3 ;	# lines including ':='
+$L_IF_PROPAG 	= 4 ;	# lines including '{ XXX  = YYY }
+$L_IF_ASSIGN 	= 5 ;	# lines including '{ XXX := YYY }
+$L_CONT      	= 6 ;	# anything else (which may be continuation of previous)
+
+$TMP    = "/tmp"   ;
+$D_MID  = "mid.c" ;
+$D_OUT  = "output.c" ;
+$D_EXEC = "$TMP/exec_mid" ;
+$D_PROP = "$TMP/prop_mid" ;
+$D_ASSI = "$TMP/assi_mid" ;
+$D_PROP2 = "$TMP/prop_mid2" ;
+$D_ASSI2 = "$TMP/assi_mid2" ;
+
+open(F_PROP,"> $D_PROP");
+open(F_ASSI,"> $D_ASSI");
+open(F_EXEC,"> $D_EXEC");
+
+$prev 	= "" ;
+$line_kind_prev	= $L_NOCOLON ;
+
+while (<>) {
+					# Handle comment ('#') but not cpp-lines
+ s/^#$// ;
+ s+#([^dei].*)$+/*$1*/+ ;		# "** # XXXX\n" -> "** /* XXXX */\n"
+ s/-/_/g ;				# Change hyphens to underbars
+ s/\selif\s/ else if /g ;		# Change elif    to else if
+ s/^elif\s/else if /g ;	
+ $cur = $_ ;
+
+if ( /^#/ || /^\s*$/ || /^\s*\/\*.*\*\/\s*$/ ||	   
+    ( /^if\s/ || /\sif\s/ || /^else\s/ || /\selse\s/ || /}/ ) && !/\s:?=\s/) {
+	# cpp, null, comment lines , or  if/else statement without '=' or ':=' 
+	  $line_kind = $L_NOCOLON; 
+
+} elsif (/(.*{.*\s=\s.*)(}.*$)/) {	# { XX = YY }
+					# declare XX as net (in file F_PROP)
+	  $cur = $1.";".$2."\n" ;
+	  $line_kind = $L_IF_PROPAG; 
+	  if (/\s(\w+)\s*=\s/) { print F_PROP $1."\n" ; }
+
+} elsif (/(.*{.*\s:=\s.*)(}.*$)/) {	# { XX := YY }
+					# declare XX as FF (in file F_ASSI)
+	  $cur = $1.";".$2."\n" ;
+	  $line_kind = $L_IF_ASSIGN; 
+	  if (/\s(\w+)\s*:=\s/) { print F_ASSI $1."\n" ; }
+	  if (!($cur =~ /\]\s*:=/)) { $cur =~ s/(\w+)\s+:=\s/$1_NEW = / ; }
+	  else 			    { $cur =~ s/:=/=/ ; } # GR, Mem etc.
+
+} elsif (/\s=\s/) {			# XX = YY
+					# declare XX as net
+	  $line_kind = $L_PROPAG; 
+	  $save = $_ ;
+	  while (/\s*(\w+)\s*=\s(.*)/) {
+		print F_PROP $1."\n" ;
+		$_ = $2 ;
+	   }
+	  $_ = $save ;
+
+} elsif (/\s:=\s/) {			# XX := YY
+					# declare XX as FF 
+	  $line_kind = $L_ASSIGN; 
+	  $save = $_ ;
+	  while (/\s*(\w+)\s*:=\s(.*)/) {
+		print F_ASSI $1."\n" ;
+		$_ = $2 ;
+	   }
+	  $_ = $save ;
+	  if (!($cur =~ /\]\s*:=/)) { $cur =~ s/(\w+)\s+:=\s/$1_NEW = /g ; }
+	  else			    { $cur =~ s/:=/=/ ; } # GR, Mem etc.
+
+} else             { 			# probably a continuation of
+					# propagation or assignment statement
+	  $line_kind = $L_CONT     ; 
+}
+
+if (($line_kind_prev == $L_NOCOLON) || 
+    ($line_kind_prev == $L_IF_PROPAG) || 
+    ($line_kind_prev == $L_IF_ASSIGN) || 
+    ($line_kind      == $L_CONT   )     ) { print F_EXEC $prev ; }
+else {  # prev == L_PROPAG, L_ASSIGN, or L_CONT ; cur != L_CONT
+  $_ = $prev ;
+  s/$/;/    ;
+  $prev = $_ ;
+  print F_EXEC $prev ;
+}
+
+$prev = $cur ;
+$line_kind_prev = $line_kind ;
+} # end while
+
+$cur = "" ;
+$line_kind      = $L_NOCOLON ;
+
+if (($line_kind_prev == $L_NOCOLON) || 
+    ($line_kind_prev == $L_IF_PROPAG) || 
+    ($line_kind_prev == $L_IF_ASSIGN) || 
+    ($line_kind      == $L_CONT   )     ) { print F_EXEC $prev ; }
+else {  # prev == L_PROPAG, L_ASSIGN, or L_CONT ; cur != L_CONT
+  $_ = $prev ;
+  s/$/;/    ;
+  $prev = $_ ;
+  print F_EXEC $prev ;
+}
+
+close(F_PROP) ;
+close(F_ASSI) ;
+close(F_EXEC) ;
+
+system( "sort -u $D_PROP > $D_PROP2 " ) ; # sort and make net names unique
+system( "sort -u $D_ASSI > $D_ASSI2 " ) ; # sort and make FF  names unique
+
+# code for declaring net names
+
+open(F_PROP2,"< $D_PROP2") ;
+while (<F_PROP2>) {
+  chop;
+  print "unsigned ", $_ , " ;\n" ;   	
+ }
+close(F_PROP2) ;
+
+# code for declaring FF  names (XX and XX_NEW)
+
+open(F_ASSI2,"< $D_ASSI2") ;
+while (<F_ASSI2>) {
+  chop;					
+  print "unsigned ", $_ , " , " , $_ , "_NEW ;\n" ;
+ }
+close(F_ASSI2) ;
+
+# code for registering net names to array "ids"
+
+print "i = 0 ;\n" ;
+open(F_ASSI2,"< $D_ASSI2") ;
+while (<F_ASSI2>) {
+ chop;
+   print "ids[i].loc = &" , $_ , " ;\n" ;
+   print "strcpy(ids[i++].name,\"" , $_ , "\") ;\n" ;
+}
+close(F_ASSI2) ;
+
+open(F_PROP2,"< $D_PROP2") ;
+while (<F_PROP2>) {
+ chop;
+ print "ids[i].loc = &" , $_ , " ;\n" ;
+ print "strcpy(ids[i++].name,\"" , $_ , "\") ;\n" ;
+}
+close(F_PROP2) ;
+
+foreach $x ("AA_EXU_OUTPUT","AA_EXU_CC","EE_ALU_OUTPUT","EE_ALU_CC") {
+ print "ids[i].loc = &" , $x , " ;\n" ;
+ print "strcpy(ids[i++].name,\"" , $x , "\") ;\n" ;
+}
+
+# code for reading siml format and memory file
+open(F_MID ,"< $D_MID") ;
+while (<F_MID>) { print ; }
+close(F_MID) ;
+
+# code for main circuit activity
+open(F_EXEC ,"< $D_EXEC") ;
+while (<F_EXEC>) { print ; }
+close(F_EXEC) ;
+
+# code for outputing siml result 
+open(F_OUT ,"< $D_OUT") ;
+while (<F_OUT>) { print ; }
+close(F_OUT) ;
+
+# code for updating FFs  (XX := XX_NEW)
+open(F_ASSI2,"< $D_ASSI2") ;
+while (<F_ASSI2>) {
+  chop;					
+  print $_ , " = " , $_ , "_NEW ;\n" ;
+ }
+close(F_ASSI2) ;
+

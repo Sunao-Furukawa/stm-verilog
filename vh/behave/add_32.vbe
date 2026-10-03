@@ -1,0 +1,17 @@
+entity ADD_32 is port (
+        cin : in bit;
+        x,y : in bit_vector(0 to 31);
+        cout,ovf: out bit;
+        z   : out bit_vector(0 to 31)
+ ); end ADD_32;
+
+architecture BEHAV of ADD_32 is
+  signal c : bit_vector(0 to 32);
+ begin
+  c <=  ( (X(0 to 31) and Y(0 to 31)) or (X(0 to 31) and c(1 to 32))
+       or (Y(0 to 31) and c(1 to 32))  ) 		& cin;
+  z <=    X(0 to 31) xor Y(0 to 31) xor c(1 to 32);
+  cout <= c(0);
+  ovf  <= c(0) xor c(1);
+ end;
+

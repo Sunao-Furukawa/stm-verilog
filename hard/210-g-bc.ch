@@ -1,0 +1,36 @@
+# g-bc :
+# global FF's, whose effects are not limited to any single pipeline stages
+#
+
+# In the cycle where BC is being solved (i.e. cycle with SOLVING-BC),
+# G-BC-PENDING is turned off and G-BC-JUST-TAKEN/SOLVED is set.
+#
+# If D-cyc is issueing BC, the A- or E-cyc which sets CC for that BC 
+# is treated just as having SOLVING-BC.
+#
+
+GG-SOLVING-CASE-ON-E  =
+     E-FWD & (E-LS-SOLVING-BC | D-FWD & DD-ISSUEING-UNSOLVED-BC-ON-E-LS)
+GG-SOLVING-CASE-ON-A  =
+     A-FWD & (A-EX-SOLVING-BC | D-FWD & DD-ISSUEING-UNSOLVED-BC-ON-A-EX)    
+GG-SOLVING-CASE = GG-SOLVING-CASE-ON-E | GG-SOLVING-CASE-ON-A
+
+GG-MASK-FOR-BC	= (E-LS-SOLVING-BC | A-EX-SOLVING-BC) ? G-BC-MASK : IJB-RD-MASK
+GG-CC-FOR-BC	= (GG-SOLVING-CASE-ON-E ? EE-ALU-CC : AA-EXU-CC )
+
+GG-ISSUEING-CASE = D-FWD & DD-ISSUEING-UNSOLVED-BC
+
+
+
+G-BC-PENDING := WW-INTERRUPTION | GG-SOLVING-CASE ? 0 : GG-ISSUEING-CASE ? 1 : 
+							G-BC-PENDING
+G-BC-JUST-SOLVED := WW-INTERRUPTION ? 0 : GG-SOLVING-CASE ? 1 : 0
+
+G-BC-JUST-TAKEN  := WW-INTERRUPTION ? 0 : 
+		GG-SOLVING-CASE ? cc-match(GG-CC-FOR-BC , GG-MASK-FOR-BC) : 0
+
+G-BC-TKN-PREDICTED := 
+		GG-ISSUEING-CASE ? DD-PREDICTING-TAKEN : G-BC-TKN-PREDICTED
+
+G-BC-MASK := 	GG-ISSUEING-CASE ? IJB-RD-MASK         : G-BC-MASK
+

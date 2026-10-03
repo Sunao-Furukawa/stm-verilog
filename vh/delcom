@@ -1,0 +1,25 @@
+#!/bin/csh
+#
+# script to delete comment from *.ch.
+#
+# usage : 	% delcom < xxx.ch 		# output to 'tmp.vp'
+#	   or   % delcom   xxx.ch 		# output to '<basename>.ch.vp'
+#	   or   % delcom   a               	# hard/*.ch -> all.vp
+#
+if ( x$1 == x ) then
+ set src = ""
+ set tgt = "tmp.vp"
+else if ( $1 == "a" ) then
+ set src =  "../../hard/*.ch" 
+ set tgt = "all.vp"
+else
+ set src = $1
+ set tgt = "$1:t.vp"
+endif
+
+#echo "src=$src"
+
+cat $src  | sed -e 's/#[^dei].*$//' -e 's/-/_/g' > /tmp/delcom_mid
+cat $STMDIR/hard/{const,vdefs,fmt*}.h /tmp/delcom_mid | \
+	 /lib/cpp -DVHDL |sed -e '/^#/d' >$tgt
+

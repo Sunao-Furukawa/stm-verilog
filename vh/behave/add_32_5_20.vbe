@@ -1,0 +1,22 @@
+entity ADD_32_5_20 is port (
+        x   : in bit_vector(0 to 31);
+        y   : in bit_vector(0 to 5);
+        z   : in  bit_vector(0 to 19);
+        u   : out bit_vector(0 to 31)
+ ); end ADD_32_5_20;
+
+architecture BEHAV of ADD_32_5_20 is
+  signal c,cc : bit_vector(0 to 32);
+  signal xx,yy,zz: bit_vector(0 to 31);
+ begin
+  yy <= (X"FFFFFF" & B"11" & y) when y(0) else (X"000000" & B"00" & y) ;
+  c <=  ( (X(0 to 31) and yy(0 to 31)) or (X(0 to 31) and c(1 to 32))
+       or (yy(0 to 31) and c(1 to 32))  ) 		& '0';
+  xx <=    X(0 to 31) xor YY(0 to 31) xor c(1 to 32);
+
+  zz <= (X"FFF"         & z) when z(0) else (X"000"         & z) ;
+  cc <=  ( (xx(0 to 31) and zz(0 to 31)) or (xx(0 to 31) and cc(1 to 32))
+       or (zz(0 to 31) and cc(1 to 32))  ) 		& '0';
+  u  <=    xx(0 to 31) xor zz(0 to 31) xor cc(1 to 32);
+ end;
+

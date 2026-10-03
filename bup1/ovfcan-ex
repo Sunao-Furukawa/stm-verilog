@@ -1,0 +1,65 @@
+# test of cancelling by OVF exception in EX-pipe
+#
+USING   14,300
+USING_I 14,300
+#		main program starts here
+EQU 300
+main:
+X   0,0,0
+O   14,0,%500
+WSR 2,14	# set TBR  : trap routine starts at 500
+O   14,0,%4FC
+WSR  3,14	# set CMPR : access to 4FC causes CMP trap
+O   14,0,%300
+B   L1
+#
+EQU 4FC
+CMPAD:
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+EQU 400
+L1:
+#
+#	test program starts here
+#
+SETHI  8,%4888	# R8       = 4888
+ST   8,LDATA	# Mem(LDATA) = 4888
+O    7,0,%888	# R7       =  888
+A.c  5,0,%50	# CC       =  2 , R5 = 50
+ST   5,LPROT	# Mem(LPROT) = 50
+A    6,5,%10	# R6       = 60
+#
+O    3,0,0	# prolog
+#
+A  9,8,8	# OVF exception
+#
+# epilog : should never be executed
+S.c  6,0,%90	# CC       =  1 , R6 = -90
+ST   7,LPROT	# Mem(LPROT) = 888
+B    DEAD
+####################################
+EQU 980
+LPROT:
+EQU 984
+LDATA:
+#
+EQU 500
+#
+# Interrupt routine starts here
+#
+BNE   DEAD	# PSW-CC
+RSR   4,4	# XPSW-CC
+SRL   4,4,%1C
+C     4,%2
+BNE   DEAD	
+C     6,%60
+BNE   DEAD	
+C     5,LPROT
+BNE   DEAD	
+B     SUCCESS
+# test end

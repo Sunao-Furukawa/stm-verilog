@@ -1,0 +1,80 @@
+3 HARDWARE IMPLEMENTATION
+
+I owe much of the implementation ideas to other processors, especially
+the 2nd generation RISCs such as R4000, supersparc, PPC601 and alpha
+21064.  It is because most of the design decisions were made during 
+1993-1994.  I would like to incorporate good features of the 3rd
+generation RISCs into STM in the future.
+
+3-1 Pipeline
+
+Current implementation of STM has a 7-stage pipeline.
+
+	IA stage : Insn fetch address generation
+	IB 	 : Read I-cache
+	D	 : Insn dispatch/decode & register file(RF) read
+	A	 : Operand adrs generation / reg-reg operation
+	B	 : Read D-cache
+	E	 : Reg-mem operation
+	W	 : Write RF
+
+IA and IB stages constitute the "insn pipeline"; D-W stages the
+"execution pipeline".  The insn pipe and the exec pipe work async-
+ronously; the insn pipe writes the insn stream to the regs called
+IWQ (Insn Word Queue), and the exec pipe reads the insns from IWQ.
+
+The exec pipe consist of three components:
+
+	LS-pipe : handles load/store and mem-op insns
+	EX-pipe : handles reg- or immed-op insns and privileged insns
+	JB-pipe : handles control flow insns (branches)
+
+STM is 2-way superscalar; two insns (if possible) are fetched from IWQ
+in D stage and dispatched to the pipes corresponding to the insn.
+These two insns must be of different kind (use different pipes), or
+only one insn is dispatched.  Therefore, for better performance, the
+compiler should issue insns so that two succsessive insns are of
+different kind.  Also, the 2nd insn is not dispatched if the 1st is a
+branch insn.
+
+The functions of A, B, E and W stages are quite the same as other
+processors.  The diagram below shows the data flow.  It has two ALUs;
+one for LS-pipe and the other for EX-pipe.  Please note that EX-pipe
+(reg-op insn) does the execution in A-stage, while LS-pipe (mem-op)
+does it in E-stage.  The number of RF ports is 4 for read, 2 for write.
+
+
+[diagram here]
+
+
+
+
+The two insns which are simultaneously issued will go through the pipes
+in syncronism, i.e. no out-of-order execution.  The stages later than
+B in EX-pipe and JB-pipe have nothing to do in particular, but these
+stages are necessary because all the updates of the machine states are
+made in W stage, in order to support precise interruption.  Register
+renaming or reorder buffer are not necessary in this processor
+structure.
+
+Each stage has various 'tags' as well as the data.  Tags include the
+register address, operation code, validity bit of the stage, etc.
+These tags are passed from stage to stage, syncronously with the 
+progression of the pipeline.  The tags of stage X will be latched to
+stage X+1 if X does not stall nor get cancelled.  (Well, exactly speaking,
+there are some exceptions... for more details, RTFS.)
+
+All the data bypasses are done if ever possible, except for privileged
+insns.  If the result of a mem-op insn M is used by a following reg-op
+insn R, R can use the data in A stage when M is in W stage.  If M is 
+a mere (word-)load insn, the data is available when M is in E stage.
+Before the data becomes ready, R will stall in A stage.  
+
+A reg-op insn R' and a mem-op insn M' which uses the result of R' can
+be issued simultaneously without causing any interlock, because the
+result will be bypassed from EX-pipe to LS-pipe.
+
+When some data is (word-)stored to a memory location and then immediately
+(word-)loaded from the same location, the data will be bypassed
+from the store buffer, causing no interlock.
+

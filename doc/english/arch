@@ -1,0 +1,71 @@
+2 ARCHITECTURE
+
+The instruction set architecture of STM was designed from scratch;
+it has no compatibility for any existing CPUs.  Its basic ideas were
+taken from today's mainstream RISC architectures, such as MIPS, SPARC,
+Alpha and PowerPC, though some CICSy concepts from IBM370, VAX,
+68k and x86 were also taken into account.
+
+If the processor is to be implemented with FPGA, its size must be kept
+fairly small; say, less than 50K gates.  This requirement strongly
+influenced the architecture decision (as well as the implementation,
+as we will see later).
+
+Since STM is basically RISC, its architectural features are described
+here in terms of the differences from other existing RISCs.
+
+1) 16 GRs of 32-bit width
+
+Register files occupy a considerable amount of chip size in any
+processor.  Due to the size limitation, STM could not afford 32 GRs
+or 64-bit width, which many today's RISCs are equipped with.
+
+Simply reducing the number of GRs would cause a register allocation
+problem to a processor with load-store architecture.  To solve this
+problem, the next feature was introduced.
+
+2) Register-Memory Operation
+
+STM doesn't adopt load-store architecture; it supports 
+"Reg <- Reg <op> Mem" type of instructions that many CISCs have
+(herein called "mem-op instructions").  With mem-op insns, you
+don't have to load every operands into register, thus reducing
+the number of regs required.  Most CISCs have 16 GRs (x86 has 8),
+so I think 16 is enough.
+
+Mem-op insns do require some additional hardware (roughly one more
+ALU), but it is still considerably less than another 16 regs.
+
+Having smaller number of regs does have its merits other than size:
+	o  shorter access time,
+	o  less overhead for task switching,
+	o  fewer bit fields in insn format, etc.
+
+3) Has Condition Code
+
+STM has CC, like SPARC & PPC and unlike MIPS & alpha.  It just happend
+to be so:-); on second thought I might well have designed an arch
+without CC.  This point may be changed in the future.
+
+4) No Delayed Branch
+
+Historically, delayed branch was first introduced by 1st generation
+RISCs, mainly for hardware convenience.  However, this is by no means
+a nice thing from a software standpoint, and it is not as effective 
+in the era of superscalar as it was in the late 80's.  Some recent
+RISCs such as alpha do not adopt delayed branch.  Neither does STM.
+
+5) No FPU
+
+Right now, I have PC-type applications in mind as possible usage of
+STM (though it may extend to broader fields in the future).  I don't
+see keen necessity for FPU now.  Besides, there's the size problem
+again.  I may consider FPU implementation in the future.
+
+6) Big Endian
+
+It just happend to be so; sorry, DEC and intel folks:-)  It's just
+I'm more used to big-endian archs.
+
+
+Details of STM arch are described in Appendix A.

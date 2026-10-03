@@ -1,0 +1,37 @@
+#!/bin/csh
+unset noclobber
+if ( ! -d $STMDIR ) then
+  echo "directory $STMDIR not exist" ; exit 12
+endif
+cd $STMDIR
+set WORKDIR = $STMDIR/work
+set HARDDIR = $STMDIR/hard
+set SOFTDIR = $STMDIR/soft
+if ( ! -d $WORKDIR ) then
+  echo "directory $WORKDIR not exist" ; exit 12
+endif
+if ( ! -d $HARDDIR ) then
+  echo "directory $HARDDIR not exist" ; exit 12
+endif
+if ( ! -d $SOFTDIR ) then
+  echo "directory $SOFTDIR not exist" ; exit 12
+endif
+set TMP  = $WORKDIR/chdl
+set CCHPERL = $SOFTDIR/perlcmd1
+set OUT  = $WORKDIR/cchdl.c
+set AOUT = $WORKDIR/stmsiml
+
+pushd $HARDDIR
+cat *.ch  > $TMP
+
+cat  const.h defs.h exu.h fmt-ls-ex.h fmt-jb.h $SOFTDIR/head.c	  >   $OUT
+cd $SOFTDIR
+echo "perl begin ..." 
+$CCHPERL  < $TMP 					>> $OUT
+echo " }  /* end loop */" 				>> $OUT
+echo "}  /* end main */" 				>> $OUT
+
+cd $WORKDIR
+echo "compile begin ..." 
+cc -g -o $AOUT $OUT 
+popd

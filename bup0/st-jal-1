@@ -1,0 +1,48 @@
+# simple test of ST,JAL
+USING   14,304
+USING_I 12,308
+#
+EQU 100
+DEAD:
+DD000000
+EQU 200
+D1:
+00000003
+D2:
+00000007
+D3:
+00000320
+#
+EQU 300
+main:
+BAL 14,%4
+BAL 12,%4
+X   10,10,10
+O   10,10,%4
+A   13,10,D1
+C   13,D2
+BNE  DEAD
+JAL 4,L3  
+# R4 <- 320
+EQU 150
+L3:
+ST  13,D1
+C    3,2
+C    3,2
+C    3,2
+C    3,2
+C    3,2
+C    3,2
+L    1,D1
+C   13,1
+BNE DEAD
+C    4,D3
+BG  DEAD
+BE   L4
+B   DEAD
+EQU 700
+L4:
+B   L9  
+EQU 3f0
+L9:
+DF000000

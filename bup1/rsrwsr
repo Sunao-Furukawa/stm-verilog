@@ -1,0 +1,67 @@
+# Read/write System Registers test
+# Header start
+#
+USING   14,300
+USING_I 14,300
+EQU 300
+main:
+X   0,0,0
+O   14,0,%300
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+# Header end
+#
+EQU 400
+#N = 8 (# of cases)
+#BLK = 0x40 (16 insns)
+L1:
+O    4,0,%6
+O    5,0,%7
+O    6,0,%8
+O    7,0,%9
+O    8,0,%10
+SETHI 9,%0002
+O   10,0,%12
+O   11,0,%13
+WSR  2,4
+WSR  3,5
+WSR  4,6
+WSR  5,7
+WSR  6,8
+WSR  0,9
+WSR  8,10
+WSR  9,11
+RSR  8,2
+RSR  9,3
+RSR 10,4
+RSR 11,5
+RSR 12,6
+RSR 13,0
+RSR 14,8
+RSR 15,9
+C    8,%6
+BNE DEAD
+C    9,%7
+BNE DEAD
+C   10,%8
+BNE DEAD
+C   11,%9
+BNE DEAD
+C   12,%10
+BNE DEAD
+SETHI 1,%0002
+C   13,1
+BNE DEAD
+C   14,%12
+BNE DEAD
+C   15,%13
+BNE DEAD
+B   SUCCESS
+

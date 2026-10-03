@@ -1,0 +1,201 @@
+%start prog
+%token ASSI EQ NE SYM CONST AND OR NOT XOR PAR MAC TRIAD BITRANGE ONEBIT 
+%token BITFIELD CAT
+%%
+atom	:	SYM	{ lists[i].kind = SYM ;
+			  /*lists[i].op1  = prev_sym ? prev_lval : yylval ;*/
+			  lists[i].op1  = now_sym&prev_sym ? prev_lval : yylval;
+			  /*lists[i].op1  = yylval ;*/
+			  lists[i].leng = symtab[lists[i].op1].leng ;
+			  $$ = i++ ; }
+	|	CONST	
+			{ lists[i].kind = CONST ;
+			  lists[i].leng = constleng ;
+			  lists[i].op1  = yylval ;
+			  $$ = i++ ; }
+	|	'(' bool ')'   
+			{ lists[i].kind = PAR   ;
+			  lists[i].op1  = $2 ;
+                          lists[i].leng = lists[$2].leng ;
+			  $$ = i++ ; }
+	|	SYM '(' arglist ')'
+			{ lists[i].kind = MAC ;
+			  $$ = i++ ; }
+	|	SYM 		{ $$ = yylval ; }
+		    '[' bitfield ']'
+			{ lists[i].kind = BITFIELD ;
+			  lists[i].op1  = $2 ;
+			  lists[i].op2  = $4 ;
+                          lists[i].leng = lists[$4].leng ;
+			  $$ = i++ ; }
+	;
+
+bitfield :	CONST	{ lists[i].kind = ONEBIT ;
+                          /*lists[i].op1  = $1 ;*/
+                          lists[i].op1  = yylval ;
+                          lists[i].leng  = 1 ;
+                          $$ = i++ ; }
+	|	CONST 	{ $$ = yylval ; }
+		      ':' CONST
+			{ lists[i].kind = BITRANGE ;
+                        /*  lists[i].op1  = $1 ;
+                          lists[i].op2  = $3 ;
+                          lists[i].leng = $3 ;*/
+                          lists[i].op1  = $2 ;
+                          lists[i].op2  = yylval ;
+                          lists[i].leng = yylval ;
+                          $$ = i++ ; }
+	;
+
+arglist	:	SYM
+	|	arglist ',' SYM
+	;
+elem	: 	atom	{ $$ = $1 ; }
+	|	'!' atom
+			{ lists[i].kind = NOT ;
+			  lists[i].op1  = $2 ;
+			  lists[i].leng = lists[$2].leng ;
+			  $$ = i++ ; }
+	;
+
+term	: 	elem	{ $$ = $1 ; }
+	|	term '&' elem
+			{ lists[i].kind = AND ;
+			  lists[i].op1  = $1 ; lists[i].op2  = $3 ;
+			  lists[i].leng = chkleng($1,$3) ;
+			  $$ = i++ ; }
+	;
+
+xterm	: 	term	{ $$ = $1 ; }
+	|	xterm '^' term
+			{ lists[i].kind = XOR ;
+			  lists[i].op1  = $1 ; lists[i].op2  = $3 ;
+			  lists[i].leng = chkleng($1,$3) ;
+			  $$ = i++ ; }
+	;
+
+expr	: 	xterm	{ $$ = $1 ; }
+	|	expr '|' xterm
+			{ lists[i].kind = OR  ;
+			  lists[i].op1  = $1 ; lists[i].op2  = $3 ;
+			  lists[i].leng = chkleng($1,$3) ;
+			  $$ = i++ ;
+			}
+	;
+
+cat 	: 	expr 	{ $$ = $1 ; }
+	|	cat  '.' expr 
+			{ lists[i].kind = CAT ;
+			  lists[i].op1  = $1 ; lists[i].op2  = $3 ;
+			  lists[i].leng = addleng($1,$3) ;
+			  $$ = i++ ;
+			}
+	;
+
+cmp_op	:	EQ	{ $$ = EQ ; }
+	|	NE	{ $$ = NE ; }
+	;
+bool	: 	cat 	{ $$ = $1 ; }
+	|	atom cmp_op atom
+			{ lists[i].kind = $2  ;
+			  lists[i].op1  = $1 ; lists[i].op2  = $3 ;
+			  chkleng($1,$3) ; /* just to report diffrent length */
+			  lists[i].leng = 1;
+			  if (lists[$1].kind != SYM) 
+				printf("ERROR : BAD COMPARE\n");
+			  if (lists[$3].kind != SYM && lists[$3].kind != CONST) 
+				printf("ERROR : BAD COMPARE(2)\n");
+			  $$ = i++ ;
+			}
+	;
+
+triad	: 	bool		{ $$ = $1 ; }
+	|	 true_triad 	{ $$ = $1 ; }
+	|	'(' true_triad ')'	{ $$ = $2 ; }
+	;
+true_triad :	bool '?' bool ':' triad
+			{ lists[i].kind = TRIAD  ;
+			  lists[i].op1  = $1 ; lists[i].op2  = $3 ;
+			  lists[i].op3  = $5 ;
+			  lists[i].leng = chkleng3($3,$5) ;
+			  if (lists[$1].leng != 1) 
+				printf("ERROR : NOT BOOLEAN\n");
+			  $$ = i++ ;
+			}
+	;
+
+assign_op	:	'='  { $$ = '=' ; }
+		|	ASSI { $$ = ASSI ; }
+		;
+stat	:	SYM 
+			{ $$ = yylval ; }
+		     assign_op triad
+			{ chkleng2($2,$4);
+			  symtab[$2].src = $4 ;
+			  if ((symtab[$2].kind == K_FF)^($3 == ASSI))
+				printf("ERROR : INVALID FF ASSIGN\n");
+			  stats[statcount++] = $$ = $2 ;
+			}
+	;
+
+prog	:	list		{ printf("syntax ok; MAXLIST=%d\n",i); }
+	;
+list	:	stat		{ printf("%s end\n",symtab[$1].name);}
+	|	list stat 	{ printf("%s end\n",symtab[$2].name);}
+	;
+%%
+int i = 2 ; 
+
+int prev_lval,now_sym,prev_sym = 0,constleng;
+char tmpstr[20];
+int statcount = 0 ; 
+int stats[1000];
+
+#define MAXLIS 10000
+struct list { int kind,op1,op2,op3,leng ; } lists[MAXLIS] ;
+#include "lex.yy.c"
+#define K_FF 1
+
+int chkleng(x,y) int x,y; {
+  if (lists[x].kind == CONST && lists[y].kind == CONST) {
+	printf("ERROR : Both CONST!\n");
+	lists[x].leng = lists[y].leng = -1;
+   }
+  else if (lists[x].kind == CONST) lists[x].leng = lists[y].leng ;
+  else if (lists[y].kind == CONST) lists[y].leng = lists[x].leng ;
+  else if (lists[x].leng != lists[y].leng) 
+		printf("ERROR : Assign different length!\n");
+  return( lists[x].leng );
+}
+
+int addleng(x,y) int x,y; {
+  if (lists[x].leng == -1    || lists[y].leng == -1   ) {
+	printf("ERROR : Catinating CONST!\n");
+   }
+  return( lists[x].leng + lists[y].leng );
+}
+
+int chkleng2(x,y) int x,y; { struct list *p; p = &lists[y];
+  if (p->leng == -1) {
+	p->leng = symtab[x].leng ;
+	if ((unsigned)p->op1 < MAXLIS) lists[p->op1].leng = p->leng ;
+	if ((unsigned)p->op2 < MAXLIS) lists[p->op2].leng = p->leng ;
+	if ((unsigned)p->op3 < MAXLIS) lists[p->op3].leng = p->leng ;
+   }
+  else if (symtab[x].leng != lists[y].leng) 
+		printf("ERROR : Assign difr. leng(2)!\n");
+  return( symtab[x].leng );
+}
+
+int chkleng3(x,y) int x,y; {
+  if (lists[x].kind == CONST && lists[y].kind == CONST) {
+	lists[x].leng = lists[y].leng = -1;
+   }
+  else if (lists[x].kind == CONST) lists[x].leng = lists[y].leng ;
+  else if (lists[y].kind == CONST) lists[y].leng = lists[x].leng ;
+  else if (lists[x].leng != lists[y].leng) 
+		printf("WARNING : Assign different length(3)\n");
+  return( lists[x].leng );
+}
+
+int yyerror() { printf("Syntax ERROR\n"); }

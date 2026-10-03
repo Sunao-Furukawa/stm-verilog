@@ -1,0 +1,40 @@
+# simple RFE insn test
+#
+# Header start
+#
+USING   14,300
+USING_I 14,300
+EQU 300
+main:
+X   0,0,0
+O   14,0,%300
+B   L1
+#
+EQU 3D0
+DEAD:
+DD000000
+EQU 3F0
+SUCCESS:
+DF000000
+#
+EQU 400
+L1:
+#
+# Header end
+#
+## set XPSW and XPC
+SETHI 14,%3002
+O   	15,0,%600
+WSR	4,14
+WSR 	5,15
+RFE
+B	DEAD
+#
+# RFE will jump to here
+# Check PSW
+EQU 600
+RSR 	8,0
+C	8,14
+BNE 	DEAD
+B	SUCCESS
+
