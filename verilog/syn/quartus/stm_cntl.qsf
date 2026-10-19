@@ -9,7 +9,7 @@
 #
 #  Device: Cyclone IV E EP4CE115F29C7 (as on the DE2-115 board).
 #  stm_cntl brings every register-file / memory signal out to pins
-#  (480 pins), so a large-package device is used. Change FAMILY / DEVICE
+#  (484 pins), so a large-package device is used. Change FAMILY / DEVICE
 #  to target another device. See ../README.md for details.
 # =====================================================================
 set_global_assignment -name FAMILY "Cyclone IV E"

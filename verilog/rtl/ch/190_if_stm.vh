@@ -23,6 +23,11 @@
 assign IB_V_NEW = IF_REQ_V & SU_IF_RDY ? 1 :   SU_IF_CLH | CANCEL_IB ? 0 : IB_V;
 assign IB_AD_NEW = IF_REQ_V & SU_IF_RDY ? IF_REQ_AD : IB_AD;
 assign IB_ID_NEW = IF_REQ_V & SU_IF_RDY ? IF_REQ_ID : IB_ID;
+// 【解説】(Verilog 版で追加) 外部バス用: 新しいフェッチ要求を出した印と IB_V。
+//         START_TRIGGER では IB_V=1 のまま次の要求に入れ替わることがあるので、
+//         IB_V だけでは要求の切れ目が分からない。
+assign IB_NEW_NEW = IF_REQ_V & SU_IF_RDY;
+assign IB_VALID   = IB_V;
 
 // CUR-ID         -- Change if (BC-issue & predict TKN) | (just after BC-cancel)
 

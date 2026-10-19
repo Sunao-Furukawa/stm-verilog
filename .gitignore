@@ -22,3 +22,4 @@ output_files/
 *.log
 *.dcp
 verilog/syn/vivado/reports/
+verilog/syn/vivado/reports_axi/

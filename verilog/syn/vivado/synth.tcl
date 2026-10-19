@@ -8,7 +8,7 @@
 #      vivado -mode batch -source synth.tcl -tclargs xc7a35tcpg236-1
 #
 #  Only the CPU core (stm_cntl) is synthesized, in out-of-context mode
-#  (no I/O buffers are inserted), because stm_cntl has 480 ports that
+#  (no I/O buffers are inserted), because stm_cntl has 484 ports that
 #  connect to the register file and memory. Reports are written to
 #  ./reports and the checkpoint to ./stm_cntl_synth.dcp.
 # =====================================================================

@@ -85,10 +85,32 @@ assign OP_B_INTCODE = (OP_B_V & ((OP_B_OPC == SU_OPC_LD)|(OP_B_OPC == SU_OPC_ST)
 //           ・乱数 (キャッシュミス模擬が無効なら常に 1)
 //           ・STB や E のストアが同じアドレスを持っている (ラインを確保中なのでミスしない)
 //           ・割り込みが出た (データは使わないので待たない)
+// ---- EXT_BUS=0 : 元の式 ----
+// B-OPCLH = OP-B-V & ((OP-B-OPC==SU-OPC-LD)|(OP-B-OPC==SU-OPC-ST))
+//    & ( RANDOM-FOR-OPCLH | (STB-V & (LBS-AD == STB-AD))
+//       | (E-LS-ST-V & E-OPCLH-LCH & (LBS-AD == E-LS-LOG-AD))
+//       | (OP-B-INTCODE != 0)  )
+// ---- EXT_BUS=1 : Verilog 版で追加 ----
+// 【解説】外部バスでは RANDOM_FOR_OPCLH は「バスの読み出しが終わった」の意味になる。
+//         STB / E のストアと同じ番地なら、バスを待たずにそのストアのデータを
+//         使ってヒット扱いにする (ストア→ロードのフォワーディング, OP_LBS_DATA)。
+//         元の式もこの 2 条件でヒットにしていたが、データはメモリの値
+//         (MEM_DT_OP) を使い、ロードについては B サイクルのバイパス
+//         (100_b_dat.vh の BB_MEM_DATA) で補っていた。外部バスでは要求が
+//         OP-B で何サイクルも待つので、命令が B にいるとは限らず、B サイクルの
+//         バイパスでは間に合わない。そこで OP-B の番地 (LBS_AD) で直接選ぶ。
+assign OP_FWD_E   = E_LS_ST_V & E_OPCLH_LCH & (LBS_AD == E_LS_LOG_AD);
+assign OP_FWD_STB = STB_V & (LBS_AD == STB_AD);
 assign B_OPCLH = OP_B_V & ((OP_B_OPC==SU_OPC_LD)|(OP_B_OPC==SU_OPC_ST))
-	   & ( RANDOM_FOR_OPCLH | (STB_V & (LBS_AD == STB_AD))
-	      | (E_LS_ST_V & E_OPCLH_LCH & (LBS_AD == E_LS_LOG_AD))
+	   & ( RANDOM_FOR_OPCLH | OP_FWD_STB | OP_FWD_E
 	      | (OP_B_INTCODE != 0)  );
+// 【解説】OP-B の要求にバスアクセスが要るか (stm_axi_master へ)。
+//         ST2 は書き込み, LD/ST は読み出し。フォワーディングで済む場合,
+//         アドレス比較割り込みの場合, 取り消された場合は要らない。
+assign OP_B_BUSREQ = OP_B_V_NOCAN
+	   & ( (OP_B_OPC == SU_OPC_ST2)
+	     | ((OP_B_OPC==SU_OPC_LD)|(OP_B_OPC==SU_OPC_ST))
+	       & !OP_FWD_STB & !OP_FWD_E & (OP_B_INTCODE == 0) );
 // 【解説】S ユニットが新しい要求を受け付けられるか (待ち行列 OP-WAIT が空き)。
 assign SU_OP_RDY = !OP_WAIT_V;
 assign SU_ST_RDY = !OP_WAIT_V;
@@ -100,4 +122,9 @@ assign SU_ST_RDY = !OP_WAIT_V;
 //# Lvl-1. Do DAT later!!
 
 // 【解説】キャッシュから読んだデータ。ミス時は目印のダミー値 0xdead0a0a。
-assign OP_LBS_DATA =  (B_OPCLH ? MEM_DT_OP : 32'hdead0a0a);
+// 【解説】EXT_BUS=1 では上で説明したフォワーディングもここで行う
+//         (E のストアの方が STB より新しいので優先)。
+assign OP_LBS_DATA =  !B_OPCLH ? 32'hdead0a0a :
+		 !EXT_BUS   ? MEM_DT_OP     :
+		 OP_FWD_E   ? EE_ALU_OUTPUT :
+		 OP_FWD_STB ? STB_DT        : MEM_DT_OP;

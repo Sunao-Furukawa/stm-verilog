@@ -17,7 +17,9 @@
 // B-LS-LOG-AD should be later replaced by LBS-AD, when DAT is implemented.
 
 // 【解説】OP-B の要求が終わる (ST2 は 1 サイクルで終わる, L/ST はキャッシュヒットで終わる)。
-assign OP_B_FORWARDING = (OP_B_OPC == SU_OPC_ST2) | B_OPCLH;
+//         EXT_BUS=1 では ST2 もバスの書き込み完了 (RANDOM_FOR_OPCLH) を待つ。
+assign OP_B_FORWARDING = (OP_B_OPC == SU_OPC_ST2) & (!EXT_BUS | RANDOM_FOR_OPCLH)
+		| B_OPCLH;
 // 【解説】このサイクルに受け付ける要求 (A からの L/ST か, STB からの ST2) の種類と番地。
 assign GO_SU = AA_LD_GO|WW_ST_GO;
 
@@ -66,3 +68,7 @@ assign OP_B_SUBJECT_TO_BC_NEW =
 	    OP_B_STAYS ? OP_B_SUBJECT_TO_BC & !G_BC_JUST_SOLVED    :
 	    OP_B_SHIFT ? OP_WAIT_SUBJECT_TO_BC & !G_BC_JUST_SOLVED :
 			 AA_LD_GO & A_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED;
+
+// 【解説】(Verilog 版で追加) OP-B に新しい要求が入る (留まる以外で有効になる)。
+//         stm_axi_master はこれで要求の切れ目を知る。
+assign OP_B_NEW_NEW = OP_B_V_NEW & !OP_B_STAYS;

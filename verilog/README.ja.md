@@ -38,16 +38,23 @@ verilog/
 │   ├── ch/010_d_pre.vh … 210_g_bc.vh   <- hard/*.ch を 1 ファイルずつ変換
 │   ├── stm_regfile.v     <- 045-g-ram.ch の GR[]  (汎用レジスタ 16 本)
 │   ├── stm_memory.v      <- 045-g-ram.ch の Mem[] (シミュレーション用メモリ)
-│   └── stm_sys.v         全体を接続するトップ (VHDL 版 vh/behave/sys.vst 相当)
+│   ├── stm_sys.v         全体を接続するトップ (VHDL 版 vh/behave/sys.vst 相当)
+│   ├── stm_axi_master.v  stm_cntl のメモリ要求 → AXI4 マスタ (8 章)
+│   └── stm_axi_top.v     AXI4 マスタ・ポートを持つ CPU (stm_cntl + stm_regfile + stm_axi_master)
 ├── syn/                  論理合成用の設定 (Quartus / Vivado, syn/README.ja.md 参照)
-├── tb/tb_stm.v           テストベンチ
+├── tb/
+│   ├── tb_stm.v          テストベンチ
+│   ├── tb_stm_axi.v      stm_axi_top のテストベンチ
+│   └── axi4_mem_slave.v  AXI4 スレーブ (メモリ) モデル (乱数ウェイト・順序入れ替え, 規則違反の検査)
 ├── tools/
 │   ├── asm.py            アセンブラ (soft/asm.pl の Python 移植版。通常はこちらを使う)
 │   ├── asm64.pl          soft/asm.pl の 64bit perl 対応版 (参考用)
 │   ├── mem2hex.py        mem.dat → $readmemh 形式
 │   └── form_cmp.dat      C 版との比較用の表示フォーマット
 ├── run_bup.ps1           bup0/bup1 回帰テスト一式 (Windows PowerShell 用)
-└── run_bup.sh            同じもの (sh / Git Bash 用)
+├── run_bup.sh            同じもの (sh / Git Bash 用)
+├── run_bup_axi.ps1       AXI4 版の回帰テスト一式 (Windows PowerShell 用)
+└── run_bup_axi.sh        同じもの (sh / Git Bash 用)
 ```
 
 ## 3. 変換のルール
@@ -170,3 +177,110 @@ vvp sim.vvp +HEX=mem.hex +PC=300 +CYCLES=200 +TRACE
 * アセンブラの出力は `-o` でファイルに書いてください。PowerShell 5 の `>` は UTF-16 で
   保存されます (`mem2hex.py` は UTF-16 も読めるようにしてありますが、`-o` が確実です)。
 * `+RANDOM` (+`SEED=n`) でキャッシュミス模擬、`+CTRACE` で C 版の `siml.res` と同じ形式で出力します。
+
+## 8. AXI4 マスタ版 (`stm_axi_top`)
+
+`stm_axi_top` は、CPU 本体とレジスタファイルに `stm_memory` の代わりに **AXI4 マスタ** の
+ポートを 1 つ付けた、CPU 一式です。命令もデータもこのポートからアクセスします。
+
+```
+ stm_cntl (EXT_BUS=1) --LBS_*, IB_AD--> stm_axi_master <==AXI4 (データ 32bit)==> m_axi_*
+      ^  |                                                (インタコネクト / メモリ)
+      |  v GR
+ stm_regfile
+```
+
+| ポート | 内容 |
+|---|---|
+| `aclk`, `aresetn` | クロック, リセット (0 でリセット。同期リセットとして扱うので `aclk` に同期して解除すること) |
+| `RESET_PC` | リセット後の開始番地 |
+| `m_axi_aw*`, `w*`, `b*`, `ar*`, `r*` | AXI4 マスタ (データ 32bit, アドレス 32bit, ID は `ID_W` ビット。`*USER`/`*REGION` は無し) |
+| `PC`, `bus_error` | 観測用: 現在の PC / SLVERR・DECERR 応答があったら 1 (sticky) |
+
+パラメータ: `ID_W` (4), `IF_ID` (0), `OP_ID` (1), `BYTE_SWAP` (0, 後述)。
+
+### バスに出るアクセス
+
+| アクセス | チャネル | バースト |
+|---|---|---|
+| 命令フェッチ (8 バイト = 2 命令) | AR/R, `ARID=IF_ID`, `ARPROT=3'b100` (命令) | `ARLEN=1`, `ARSIZE=2`, INCR, 8 バイト境界 |
+| ロード, ストアの B サイクルの読み出し | AR/R, `ARID=OP_ID`, `ARPROT=3'b000` | 1 ビート, 4 バイト境界 |
+| ストア (ストアバッファからの ST2) | AW/W/B, `AWID=OP_ID` | 1 ビート, `WSTRB=4'hf` |
+
+* バスに出るのは 32bit の語アクセスだけです。サブワードのストアは CPU 内部で語に
+  組み立ててから ST2 で書きます。
+* 命令側とオペランド側はそれぞれ 1 トランザクションまで同時に出せます。AR チャネルは共用で、
+  オペランド側を優先します (ARVALID を出したら ARREADY まで相手は変えません)。
+  R のビートは RID で振り分けるので、応答が順不同・インタリーブで返ってきても構いません。
+* オペランド側は 1 要求ずつ、R のデータ / B の応答を待ってから次へ進むので、ロードと
+  ストアはプログラム順にバスへ出ます。ストアは B 応答が返って初めて完了扱いです。
+* `AxCACHE=4'b0011` (normal, non-cacheable, bufferable), `AxLOCK=0`, `AxQOS=0`。
+  `RREADY` と `BREADY` は常に 1。
+* 応答はいったんレジスタで受けてから CPU に渡すので、AXI の入力から `stm_cntl` への
+  組合せ回路はありません。
+
+### CPU 本体の変更 (`stm_cntl` のパラメータ `EXT_BUS`)
+
+CPU にはもともとキャッシュミス用のハンドシェーク (`RANDOM_FOR_OPCLH/IFRDY/IFCLH`) があるので、
+AXI4 版ではこれを「バスのデータが届いた」合図として使います。既定の `EXT_BUS=0` では
+動作は以前とまったく同じです (128/128 の回帰テスト, C 版とのサイクル一致もそのまま)。
+`stm_axi_top` は `EXT_BUS=1` にしていて、変わるのは次の 3 点です。
+
+1. **ST2 がバスを待つ**: 元は ST2 は必ず 1 サイクルで終わったが、書き込みが完了するまで
+   OP-B に留まるようにした (160-op-lb2 の `OP_B_FORWARDING`)。
+2. **OP-B の番地によるストア→ロードのフォワーディング**: 元は、STB や E のストアが同じ番地を
+   持っていればロードをヒット扱いにし、データは B サイクルのバイパス (`BB_MEM_DATA`) で
+   補っていた。バスでは要求が OP-B で何サイクルも待つことがあり、そのころには命令がもう
+   B にいないので、`LBS_AD` で直接データを選ぶようにした (050-op-lb1 の `OP_LBS_DATA`)。
+   ストアの B サイクルの読み出しも同様。
+3. **出力の追加**: 要求の切れ目とバスアクセスの要否をブリッジに知らせる
+   `IB_VALID`, `IB_NEW`, `OP_B_NEW`, `OP_B_BUSREQ`。`stm_sys` では未接続。
+
+AXI トランザクションを出した後に CPU が要求を取り消した場合 (分岐予測ミス, 割り込み) は、
+`stm_axi_master` がトランザクションを最後まで受け取ってから結果を捨てます。
+
+### 注意点
+
+* **キャッシュは無い**: 命令フェッチもメモリオペランドも毎回バスに出ます。bup の 64 本では、
+  ウェイト無しのスレーブで遅延 0 の `stm_memory` の約 2.9 倍、乱数ウェイトのスレーブで
+  約 6 倍のサイクル数でした。
+* **投機的な読み出し**: 予測ミスした側のロードが取り消される前にバスへ出ることがあります
+  (元の設計でもメモリは投機的に読まれていた)。読むと状態が変わるデバイスは、そうした
+  ロードが届く番地に置かないでください。
+* **自己書き換えコードには対応していません**: 命令フェッチとストアの順序は保証しません。
+* **バスエラー** は `bus_error` を立てるだけです。CPU にバスエラー例外はありません。
+* **バイト順**: STM はビッグエンディアン (番地 4n のバイトが語の最上位)。`BYTE_SWAP=0` では
+  CPU の語をそのままバスに載せるので、`$readmemh` の語イメージがそのまま使えます。
+  `BYTE_SWAP=1` ではバイトを入れ替え、番地 4n+k のバイトを `xDATA[8k+7:8k]` に置きます
+  (AXI の通常のバイトレーンの約束)。リトルエンディアンのマスタや周辺装置とバイト単位で
+  メモリを共有する場合はこちらを使います。
+
+### 検証
+
+* `iverilog -g2001 -Wall` で警告なしにコンパイルできることを確認。
+* `run_bup_axi.ps1` / `run_bup_axi.sh` で bup0/bup1 の全 64 本を 3 通り
+  (ウェイト無しのスレーブ / 乱数ウェイト + 読み出し応答の順序入れ替え・インタリーブ /
+  同じく `BYTE_SWAP=1`) で実行し、192/192 が SUCCESS で終了。
+* 追加のストレステスト: 全 64 本 × 乱数スレーブの種 30 通り = 1920/1920 成功。
+* `tb/axi4_mem_slave.v` が毎サイクル、マスタの AXI の規則 (READY まで VALID と内容を保持,
+  WLAST とバースト長の一致, 4KB 境界をまたがない, サイズがバス幅以下) を検査し、違反があれば
+  テストベンチが `AXIERR` を出します。違反はありませんでした。
+
+### 使い方
+
+```powershell
+powershell -ExecutionPolicy Bypass -File run_bup_axi.ps1   # Windows PowerShell
+sh run_bup_axi.sh                                          # sh / Git Bash
+```
+
+1 本だけ動かす場合:
+
+```powershell
+python tools/asm.py ../samples/tst.s 200 -o mem.dat
+python tools/mem2hex.py mem.dat mem.hex
+iverilog -g2001 -I rtl -o axi.vvp tb/tb_stm_axi.v tb/axi4_mem_slave.v rtl/stm_axi_top.v rtl/stm_axi_master.v rtl/stm_cntl.v rtl/stm_exu.v rtl/stm_regfile.v
+vvp axi.vvp +HEX=mem.hex +PC=300 +CYCLES=4000 +RANDOM +SEED=5 +TRACE
+```
+
+`+RANDOM` でスレーブの乱数ウェイト・順序入れ替え、`+VCD` で `tb_stm_axi.vcd` に波形を出力、
+`iverilog` に `-P tb_stm_axi.BYTE_SWAP=1` を付けるとバイトレーン入れ替え版になります。
