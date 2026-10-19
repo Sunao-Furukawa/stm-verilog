@@ -80,6 +80,12 @@ def assemble(lines, cycles):
         elif re.search(r"^(([ASC]U?|[NOX]|S[RL][AL]?)(.c)?|(L|ST)(.[bh])?"
                        r"|B(|AL|GE?|E|LE?|NE)|JA?L?)\s", line):
             ad += 4
+        # 元の asm.pl は SETHI / RSR / WSR / RFE を 1 パス目で数えておらず,
+        # その後ろ (次の EQU まで) のラベルの番地がずれていた。ここで数える。
+        # bup0/bup1/samples などの既存ファイルでは出力は変わらない。
+        # SVC は Verilog 版で追加した命令 (下の 2 パス目を参照)。
+        elif re.search(r"^(SETHI|[RW]SR|RFE|SVC)\s", line):
+            ad += 4
         elif re.search(r"USING", line):
             pass
         elif re.search(r"^([0-9A-Fa-f]+$)", line):
@@ -105,8 +111,15 @@ def assemble(lines, cycles):
             m = re.search(p, line)
             return m
 
+        # SVC n (Verilog 版で追加): 未定義命令 E00000nn を置く。実行すると違法命令
+        # 例外になるので, OS はこれをシステムコールに使う (n は 16 進, 0〜FF)
+        if s(r"^SVC\s+([0-9A-Fa-f]+)\s*$"):
+            n = int(m.group(1), 16)
+            if n > 0xff:
+                raise AsmError("SVC number %s is bad" % m.group(1))
+            out.append("E00000%2.2x\n" % n)
         # 特権命令
-        if s(r"([RW])SR\s+(\d+)\s*,\s*(\d+)"):          # RSR 3,14 -> C230E000
+        elif s(r"([RW])SR\s+(\d+)\s*,\s*(\d+)"):        # RSR 3,14 -> C230E000
             out.append("C2" if m.group(1) == "R" else "C3")
             out.append("%x0%x000\n" % (num(m.group(2)), num(m.group(3))))
         elif s(r"RFE"):

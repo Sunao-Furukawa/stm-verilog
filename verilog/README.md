@@ -50,8 +50,9 @@ verilog/
 │   └── axi4_mem_slave.v  AXI4 slave memory model (random waits / reordering, protocol checks)
 ├── bench/loop.s          loop benchmark (shows the effect of the instruction cache)
 ├── tests/                tests for the AXI4 version (I/O region, bus-error exceptions; section 8)
+├── rtos/                 a small real-time OS (rtos.s) and a checker; see rtos/README.md
 ├── tools/
-│   ├── asm.py            assembler (Python port of soft/asm.pl; use this one normally)
+│   ├── asm.py            assembler (Python port of soft/asm.pl; use this one normally; adds SVC)
 │   ├── asm64.pl          soft/asm.pl fixed for 64-bit Perl (for reference)
 │   ├── mem2hex.py        mem.dat → $readmemh format
 │   └── form_cmp.dat      display format used to compare against the C version
@@ -156,6 +157,8 @@ contains Japanese characters with an error like
 `Can't open perl script ...: No mapping for the Unicode character exists in the target multi-byte code page.`
 For this reason the assembler was ported to Python as `tools/asm.py`, which is used by default.
 It produces the same output as `asm64.pl` for all 67 files in bup0/bup1/samples.
+Later, an `SVC` instruction was added for the RTOS ([rtos/](rtos/README.md)), and a bug where pass 1
+did not count `SETHI`/`RSR`/`WSR`/`RFE` was fixed (the output for existing files is unchanged).
 
 ## 6. Verification
 
@@ -384,8 +387,8 @@ misses, so they gain less.
   | `load_err.s` / `store_err.s` | error response → exception code 3 with the right XPC and XLA; destination register / memory unchanged |
   | `fetch_io.s` / `fetch_err.s` | jumping into the I/O region / to an address that returns an error → illegal-instruction exception with XPC = that address |
 
-  `run_bup_axi.*` runs them (and `bench/loop.s`) in all five configurations together with the bup
-  programs: 350/350 pass. With the I/O protection switched off (`IO_EN=0`), `io_order.s` fails
+  `run_bup_axi.*` runs them (and `bench/loop.s` and the RTOS `rtos/rtos.s`) in all five configurations
+  together with the bup programs: 355/355 pass. With the I/O protection switched off (`IO_EN=0`), `io_order.s` fails
   (the device is read twice on the mispredicted path), so the test does detect the problem.
 * `tb/axi4_mem_slave.v` checks the master's protocol on every cycle (VALID held until READY with
   stable payload, WLAST matching the burst length, no 4 KB crossing, size ≤ bus width) and the

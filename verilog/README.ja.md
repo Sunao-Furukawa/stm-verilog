@@ -49,8 +49,9 @@ verilog/
 │   └── axi4_mem_slave.v  AXI4 スレーブ (メモリ) モデル (乱数ウェイト・順序入れ替え, 規則違反の検査)
 ├── bench/loop.s          ループのベンチマーク (命令キャッシュの効果を見る)
 ├── tests/                AXI4 版のテスト (I/O 領域, バスエラー例外。8 章)
+├── rtos/                 小さなリアルタイム OS (rtos.s) と検査ツール。rtos/README.ja.md 参照
 ├── tools/
-│   ├── asm.py            アセンブラ (soft/asm.pl の Python 移植版。通常はこちらを使う)
+│   ├── asm.py            アセンブラ (soft/asm.pl の Python 移植版。通常はこちらを使う。SVC 命令を追加)
 │   ├── asm64.pl          soft/asm.pl の 64bit perl 対応版 (参考用)
 │   ├── mem2hex.py        mem.dat → $readmemh 形式
 │   └── form_cmp.dat      C 版との比較用の表示フォーマット
@@ -138,6 +139,8 @@ C 版と VHDL 版で記述が食い違う箇所は、すべて **C 版** に合�
 `Can't open perl script ...: Unicode 文字のマッピングがターゲットの マルチバイト コード ページにありません。`
 というエラーになることがあるため、Python に移植した `tools/asm.py` を用意し、通常はこちらを使う
 ようにしました。bup0/bup1/samples の全 67 ファイルで `asm64.pl` と同じ出力になることを確認しています。
+その後、RTOS ([rtos/](rtos/README.ja.md)) のために `SVC` 命令を追加し、1 パス目で `SETHI`/`RSR`/`WSR`/`RFE`
+を数えていなかった不具合を直しました (既存ファイルの出力は変わりません)。
 
 ## 6. 検証
 
@@ -363,8 +366,8 @@ SUCCESS までのサイクル数。`stm_sys` は元の (同じサイクルに応
   | `load_err.s` / `store_err.s` | エラー応答 → 割り込みコード 3, XPC と XLA が正しい。行き先のレジスタ / メモリは変わらない |
   | `fetch_io.s` / `fetch_err.s` | I/O 領域 / エラーを返す番地へ飛ぶ → 不正命令例外, XPC = その番地 |
 
-  `run_bup_axi.*` は、これらと `bench/loop.s` も bup のプログラムと一緒に 5 通りの構成で実行し、
-  350/350 成功。I/O の保護を外す (`IO_EN=0`) と `io_order.s` は失敗する (予測ミス側でデバイスが
+  `run_bup_axi.*` は、これらと `bench/loop.s`, RTOS の `rtos/rtos.s` も bup のプログラムと一緒に
+  5 通りの構成で実行し、355/355 成功。I/O の保護を外す (`IO_EN=0`) と `io_order.s` は失敗する (予測ミス側でデバイスが
   2 回読まれる) ので、このテストで問題を検出できることも確認しました。
 * `tb/axi4_mem_slave.v` が毎サイクル、マスタの AXI の規則 (READY まで VALID と内容を保持,
   WLAST とバースト長の一致, 4KB 境界をまたがない, サイズがバス幅以下) を検査し、違反があれば
