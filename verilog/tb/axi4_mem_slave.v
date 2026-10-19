@@ -16,6 +16,7 @@
 //                   (投機的な読み出しがあれば数が合わなくなる)。書き込みは無視
 //        +4 (DEV_B) 書いた値のビット反転を返す
 //                   (ストアのデータをフォワーディングで読むと反転していない)
+//        +8 (CONSOLE) 書いた語の下位 8bit を 1 文字として表示する ($write)
 //        他         読むと 0, 書き込みは無視
 //    0xE000_0000〜 : エラー領域。読み書きとも SLVERR を返す (書き込みはしない)
 //  SWAP=1 なら I/O デバイスの値はバイトを入れ替えて扱う (マスタの BYTE_SWAP=1 用)。
@@ -328,6 +329,7 @@ module axi4_mem_slave #(
           w_err = 1;
         end else if (is_dev(wa)) begin
           if (wa[7:2] == 6'd1) dev_b = dsw(wbeat[36:5]);
+          if (wa[7:2] == 6'd2) begin wv = dsw(wbeat[36:5]); $write("%c", wv[7:0]); end
         end else begin
           wv = mem[wa[AW+1:2]];
           if (wbeat[1]) wv[ 7: 0] = wbeat[12:5];

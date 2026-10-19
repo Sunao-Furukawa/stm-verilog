@@ -20,6 +20,9 @@
 //    BYTE_SWAP  stm_axi_master のバイトレーンの並び。1 のときは
 //               メモリイメージを語ごとにバイト反転してスレーブに入れる
 //    ICACHE, IC_LINE_W, IC_SET_W   命令キャッシュの有無と大きさ (stm_icache.v)
+//
+//  コンソール: 番地 F000_0008 (I/O 領域) に語をストアすると, その下位 8bit を
+//  1 文字として表示する (axi4_mem_slave の CONSOLE)。
 // =====================================================================
 module tb_stm_axi;
   parameter BYTE_SWAP = 0;

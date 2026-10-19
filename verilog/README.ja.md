@@ -184,6 +184,23 @@ vvp sim.vvp +HEX=mem.hex +PC=300 +CYCLES=200 +TRACE
   保存されます (`mem2hex.py` は UTF-16 も読めるようにしてありますが、`-o` が確実です)。
 * `+RANDOM` (+`SEED=n`) でキャッシュミス模擬、`+CTRACE` で C 版の `siml.res` と同じ形式で出力します。
 
+### コンソール出力 (Hello World)
+
+テストベンチ (`tb_stm.v`, AXI4 版は `axi4_mem_slave.v`) には、Verilog 版で追加したコンソールが
+あります。番地 `F000_0008` に語をストアすると、その下位 8bit を 1 文字として表示します。
+[`../samples/hello.s`](../samples/hello.s) はこれを使って `Hello World` を表示するサンプルです。
+
+```powershell
+python tools/asm.py ../samples/hello.s 1000 -o hello.dat
+python tools/mem2hex.py hello.dat hello.hex
+vvp sim.vvp +HEX=hello.hex +PC=300 +CYCLES=1000     # Hello World と表示して OK で止まる
+```
+
+* `stm_sys` のメモリは番地の下位 12bit しか見ないので、メモリの `0x008` にも同じ値が書かれます。
+* AXI4 版では `F000_0008` は I/O 領域なので、語単位でストアしてください。止まる前に最後の
+  文字を確実に出すには、`hello.s` のように I/O 領域を 1 回読みます (I/O のロードは先行する
+  ストアがすべて終わるまで待つ)。
+
 ## 8. AXI4 マスタ版 (`stm_axi_top`)
 
 `stm_axi_top` は、CPU 本体とレジスタファイルに、`stm_memory` の代わりに **命令キャッシュ** と
