@@ -10,12 +10,22 @@
 //      VALID を READY 前に下げた / VALID 中に内容が変わった /
 //      WLAST がバースト長と合わない / 4KB 境界をまたぐバースト など
 //  メモリは語 (32bit) の配列 mem[]。番地は 2^AW 語で折り返す。
+//  ただし次の 2 つの領域は別扱い (上位 4bit で判定):
+//    0xF000_0000〜 : テスト用の I/O デバイス
+//        +0 (DEV_A) 読むたびに「それまでに読まれた回数」を返し, 1 増える
+//                   (投機的な読み出しがあれば数が合わなくなる)。書き込みは無視
+//        +4 (DEV_B) 書いた値のビット反転を返す
+//                   (ストアのデータをフォワーディングで読むと反転していない)
+//        他         読むと 0, 書き込みは無視
+//    0xE000_0000〜 : エラー領域。読み書きとも SLVERR を返す (書き込みはしない)
+//  SWAP=1 なら I/O デバイスの値はバイトを入れ替えて扱う (マスタの BYTE_SWAP=1 用)。
 //  シミュレーション専用 (合成不可)。
 // =====================================================================
 module axi4_mem_slave #(
   parameter AW   = 10,              // 語アドレス幅 (2^AW 語)
   parameter ID_W = 4,
-  parameter QD   = 4                // 読み出し / 書き込みアドレスの受付数
+  parameter QD   = 4,               // 読み出し / 書き込みアドレスの受付数
+  parameter SWAP = 0                // I/O デバイスの値のバイト入れ替え
 ) (
   input                 aclk,
   input                 aresetn,
@@ -34,7 +44,7 @@ module axi4_mem_slave #(
   input                 s_axi_wvalid,
   output reg            s_axi_wready,
   output reg [ID_W-1:0] s_axi_bid,
-  output     [1:0]      s_axi_bresp,
+  output reg [1:0]      s_axi_bresp,
   output reg            s_axi_bvalid,
   input                 s_axi_bready,
   input      [ID_W-1:0] s_axi_arid,
@@ -46,7 +56,7 @@ module axi4_mem_slave #(
   output reg            s_axi_arready,
   output reg [ID_W-1:0] s_axi_rid,
   output reg [31:0]     s_axi_rdata,
-  output     [1:0]      s_axi_rresp,
+  output reg [1:0]      s_axi_rresp,
   output reg            s_axi_rlast,
   output reg            s_axi_rvalid,
   input                 s_axi_rready
@@ -55,14 +65,23 @@ module axi4_mem_slave #(
   integer    seed;                  // テストベンチから設定してよい
   integer    errors;                // 規則違反の数
   integer    n_rd, n_wr;            // 受け付けたトランザクション数
+  integer    dev_rd;                // I/O デバイスが読まれた回数 (ビート数)
+  integer    dev_a;                 // DEV_A の値 (= DEV_A が読まれた回数)
+  reg [31:0] dev_b;                 // DEV_B に書かれた値
+  integer    n_rd_err, n_wr_err;    // エラーを返した数
 
-  assign s_axi_rresp = 2'b00;       // OKAY
-  assign s_axi_bresp = 2'b00;
+  function [31:0] dsw;              // I/O デバイスの値 <-> バスの語
+    input [31:0] d;
+    dsw = SWAP ? {d[7:0], d[15:8], d[23:16], d[31:24]} : d;
+  endfunction
+  function is_dev;  input [31:0] a; is_dev = (a[31:28] == 4'hF); endfunction
+  function is_err;  input [31:0] a; is_err = (a[31:28] == 4'hE); endfunction
 
   integer k;
   initial begin
     for (k = 0; k < (1<<AW); k = k + 1) mem[k] = 32'd0;
     seed = 1; errors = 0; n_rd = 0; n_wr = 0;
+    dev_rd = 0; dev_a = 0; dev_b = 0; n_rd_err = 0; n_wr_err = 0;
   end
 
   function chance;                  // rnd のとき確率 1/2 で 0
@@ -203,8 +222,21 @@ module axi4_mem_slave #(
           r_cur = pick;
           s_axi_rvalid <= 1;
           s_axi_rid    <= rq_id[pick];
-          s_axi_rdata  <= mem[rq_addr[pick][AW+1:2]];
           s_axi_rlast  <= (rq_len[pick] == 0);
+          s_axi_rresp  <= 2'b00;
+          if (is_err(rq_addr[pick])) begin
+            s_axi_rdata <= 32'hBAD0BAD0;
+            s_axi_rresp <= 2'b10;                       // SLVERR
+            n_rd_err = n_rd_err + 1;
+          end else if (is_dev(rq_addr[pick])) begin
+            dev_rd = dev_rd + 1;
+            case (rq_addr[pick][7:2])
+              6'd0: begin s_axi_rdata <= dsw(dev_a); dev_a = dev_a + 1; end
+              6'd1:       s_axi_rdata <= dsw(~dev_b);
+              default:    s_axi_rdata <= 32'd0;
+            endcase
+          end else
+            s_axi_rdata <= mem[rq_addr[pick][AW+1:2]];
         end else begin
           s_axi_rvalid <= 0;
           s_axi_rlast  <= 0;
@@ -247,20 +279,24 @@ module axi4_mem_slave #(
   reg [36:0]     wd      [0:7];       // W の FIFO {data, strb, last}
   integer        wd_n;
   reg [ID_W-1:0] bq_id   [0:QD-1];    // B 応答の FIFO
+  reg [1:0]      bq_resp [0:QD-1];
+  reg            w_err;               // 書いているバーストにエラー領域のビートがあった
   integer        bq_n, b_wait;
   reg [31:0]     wa, wv;
   reg [36:0]     wbeat;
 
   always @(posedge aclk) begin
     if (!aresetn) begin
-      wq_n = 0; wd_n = 0; bq_n = 0; b_wait = 0;
+      wq_n = 0; wd_n = 0; bq_n = 0; b_wait = 0; w_err = 0;
       s_axi_awready <= 0;
       s_axi_wready  <= 0;
       s_axi_bvalid  <= 0;
     end else begin
       // ---- B 応答が受け取られた
       if (s_axi_bvalid && s_axi_bready) begin
-        for (i = 0; i < QD - 1; i = i + 1) bq_id[i] = bq_id[i+1];
+        for (i = 0; i < QD - 1; i = i + 1) begin
+          bq_id[i] = bq_id[i+1]; bq_resp[i] = bq_resp[i+1];
+        end
         bq_n = bq_n - 1;
         b_wait = rnd ? ($random(seed) & 3) : 0;
       end
@@ -288,19 +324,28 @@ module axi4_mem_slave #(
         for (i = 0; i < 7; i = i + 1) wd[i] = wd[i+1];
         wd_n = wd_n - 1;
         wa = wq_addr[0];
-        wv = mem[wa[AW+1:2]];
-        if (wbeat[1]) wv[ 7: 0] = wbeat[12:5];
-        if (wbeat[2]) wv[15: 8] = wbeat[20:13];
-        if (wbeat[3]) wv[23:16] = wbeat[28:21];
-        if (wbeat[4]) wv[31:24] = wbeat[36:29];
-        mem[wa[AW+1:2]] = wv;
+        if (is_err(wa)) begin
+          w_err = 1;
+        end else if (is_dev(wa)) begin
+          if (wa[7:2] == 6'd1) dev_b = dsw(wbeat[36:5]);
+        end else begin
+          wv = mem[wa[AW+1:2]];
+          if (wbeat[1]) wv[ 7: 0] = wbeat[12:5];
+          if (wbeat[2]) wv[15: 8] = wbeat[20:13];
+          if (wbeat[3]) wv[23:16] = wbeat[28:21];
+          if (wbeat[4]) wv[31:24] = wbeat[36:29];
+          mem[wa[AW+1:2]] = wv;
+        end
         if (wbeat[0] != (wq_len[0] == 0)) begin
           $display("AXI ERROR: WLAST=%b does not match the burst length (addr %h)",
                    wbeat[0], wa);
           errors = errors + 1;
         end
         if (wq_len[0] == 0) begin
-          bq_id[bq_n] = wq_id[0];
+          bq_id[bq_n]   = wq_id[0];
+          bq_resp[bq_n] = w_err ? 2'b10 : 2'b00;
+          if (w_err) n_wr_err = n_wr_err + 1;
+          w_err = 0;
           bq_n = bq_n + 1;
           for (i = 0; i < QD - 1; i = i + 1) begin
             wq_id[i] = wq_id[i+1];       wq_addr[i] = wq_addr[i+1];
@@ -320,6 +365,7 @@ module axi4_mem_slave #(
         if (bq_n > 0 && b_wait == 0 && chance(0)) begin
           s_axi_bvalid <= 1;
           s_axi_bid    <= bq_id[0];
+          s_axi_bresp  <= bq_resp[0];
         end else
           s_axi_bvalid <= 0;
       end

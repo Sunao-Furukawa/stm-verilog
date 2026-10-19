@@ -42,14 +42,23 @@
 //        バイトレーンの約束 (番地 4n+k のバイトは [8k+7:8k]) に合わせるので、
 //        リトルエンディアンの周辺装置や他のマスタとバイト単位で共有できる。
 //
-//  RRESP / BRESP がエラー (SLVERR / DECERR) でも CPU には普通に返し、
-//  bus_error を 1 にする (sticky, リセットで 0)。CPU にバスエラー例外は無い。
+//  エラー応答 (SLVERR / DECERR):
+//    ・OP の読み出し: op_err を op_rdy と一緒に返す。CPU はデータアクセス例外にする
+//    ・IF の読み出し: ifr_err をビートと一緒に返す (stm_icache が不正命令に置き換える)
+//    ・書き込み (B): CPU は命令を完了済みなので知らせる方法が無い。bus_error だけ
+//    どの場合も bus_error を 1 にする (sticky, リセットで 0)。
+//
+//  I/O 領域 ((番地 & IO_MASK) == IO_BASE, IO_EN=1 のとき) へのアクセスは
+//  AxCACHE=4'b0000 (Device, non-bufferable) で出す。それ以外は 4'b0011。
 // =====================================================================
 module stm_axi_master #(
   parameter ID_W      = 4,
   parameter IF_ID     = 0,          // 命令フェッチの ARID
   parameter OP_ID     = 1,          // オペランドの ARID / AWID
-  parameter BYTE_SWAP = 0
+  parameter BYTE_SWAP = 0,
+  parameter        IO_EN   = 1,
+  parameter [31:0] IO_BASE = 32'hF000_0000,
+  parameter [31:0] IO_MASK = 32'hF000_0000
 ) (
   input                 clk,
   input                 rst,        // 同期リセット (1 でリセット)
@@ -63,6 +72,7 @@ module stm_axi_master #(
   output                ifr_valid,  // ビートが届いた
   output     [31:0]     ifr_data,
   output                ifr_last,
+  output                ifr_err,    // このビートはエラー応答
 
   // ---- stm_cntl 側: オペランド (S ユニット OP-B)
   input                 op_new,
@@ -72,6 +82,7 @@ module stm_axi_master #(
   input      [31:0]     op_wdt,     // LBS_DT
   output                op_rdy,     // -> RANDOM_FOR_OPCLH
   output reg [31:0]     op_dt,      // -> MEM_DT_OP
+  output reg            op_err,     // -> MEM_OP_ERR (読み出しがエラー応答だった)
 
   output reg            bus_error,
 
@@ -156,6 +167,7 @@ module stm_axi_master #(
   assign ifr_valid = r_if & (if_st == S_RESP);
   assign ifr_data  = lane(m_axi_rdata);
   assign ifr_last  = m_axi_rlast;
+  assign ifr_err   = m_axi_rresp[1];
 
   // =================================================================
   //  オペランド (OP)
@@ -182,6 +194,7 @@ module stm_axi_master #(
   wire        op_wv     = op_in_addr &  op_wr & !w_ok;
 
   assign op_rdy = op_done & !op_new;
+  wire   op_io  = IO_EN && ((op_addr & IO_MASK) == IO_BASE);
 
   // =================================================================
   //  AR チャネルの調停 (OP 優先)。ARVALID を出したまま受け付けられなかったら、
@@ -199,7 +212,8 @@ module stm_axi_master #(
   assign m_axi_arsize  = 3'b010;                      // 4 バイト/ビート
   assign m_axi_arburst = gnt_op ? 2'b01   : if_arbst; // OP は INCR
   assign m_axi_arlock  = 1'b0;
-  assign m_axi_arcache = 4'b0011;                     // Normal, non-cacheable, bufferable
+  // Normal, non-cacheable, bufferable / I/O 領域は Device, non-bufferable
+  assign m_axi_arcache = (gnt_op && op_io) ? 4'b0000 : 4'b0011;
   assign m_axi_arprot  = gnt_op ? 3'b000 : 3'b100;    // [2]=1: 命令アクセス
   assign m_axi_arqos   = 4'd0;
 
@@ -215,7 +229,7 @@ module stm_axi_master #(
   assign m_axi_awsize  = 3'b010;
   assign m_axi_awburst = 2'b01;
   assign m_axi_awlock  = 1'b0;
-  assign m_axi_awcache = 4'b0011;
+  assign m_axi_awcache = op_io ? 4'b0000 : 4'b0011;
   assign m_axi_awprot  = 3'b000;
   assign m_axi_awqos   = 4'd0;
 
@@ -247,6 +261,7 @@ module stm_axi_master #(
       op_done   <= 1'b0;
       op_stale  <= 1'b0;
       op_dt     <= 32'd0;
+      op_err    <= 1'b0;
       ar_lock   <= 1'b0;
       ar_own_op <= 1'b0;
       bus_error <= 1'b0;
@@ -293,7 +308,11 @@ module stm_axi_master #(
             op_st <= S_RESP;
         default: // S_RESP
           if (op_wr_q ? b_op : (r_op & m_axi_rlast)) begin
-            if (!op_wr_q) op_dt <= lane(m_axi_rdata);
+            if (!op_wr_q) begin
+              op_dt  <= lane(m_axi_rdata);
+              op_err <= m_axi_rresp[1];
+            end else
+              op_err <= 1'b0;
             op_st <= S_IDLE;
             if (!op_stale && !op_new) op_done <= 1'b1;
           end

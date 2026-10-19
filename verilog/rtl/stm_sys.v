@@ -58,6 +58,7 @@ module stm_sys #(
     .LBS_AD           (lbs_ad),
     .LBS_DT           (lbs_dt),
     .MEM_DT_OP        (mem_dt_op),
+    .MEM_OP_ERR       (1'b0),         // 外部バス (EXT_BUS=1) 用。ここでは未使用
     .IB_AD            (ib_ad),
     .MEM_DT_IF_H      (mem_dt_if_h),
     .MEM_DT_IF_L      (mem_dt_if_l),

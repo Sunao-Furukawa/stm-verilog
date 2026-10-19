@@ -19,7 +19,7 @@ Only `stm_cntl` is synthesized, as the original author also did for the VHDL ver
   block RAM; as is, the whole memory would become flip-flops and multiplexers. Running on real
   hardware needs a redesigned memory interface.
 * As a result `stm_cntl` brings all register-file and memory signals out to its ports
-  (484 pins). Quartus therefore targets a large-package device, and Vivado synthesizes
+  (516 pins). Quartus therefore targets a large-package device, and Vivado synthesizes
   out of context (no I/O buffers).
 * Tie `RANDOM_FOR_OPCLH`, `RANDOM_FOR_IFRDY` and `RANDOM_FOR_IFCLH` to `1` in hardware
   (they only emulate cache misses in simulation).
@@ -61,8 +61,13 @@ Clock target 25 MHz (40 ns), with half a cycle budgeted for the external logic o
 
 | Tool / device | Resources | Timing |
 |---|---|---|
-| Quartus II 13.0sp1, Cyclone IV E EP4CE115F29C7 (full compile) | 5,507 LEs, 1,623 registers, 484 pins | met at 25 MHz (setup slack +2.6 ns). An earlier build (before the 4 bus-handshake outputs were added) reached Fmax 38.6 MHz when constrained to 50 MHz |
-| Vivado 2022.2, Artix-7 xc7a100tcsg324-1 (synthesis only) | 2,990 LUTs, 1,624 FFs | met at 25 MHz (WNS +11.7 ns, post-synthesis estimate) |
+| Quartus II 13.0sp1, Cyclone IV E EP4CE115F29C7 (full compile) | 5,514 LEs, 1,622 registers, 516 pins | met at 25 MHz (setup slack +3.3 ns). An earlier build (before the ports for the AXI4 version were added) reached Fmax 38.6 MHz when constrained to 50 MHz |
+| Vivado 2022.2, Artix-7 xc7a100tcsg324-1 (synthesis only) | 3,034 LUTs, 1,623 FFs | met at 25 MHz (WNS +11.2 ns, post-synthesis estimate) |
+
+The exception to the half-cycle rule is `IB_AD_NXT` (the next fetch address, used by the AXI4
+version's instruction cache), which gets a 5 ns output budget: it is combinational from the
+fetch-handshake inputs and goes straight to the cache RAM's address register, so half a cycle at
+both ends would leave no time for the path itself.
 
 Warnings that remain are harmless: truncation of C-style unsized constants (e.g. `? 1 : 0`)
 and decoded fields / pipeline tags that are never read and get optimized away.
@@ -84,8 +89,8 @@ vivado -mode batch -source synth_axi.tcl        # reports in vivado/reports_axi/
 
 | Tool / device | Resources | Timing |
 |---|---|---|
-| Quartus II 13.0sp1, Cyclone IV E EP4CE115F29C7 (full compile) | 8,230 LEs, 2,557 registers, 35,328 memory bits, 281 pins | met at 25 MHz (setup slack +2.7 ns) |
-| Vivado 2022.2, Artix-7 xc7a100tcsg324-1 (synthesis only, out of context) | 4,839 LUTs, 2,561 FFs, 1.5 block RAM tiles | met at 25 MHz (WNS +10.9 ns, post-synthesis estimate) |
+| Quartus II 13.0sp1, Cyclone IV E EP4CE115F29C7 (full compile) | 8,593 LEs, 2,562 registers, 35,328 memory bits, 281 pins | met at 25 MHz (setup slack +2.0 ns) |
+| Vivado 2022.2, Artix-7 xc7a100tcsg324-1 (synthesis only, out of context) | 4,875 LUTs, 2,564 FFs, 1.5 block RAM tiles | met at 25 MHz (WNS +10.4 ns, post-synthesis estimate) |
 
 The extra warnings compared with `stm_cntl` are pipeline tags used only for observation that are
 now removed, address bits the cache does not use, and the note that the register file is

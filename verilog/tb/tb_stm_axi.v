@@ -70,7 +70,7 @@ module tb_stm_axi;
     .m_axi_rlast(rlast), .m_axi_rvalid(rvalid), .m_axi_rready(rready)
   );
 
-  axi4_mem_slave #(.AW(10), .ID_W(ID_W)) u_mem (
+  axi4_mem_slave #(.AW(10), .ID_W(ID_W), .SWAP(BYTE_SWAP)) u_mem (
     .aclk(clk), .aresetn(aresetn), .rnd(rnd),
     .s_axi_awid(awid), .s_axi_awaddr(awaddr), .s_axi_awlen(awlen),
     .s_axi_awsize(awsize), .s_axi_awburst(awburst),
@@ -104,6 +104,8 @@ module tb_stm_axi;
       $display("RESULT: stop at PC=%h after %0d cycles -> %0s", pc, cycles, verdict);
       $display("AXI: reads=%0d (fetch %0d) writes=%0d protocol_errors=%0d bus_error=%b",
                u_mem.n_rd, n_if, u_mem.n_wr, u_mem.errors, bus_error);
+      $display("DEV: reads=%0d dev_a=%0d dev_b=%h read_errors=%0d write_errors=%0d",
+               u_mem.dev_rd, u_mem.dev_a, u_mem.dev_b, u_mem.n_rd_err, u_mem.n_wr_err);
       $finish;
     end
   endtask

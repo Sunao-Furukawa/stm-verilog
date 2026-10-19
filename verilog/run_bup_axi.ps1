@@ -1,4 +1,5 @@
-﻿# run_bup_axi.sh の PowerShell 版。AXI4 マスタ版 (stm_axi_top) で bup0/bup1 の全テストを実行する。
+﻿# run_bup_axi.sh の PowerShell 版。AXI4 マスタ版 (stm_axi_top) で bup0/bup1 の全テストと,
+# AXI4 版用のテスト (tests/*.s) とベンチマーク (bench/*.s) を実行する。
 # 各テストを 5 通りで動かす:
 #   (axi)       ウェイト無しのスレーブ                     (命令キャッシュ 4KB)
 #   (axi r)     乱数でウェイト・応答順の入れ替え           (SEED=1)
@@ -30,10 +31,12 @@ $modes = @(
   @{ Tag = 'axi r nc'; Vvp = 'work/axi_nc.vvp'; Args = @('+RANDOM', '+SEED=4') }
 )
 $ok = 0; $ng = 0
-foreach ($lv in 0, 1) {
-  foreach ($f in Get-ChildItem "../bup$lv" -File) {
-    if ($f.Name -eq 'head') { continue }
-    python tools/asm.py $f.FullName 250 -o work/mem.dat
+$files = @(Get-ChildItem '../bup0', '../bup1' -File | Where-Object { $_.Name -ne 'head' }) +
+         @(Get-ChildItem 'tests', 'bench' -File -Filter '*.s')
+foreach ($f in $files) {
+    # ベンチマークは長いので最大サイクル数を増やす
+    $n = if ($f.Directory.Name -eq 'bench') { 2000 } else { 250 }
+    python tools/asm.py $f.FullName $n -o work/mem.dat
     $info = python tools/mem2hex.py work/mem.dat work/mem.hex   # "PC=300 CYCLES=250"
     $pc  = ($info -split ' ')[0] -replace 'PC=', ''
     $cyc = [int](($info -split ' ')[1] -replace 'CYCLES=', '')
@@ -42,10 +45,9 @@ foreach ($lv in 0, 1) {
     foreach ($m in $modes) {
       $simArgs = @('-n', $m.Vvp, '+HEX=work/mem.hex', "+PC=$pc", "+CYCLES=$c") + $m.Args
       $r = (& vvp @simArgs | Select-String 'RESULT').Line
-      $tag = "bup$lv/$($f.Name) ($($m.Tag))"
+      $tag = "$($f.Directory.Name)/$($f.Name) ($($m.Tag))"
       if ($r -match '-> OK') { $ok++; $st = 'ok ' } else { $ng++; $st = 'ERR' }
       '{0,-34} {1}  {2}' -f $tag, $st, ($r -replace '^RESULT: ', '')
     }
-  }
 }
 "ok=$ok  err=$ng"

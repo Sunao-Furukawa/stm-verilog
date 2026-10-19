@@ -28,13 +28,23 @@ module stm_axi_top #(
   parameter BYTE_SWAP = 0,          // stm_axi_master.v を参照
   parameter ICACHE    = 1,          // 0 にすると命令キャッシュ無し (stm_icache.v を参照)
   parameter IC_LINE_W = 5,          // 命令キャッシュのライン = 2^IC_LINE_W バイト
-  parameter IC_SET_W  = 7           // 命令キャッシュのライン数 = 2^IC_SET_W (既定 4KB)
+  parameter IC_SET_W  = 7,          // 命令キャッシュのライン数 = 2^IC_SET_W (既定 4KB)
+  // I/O 領域: (番地 & IO_MASK) == IO_BASE。既定は上位 256MB (0xF000_0000〜)。
+  //   ・ロードは確定してから (投機的にではなく), 先行するストアが終わってから出す
+  //   ・ストアの B サイクルの読み出しはしない (ワード単位でストアすること)
+  //   ・命令はフェッチしない (不正命令として扱う)
+  //   ・AxCACHE=4'b0000 (Device)
+  // IO_EN=0 で I/O 領域を無くす。
+  parameter        IO_EN   = 1,
+  parameter [31:0] IO_BASE = 32'hF000_0000,
+  parameter [31:0] IO_MASK = 32'hF000_0000
 ) (
   input                 aclk,
   input                 aresetn,
   input      [31:0]     RESET_PC,
   output     [31:0]     PC,         // 観測用
-  output                bus_error,  // SLVERR/DECERR 応答があった (sticky)
+  output                bus_error,  // SLVERR/DECERR 応答があった (sticky)。
+                                    // ロードのエラーは CPU の例外にもなる
 
   output     [ID_W-1:0] m_axi_awid,
   output     [31:0]     m_axi_awaddr,
@@ -88,13 +98,13 @@ module stm_axi_top #(
   wire [31:0] mem_dt_op, mem_dt_if_h, mem_dt_if_l;
   wire        ib_valid, op_b_new, op_b_busreq;
   wire [31:0] ib_ad_nxt;
-  wire        if_rdy, op_rdy;
-  wire        fr_req, fr_ack, fr_valid, fr_last;
+  wire        if_rdy, op_rdy, op_err;
+  wire        fr_req, fr_ack, fr_valid, fr_last, fr_err;
   wire [31:0] fr_addr, fr_data;
   wire [7:0]  fr_len;
   wire [1:0]  fr_burst;
 
-  stm_cntl #(.EXT_BUS(1)) u_cntl (
+  stm_cntl #(.EXT_BUS(1), .IO_EN(IO_EN), .IO_BASE(IO_BASE), .IO_MASK(IO_MASK)) u_cntl (
     .clk              (aclk),
     .rst              (rst),
     .RESET_PC         (RESET_PC),
@@ -119,6 +129,7 @@ module stm_axi_top #(
     .LBS_AD           (lbs_ad),
     .LBS_DT           (lbs_dt),
     .MEM_DT_OP        (mem_dt_op),
+    .MEM_OP_ERR       (op_err),
     .IB_AD            (ib_ad),
     .MEM_DT_IF_H      (mem_dt_if_h),
     .MEM_DT_IF_L      (mem_dt_if_l),
@@ -138,7 +149,8 @@ module stm_axi_top #(
     .rdt1 (gr_dt_1), .rdt2 (gr_dt_2), .rdtb (gr_dt_b), .rdts (gr_dt_s)
   );
 
-  stm_icache #(.ENABLE(ICACHE), .LINE_W(IC_LINE_W), .SET_W(IC_SET_W)) u_icache (
+  stm_icache #(.ENABLE(ICACHE), .LINE_W(IC_LINE_W), .SET_W(IC_SET_W),
+               .IO_EN(IO_EN), .IO_BASE(IO_BASE), .IO_MASK(IO_MASK)) u_icache (
     .clk       (aclk),
     .rst       (rst),
     .ib_valid  (ib_valid),
@@ -154,11 +166,13 @@ module stm_axi_top #(
     .fr_ack    (fr_ack),
     .fr_valid  (fr_valid),
     .fr_data   (fr_data),
-    .fr_last   (fr_last)
+    .fr_last   (fr_last),
+    .fr_err    (fr_err)
   );
 
   stm_axi_master #(
-    .ID_W(ID_W), .IF_ID(IF_ID), .OP_ID(OP_ID), .BYTE_SWAP(BYTE_SWAP)
+    .ID_W(ID_W), .IF_ID(IF_ID), .OP_ID(OP_ID), .BYTE_SWAP(BYTE_SWAP),
+    .IO_EN(IO_EN), .IO_BASE(IO_BASE), .IO_MASK(IO_MASK)
   ) u_axi (
     .clk           (aclk),
     .rst           (rst),
@@ -170,6 +184,7 @@ module stm_axi_top #(
     .ifr_valid     (fr_valid),
     .ifr_data      (fr_data),
     .ifr_last      (fr_last),
+    .ifr_err       (fr_err),
     .op_new        (op_b_new),
     .op_busreq     (op_b_busreq),
     .op_we         (lbs_we),
@@ -177,6 +192,7 @@ module stm_axi_top #(
     .op_wdt        (lbs_dt),
     .op_rdy        (op_rdy),
     .op_dt         (mem_dt_op),
+    .op_err        (op_err),
     .bus_error     (bus_error),
     .m_axi_awid    (m_axi_awid),
     .m_axi_awaddr  (m_axi_awaddr),

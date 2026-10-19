@@ -24,11 +24,22 @@
 //
 //  RAM はどちらも「書き 1 ポート + 読み 1 ポート, 読み出しはクロック同期」の
 //  形で書いてあるので、FPGA のブロック RAM になる。有効ビットだけは FF。
+//
+//  フェッチできない番地の扱い: 次の場合は命令の代わりに不正命令 ILL_INSN
+//  (0xE0000000。先頭 4bit が 14 の命令は無い) を CPU に返す。
+//    ・I/O 領域 ((番地 & IO_MASK) == IO_BASE, IO_EN=1): バスには出さない
+//      (命令の先読みで I/O を読まないため)
+//    ・バスがエラー応答を返した 8 バイト: そのラインはキャッシュに残さない
+//  その命令を実際に実行すると不正命令例外 (INTCODE_OP) になり、XPC にその番地が
+//  残る。予測ミス側の先読みなら取り消されるだけで何も起きない。
 // =====================================================================
 module stm_icache #(
   parameter ENABLE = 1,
   parameter LINE_W = 5,             // ライン長 = 2^LINE_W バイト (4〜6: 16〜64 バイト)
-  parameter SET_W  = 7              // ライン数 = 2^SET_W (1 以上)
+  parameter SET_W  = 7,             // ライン数 = 2^SET_W (1 以上)
+  parameter        IO_EN   = 1,
+  parameter [31:0] IO_BASE = 32'hF000_0000,
+  parameter [31:0] IO_MASK = 32'hF000_0000
 ) (
   input             clk,
   input             rst,
@@ -49,8 +60,14 @@ module stm_icache #(
   input             fr_ack,
   input             fr_valid,
   input      [31:0] fr_data,
-  input             fr_last
+  input             fr_last,
+  input             fr_err          // このビートはエラー応答
 );
+  localparam [31:0] ILL_INSN = 32'hE000_0000;
+
+  // I/O 領域からはフェッチしない (すぐに不正命令を返す)
+  wire       io_hit  = ib_valid & IO_EN & ((ib_ad & IO_MASK) == IO_BASE);
+
   // 直前に届いた 8 バイト (early restart / キャッシュ無しのときのデータ)
   reg        byp_v;
   reg [28:0] byp_ad;                // 番地 [31:3]
@@ -76,6 +93,8 @@ if (ENABLE) begin : g_cache
   reg  [28:0]       f_ad;                       // 埋めているラインの要求番地 [31:3]
   reg  [LINE_W-3:0] f_beat;                     // 何ビート目か
   reg  [31:0]       f_hw;                       // 8 バイトの前半 (H) を待たせる
+  reg               f_herr;                     // 前半がエラー応答だった
+  reg               f_err;                      // このライン埋めでエラー応答があった
 
   wire [SET_W-1:0]  ib_idx   = ib_ad[LINE_W+SET_W-1:LINE_W];
   wire [TAG_W-1:0]  ib_tag   = ib_ad[31:LINE_W+SET_W];
@@ -102,11 +121,12 @@ if (ENABLE) begin : g_cache
   // ---- ヒット判定。ライン埋めの間と直後の 1 サイクル (RAM の読み出しが
   //      書き込みと重なって古い値かもしれない) はヒットにしない。
   wire hit        = ib_valid & (fst == F_IDLE) & vbits[ib_idx] & (t_q == ib_tag);
-  wire miss_start = ib_valid & (fst == F_IDLE) & !hit & !byp_hit;
+  wire miss_start = ib_valid & (fst == F_IDLE) & !hit & !byp_hit & !io_hit;
+  wire pair_err   = f_herr | fr_err;            // この 8 バイトのどちらかがエラー
 
-  assign if_rdy   = hit | byp_hit;
-  assign if_dt_h  = byp_hit ? byp_h : d_q[63:32];
-  assign if_dt_l  = byp_hit ? byp_l : d_q[31:0];
+  assign if_rdy   = hit | byp_hit | io_hit;
+  assign if_dt_h  = io_hit ? ILL_INSN : byp_hit ? byp_h : d_q[63:32];
+  assign if_dt_l  = io_hit ? ILL_INSN : byp_hit ? byp_l : d_q[31:0];
 
   assign fr_req   = miss_start | (fst == F_REQ);
   assign fr_addr  = (fst == F_REQ) ? {f_ad, 3'b000} : {ib_ad[31:3], 3'b000};
@@ -121,12 +141,15 @@ if (ENABLE) begin : g_cache
       f_ad   <= 29'd0;
       f_beat <= 0;
       f_hw   <= 32'd0;
+      f_herr <= 1'b0;
+      f_err  <= 1'b0;
     end else begin
       case (fst)
         F_IDLE:
           if (miss_start) begin
             f_ad          <= ib_ad[31:3];
             f_beat        <= 0;
+            f_err         <= 1'b0;
             byp_v         <= 1'b0;
             vbits[ib_idx] <= 1'b0;
             fst           <= fr_ack ? F_DATA : F_REQ;
@@ -136,16 +159,22 @@ if (ENABLE) begin : g_cache
         F_DATA:
           if (fr_valid) begin
             f_beat <= f_beat + 1'b1;
-            if (!f_word[0]) f_hw <= fr_data;
-            // 8 バイト揃うごとに CPU へ流す (最初は要求したもの)
+            if (fr_err) f_err <= 1'b1;
+            if (!f_word[0]) begin
+              f_hw   <= fr_data;
+              f_herr <= fr_err;
+            end
+            // 8 バイト揃うごとに CPU へ流す (最初は要求したもの)。
+            // エラー応答なら不正命令に置き換える。
             if (f_word[0]) begin
               byp_v  <= 1'b1;
               byp_ad <= {f_ad[28:LINE_W-3], f_word[LINE_W-3:1]};
-              byp_h  <= f_hw;
-              byp_l  <= fr_data;
+              byp_h  <= pair_err ? ILL_INSN : f_hw;
+              byp_l  <= pair_err ? ILL_INSN : fr_data;
             end
             if (fr_last) begin
-              vbits[f_idx] <= 1'b1;
+              // エラー応答のあったラインは有効にしない (次も読み直す)
+              vbits[f_idx] <= !(f_err | fr_err);
               fst          <= F_DONE;
             end
           end
@@ -160,12 +189,13 @@ end else begin : g_nocache
   reg  [1:0]  nst;
   reg  [28:0] n_ad;
   reg         n_beat;
+  reg         n_err;
 
-  wire start = ib_valid & (nst == N_IDLE) & !byp_hit;
+  wire start = ib_valid & (nst == N_IDLE) & !byp_hit & !io_hit;
 
-  assign if_rdy   = byp_hit;
-  assign if_dt_h  = byp_h;
-  assign if_dt_l  = byp_l;
+  assign if_rdy   = byp_hit | io_hit;
+  assign if_dt_h  = io_hit ? ILL_INSN : byp_h;
+  assign if_dt_l  = io_hit ? ILL_INSN : byp_l;
 
   assign fr_req   = start | (nst == N_REQ);
   assign fr_addr  = (nst == N_REQ) ? {n_ad, 3'b000} : {ib_ad[31:3], 3'b000};
@@ -178,6 +208,7 @@ end else begin : g_nocache
       byp_v  <= 1'b0;
       n_ad   <= 29'd0;
       n_beat <= 1'b0;
+      n_err  <= 1'b0;
     end else begin
       if (byp_hit) byp_v <= 1'b0;               // CPU が受け取った (SU_IF_CLH)
       case (nst)
@@ -192,9 +223,17 @@ end else begin : g_nocache
         default: // N_DATA
           if (fr_valid) begin
             n_beat <= 1'b1;
-            if (!n_beat) byp_h <= fr_data;
-            else         byp_l <= fr_data;
+            if (!n_beat) begin
+              byp_h <= fr_data;
+              n_err <= fr_err;
+            end else
+              byp_l <= fr_data;
             if (fr_last) begin
+              // エラー応答なら 8 バイトとも不正命令にする
+              if (n_err | fr_err) begin
+                byp_h <= ILL_INSN;
+                byp_l <= ILL_INSN;
+              end
               byp_v  <= 1'b1;
               byp_ad <= n_ad;
               nst    <= N_IDLE;

@@ -1,5 +1,7 @@
 #!/bin/sh
-# AXI4 マスタ版 (stm_axi_top) で bup0/bup1 の全テストを Icarus Verilog で実行する。
+# AXI4 マスタ版 (stm_axi_top) で bup0/bup1 の全テストと, AXI4 版用のテスト
+# (tests/*.s: I/O 領域, バスエラー例外) とベンチマーク (bench/*.s) を
+# Icarus Verilog で実行する。
 # メモリは AXI4 スレーブモデル (tb/axi4_mem_slave.v)。各テストを 5 通りで動かす:
 #   (axi)       ウェイト無しのスレーブ                     (命令キャッシュ 4KB)
 #   (axi r)     乱数でウェイト・応答順の入れ替え           (SEED=1)
@@ -20,11 +22,12 @@ iverilog -g2001 -Wall -I rtl -P tb_stm_axi.ICACHE=0 -o work/axi_nc.vvp $SRC
 
 PY=python3; command -v $PY >/dev/null 2>&1 || PY=python
 ok=0; ng=0
-for lv in 0 1; do
-  for x in ../bup$lv/*; do
+for x in ../bup0/* ../bup1/* tests/*.s bench/*.s; do
     name=$(basename "$x")
     [ "$name" = head ] && continue
-    $PY tools/asm.py "$x" 250 -o work/mem.dat
+    # ベンチマークは長いので最大サイクル数を増やす
+    case "$x" in bench/*) n=2000 ;; *) n=250 ;; esac
+    $PY tools/asm.py "$x" $n -o work/mem.dat
     set -- $($PY tools/mem2hex.py work/mem.dat work/mem.hex)
     pc=${1#PC=}; cyc=${2#CYCLES=}
     # バスの往復が入るので、サイクル数は 20 倍まで許す
@@ -37,12 +40,11 @@ for lv in 0 1; do
         "axi r tc") r=$(vvp -n work/axi_tc.vvp +HEX=work/mem.hex +PC=$pc +CYCLES=$c +RANDOM +SEED=3 | grep RESULT) ;;
         "axi r nc") r=$(vvp -n work/axi_nc.vvp +HEX=work/mem.hex +PC=$pc +CYCLES=$c +RANDOM +SEED=4 | grep RESULT) ;;
       esac
-      tag="bup$lv/$name ($mode)"
+      tag="${x#../} ($mode)"
       case "$r" in
         *"-> OK"*) ok=$((ok+1)); printf '%-34s ok   %s\n' "$tag" "${r#RESULT: }" ;;
         *)         ng=$((ng+1)); printf '%-34s ERR  %s\n' "$tag" "${r#RESULT: }" ;;
       esac
     done
-  done
 done
 echo "ok=$ok  err=$ng"

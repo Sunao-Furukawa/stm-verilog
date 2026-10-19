@@ -70,7 +70,11 @@ assign EE_SET_CC_FROM_EX = E_EX_SETCC & !EE_EX_INT_V & !EE_HIDE_EX
   // 【解説】値の種類のタグは無条件に W へコピーしてよい (有効ビットで制御するため)。
   assign W_WAD1_NEW = E_WAD1;
   assign W_WAD2_NEW = E_WAD2;
-  assign W_WDT1_NEW = EE_ALU_OUTPUT;
+  // 【解説】(Verilog 版で追加, EXT_BUS=1) データアクセス例外 (バスエラー) のときは
+  //         ロード結果の代わりにアクセス番地を渡し、W で XLA に保存させる。
+  //         例外を起こした命令は GR に書かないので、この値は XLA にしか使われない。
+  assign W_WDT1_NEW = (EXT_BUS && E_LS_INTCODE == INTCODE_TLB) ? E_LS_LOG_AD
+							      : EE_ALU_OUTPUT;
   assign W_WDT2_NEW = E_EX_RES;
   assign W_TGT_NEW = E_TGT;
   assign W_IS_SUPERSCALAR_NEW = E_IS_SUPERSCALAR;
@@ -101,7 +105,9 @@ assign EE_SET_CC_FROM_EX = E_EX_SETCC & !EE_EX_INT_V & !EE_HIDE_EX
 
 // 【解説】ストアバッファ: E のストアが進むときにアドレスとデータを入れ、
 //         S ユニットが ST2 を受け付けたら (WW_ST_GO) 空になる。
-assign STB_V_NEW = ( STB_V & !WW_ST_GO ) | E_LS_ST_V & E_FWD & !EE_HIDE_LS;
+//         (EXT_BUS=1) 読み出しがバスエラーになったストアは書かない。
+assign STB_V_NEW = ( STB_V & !WW_ST_GO ) | E_LS_ST_V & E_FWD & !EE_HIDE_LS
+		 & !(EXT_BUS && E_LS_INTCODE == INTCODE_TLB);
 
   assign STB_AD_NEW = E_FWD & E_LS_ST_V ? E_LS_LOG_AD    : STB_AD;
   assign STB_DT_NEW = E_FWD & E_LS_ST_V ? EE_ALU_OUTPUT  : STB_DT;

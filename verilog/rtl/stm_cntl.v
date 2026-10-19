@@ -56,7 +56,13 @@ module stm_cntl #(
   // 1: 外部バス (AXI4) 用。メモリの応答が何サイクル遅れてもよいように、
   //    RANDOM_FOR_OPCLH / RANDOM_FOR_IFCLH を「バスのデータが揃った」合図として
   //    使い、ST2 の書き込みも完了 (RANDOM_FOR_OPCLH) を待つ。stm_axi_top 用。
-  parameter EXT_BUS = 0
+  parameter EXT_BUS = 0,
+  // I/O 領域 (EXT_BUS=1 のときだけ使う): (番地 & IO_MASK) == IO_BASE の番地。
+  // ここへのロードは投機的に実行せず, 先行するストアがすべて終わってから出す。
+  // ストアの B サイクルの読み出しもしない (050_op_lb1.vh, 060_g_srq.vh)。
+  parameter        IO_EN   = 1,
+  parameter [31:0] IO_BASE = 32'hF000_0000,
+  parameter [31:0] IO_MASK = 32'hF000_0000
 ) (
   input              clk,
   input              rst,
@@ -92,6 +98,7 @@ module stm_cntl #(
   output reg [31:0]  LBS_AD,
   output reg [31:0]  LBS_DT,
   input      [31:0]  MEM_DT_OP,
+  input              MEM_OP_ERR,     // EXT_BUS=1: OP-B の読み出しがエラー応答 (RANDOM_FOR_OPCLH と同時)
   output reg [31:0]  IB_AD,
   input      [31:0]  MEM_DT_IF_H,
   input      [31:0]  MEM_DT_IF_L,
@@ -110,6 +117,11 @@ module stm_cntl #(
 `include "stm_defs.vh"
 `include "stm_fmt_ls_ex.vh"
 `include "stm_fmt_jb.vh"
+
+// (Verilog 版で追加) 番地が I/O 領域か。EXT_BUS=0 では常に 0。
+function is_io(input [31:0] a);
+  is_io = EXT_BUS && IO_EN && ((a & IO_MASK) == IO_BASE);
+endfunction
 
 // ---------------------------------------------------------------------
 //  宣言 (元の .ch ファイルごと)。ビット幅は vh/prop.tab, vh/assi.tab による。
@@ -313,7 +325,11 @@ wire           SU_ST_RDY;
 wire [31:0]    OP_LBS_DATA;
 wire           OP_FWD_E;
 wire           OP_FWD_STB;
+wire           OP_B_CMP_INT;
+wire           OP_B_BUS_ERR;
+wire           OP_B_IO_ST;
 // ---- 060-g-srq.ch
+wire           AA_IO_LD_HOLD;
 wire           E_V_NOCAN;
 wire           B_V_NOCAN;
 wire           A_V_NOCAN;

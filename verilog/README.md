@@ -49,6 +49,7 @@ verilog/
 │   ├── tb_stm_axi.v      testbench for stm_axi_top
 │   └── axi4_mem_slave.v  AXI4 slave memory model (random waits / reordering, protocol checks)
 ├── bench/loop.s          loop benchmark (shows the effect of the instruction cache)
+├── tests/                tests for the AXI4 version (I/O region, bus-error exceptions; section 8)
 ├── tools/
 │   ├── asm.py            assembler (Python port of soft/asm.pl; use this one normally)
 │   ├── asm64.pl          soft/asm.pl fixed for 64-bit Perl (for reference)
@@ -218,7 +219,7 @@ this port; there is no data cache.
 | `aclk`, `aresetn` | clock, active-low reset (treated as synchronous; deassert it synchronously to `aclk`) |
 | `RESET_PC` | start address after reset |
 | `m_axi_aw*`, `w*`, `b*`, `ar*`, `r*` | AXI4 master (32-bit data, 32-bit address, `ID_W`-bit IDs; no `*USER`/`*REGION`) |
-| `PC`, `bus_error` | observation: current PC; sticky flag set by any SLVERR/DECERR response |
+| `PC`, `bus_error` | observation: current PC; sticky flag set by any SLVERR/DECERR response (load errors also raise an exception, see below) |
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -227,6 +228,7 @@ this port; there is no data cache.
 | `ICACHE` | 1 | 1 = instruction cache, 0 = no cache (each fetch reads 8 bytes) |
 | `IC_LINE_W` | 5 | cache line = 2^`IC_LINE_W` bytes (4–6: 16–64 bytes) |
 | `IC_SET_W` | 7 | number of lines = 2^`IC_SET_W` (default 32 B × 128 = 4 KB) |
+| `IO_EN`, `IO_BASE`, `IO_MASK` | 1, `F000_0000`, `F000_0000` | I/O region = addresses with `(addr & IO_MASK) == IO_BASE` (default: the top 256 MB); `IO_EN=0` removes it |
 
 ### Instruction cache (`rtl/stm_icache.v`)
 
@@ -245,6 +247,37 @@ this port; there is no data cache.
   matched by address, so the cache does not need to know where the core's requests begin.
 * The cache is not kept coherent with stores (see self-modifying code below).
 
+### I/O region
+
+Addresses in the I/O region are treated as device registers, where a read can have side effects:
+
+* **Loads are not executed speculatively.** An I/O load waits in the A cycle until it is no longer
+  behind an unsolved conditional branch, no older instruction is left in B or E (so none of them
+  can still raise an interrupt), and every older store has been written (store buffer empty and
+  no ST2 in the S unit). Only then does it go to the bus, so device accesses happen once and in
+  program order. A held load waits only for older instructions, which never wait for it, so it
+  cannot deadlock. Other loads are not affected.
+* **Stores do not read first.** A store normally reads the word in the B cycle (to merge
+  sub-word data); for the I/O region that read is skipped. Write whole words to I/O registers:
+  in a sub-word store the other bytes become 0.
+* **No instruction fetch.** The instruction cache does not fetch from the I/O region (so
+  prefetching cannot touch devices); it hands the core the illegal instruction `0xE0000000`
+  instead. Jumping there raises the illegal-instruction exception with the address in XPC.
+* Accesses use `AxCACHE=4'b0000` (Device, non-bufferable).
+
+One case is not covered: when an EX instruction issued in the same pair just before the I/O load
+overflows, the load has already gone to the bus when the overflow interrupt cancels it.
+
+### Bus errors
+
+| Access with an error response (SLVERR / DECERR) | Result |
+|---|---|
+| Load, or the B-cycle read of a store | **data access exception**: interrupt code 3 (the code reserved for the unimplemented TLB), XPC = the instruction's address, **XLA = the accessed address**. The destination register is not written and the store is not performed |
+| Instruction fetch | the 8 bytes are replaced by the illegal instruction `0xE0000000` and the line is not kept in the cache; executing it raises the illegal-instruction exception (code 1, XPC = its address). A speculative fetch is just discarded |
+| Store write (B response) | only `bus_error`: the store has already completed in the CPU, so there is no precise way to report it |
+
+`bus_error` is set in all three cases.
+
 ### What appears on the bus
 
 | Access | Channel | Burst |
@@ -262,8 +295,8 @@ this port; there is no data cache.
 * The operand side handles one request at a time and waits for its R data / B response before
   the next one, so loads and stores reach the bus in program order. A store counts as done
   only after its B response.
-* `AxCACHE=4'b0011` (normal, non-cacheable, bufferable), `AxLOCK=0`, `AxQOS=0`. `RREADY` and
-  `BREADY` are always 1.
+* `AxCACHE=4'b0011` (normal, non-cacheable, bufferable), or `4'b0000` (Device) in the I/O region.
+  `AxLOCK=0`, `AxQOS=0`. `RREADY` and `BREADY` are always 1.
 * Every response is registered (operand data in `stm_axi_master`, instructions in the cache
   RAM / fill registers) before it reaches the core: there is no combinational path from AXI
   inputs into `stm_cntl`.
@@ -273,7 +306,7 @@ this port; there is no data cache.
 The core already had a handshake for cache misses (`RANDOM_FOR_OPCLH/IFRDY/IFCLH`). The AXI4
 version reuses it as a "bus data has arrived" signal. With the default `EXT_BUS=0` the core is
 exactly as before (the 128/128 regression and the cycle-by-cycle match with the C version are
-unchanged); `stm_axi_top` sets `EXT_BUS=1`, which changes four things:
+unchanged); `stm_axi_top` sets `EXT_BUS=1`, which changes these things:
 
 1. **ST2 waits for the bus.** In the original an ST2 always finished in one cycle; now it stays in
    OP-B until the write completes (`OP_B_FORWARDING` in 160-op-lb2).
@@ -288,8 +321,16 @@ unchanged); `stm_axi_top` sets `EXT_BUS=1`, which changes four things:
    completed in the next cycle. With slow fetches the target queue went on filling from an old
    fetch, so wrong-path code was executed. Cancelling that old fetch frees the fetch unit, and the
    core then re-requests the target from `D_IF_AD` in the next cycle.
-4. **New outputs** for the cache and the bridge: `IB_VALID`, `IB_AD_NXT` (next-cycle `IB_AD`),
-   `OP_B_NEW`, `OP_B_BUSREQ`. They are left unconnected in `stm_sys`.
+4. **I/O loads are held in A** (`AA_IO_LD_HOLD` in 060-g-srq) and **I/O stores skip their read**
+   (`OP_B_IO_ST` in 050-op-lb1), as described under "I/O region". The region is set by the core
+   parameters `IO_EN` / `IO_BASE` / `IO_MASK`.
+5. **Data access exception on bus errors.** A new input `MEM_OP_ERR` comes with the read data;
+   it sets `OP_B_INTCODE` to `INTCODE_TLB` (050-op-lb1). For that code the E cycle passes the
+   address instead of the load result to `W_WDT1`, so W saves it in XLA, and a faulting store is
+   not put into the store buffer (090-e-act).
+6. **New ports** for the cache and the bridge: outputs `IB_VALID`, `IB_AD_NXT` (next-cycle
+   `IB_AD`), `OP_B_NEW`, `OP_B_BUSREQ` and the input `MEM_OP_ERR`. In `stm_sys` the outputs are
+   left unconnected and `MEM_OP_ERR` is tied to 0.
 
 When the core cancels a load/store (branch misprediction, interrupt) after its AXI transaction
 has started, `stm_axi_master` finishes the transaction and discards the result.
@@ -310,13 +351,12 @@ misses, so they gain less.
 ### Points to be aware of
 
 * **No data cache**: every load and store is a bus transaction, which is now the main cost.
-* **Speculative reads**: loads on a mispredicted path can reach the bus before they are cancelled
-  (as in the original, which also read memory speculatively). Do not map read-sensitive devices
-  where such loads can hit them. Instruction prefetches and line fills can also read past the
-  end of the code.
+* **Speculative reads outside the I/O region**: there, loads on a mispredicted path can reach the
+  bus before they are cancelled (as in the original), and instruction prefetches and line fills
+  can read past the end of the code. Put read-sensitive devices in the I/O region.
 * **Self-modifying code** is not supported: the instruction cache does not see stores, and
   instruction fetches are not ordered against stores.
-* **Bus errors** only set `bus_error`; the CPU has no bus-error exception.
+* **Store write errors** (B response) only set `bus_error` (see "Bus errors").
 * **Byte order**: STM is big-endian (the byte at address 4n is the most significant byte).
   `BYTE_SWAP=0` puts the CPU's word on the bus unchanged, so a `$readmemh` word image can be used
   as is. `BYTE_SWAP=1` reverses the bytes so that the byte at address 4n+k is on
@@ -330,9 +370,23 @@ misses, so they gain less.
   with a no-wait slave; 4 KB cache with random waits, reordering and interleaving of read
   responses; the same with `BYTE_SWAP=1`; a 2-line × 16-byte cache (many replacements); no
   cache — 320/320 finish at SUCCESS.
-* Stress run: all 64 programs × 20 more seeds of the random slave, spread over five cache
-  configurations (4 KB, 4 KB + `BYTE_SWAP`, 2 × 16 B, 4 × 64 B, none) = 1280/1280 pass.
+* Stress run: the 64 bup programs and the 5 tests in `tests/` × 20 more seeds of the random
+  slave, spread over five cache configurations (4 KB, 4 KB + `BYTE_SWAP`, 2 × 16 B, 4 × 64 B,
+  none) = 1380/1380 pass.
   `bench/loop.s` also passes in every configuration tried.
+* Tests for the new behavior, in `tests/` (self-checking; they end at SUCCESS). The slave model
+  has a test device at `F000_0000` (register A returns how many times it has been read; register B
+  returns the inverse of the last value written) and returns SLVERR for `E000_0000`–`EFFF_FFFF`:
+
+  | Test | Checks |
+  |---|---|
+  | `io_order.s` | I/O loads on a mispredicted path never reach the device; a store to I/O does not read it; a load right after a store to the same I/O register reads the device after the write (not the forwarded value) |
+  | `load_err.s` / `store_err.s` | error response → exception code 3 with the right XPC and XLA; destination register / memory unchanged |
+  | `fetch_io.s` / `fetch_err.s` | jumping into the I/O region / to an address that returns an error → illegal-instruction exception with XPC = that address |
+
+  `run_bup_axi.*` runs them (and `bench/loop.s`) in all five configurations together with the bup
+  programs: 350/350 pass. With the I/O protection switched off (`IO_EN=0`), `io_order.s` fails
+  (the device is read twice on the mispredicted path), so the test does detect the problem.
 * `tb/axi4_mem_slave.v` checks the master's protocol on every cycle (VALID held until READY with
   stable payload, WLAST matching the burst length, no 4 KB crossing, size ≤ bus width) and the
   testbench reports `AXIERR` on any violation; none were found.

@@ -72,9 +72,16 @@ assign OP_WAIT_V_NOCAN = OP_WAIT_V & !OP_WAIT_CANCELLED;
 
 // 【解説】アドレス比較割り込み: L/ST のアドレスが CMPR レジスタと一致したら
 //         INTCODE_CMP を出す (デバッグ用のブレークポイント)。TLB 例外は未実装。
-assign OP_B_INTCODE = (OP_B_V & ((OP_B_OPC == SU_OPC_LD)|(OP_B_OPC == SU_OPC_ST))
-			  & (LBS_AD == CMPR))
-		  ? INTCODE_CMP : 0;
+assign OP_B_CMP_INT = OP_B_V & ((OP_B_OPC == SU_OPC_LD)|(OP_B_OPC == SU_OPC_ST))
+			  & (LBS_AD == CMPR);
+// 【解説】(Verilog 版で追加, EXT_BUS=1) バスがエラー応答 (SLVERR/DECERR) を返した
+//         L/ST の読み出しは、データアクセス例外にする。コードは未実装だった
+//         INTCODE_TLB を使うので、W で XLA に番地が保存される (090_e_act.vh)。
+assign OP_B_BUS_ERR = EXT_BUS & OP_B_V
+		  & ((OP_B_OPC == SU_OPC_LD)|(OP_B_OPC == SU_OPC_ST))
+		  & RANDOM_FOR_OPCLH & MEM_OP_ERR;
+assign OP_B_INTCODE = OP_B_CMP_INT ? INTCODE_CMP :
+		      OP_B_BUS_ERR ? INTCODE_TLB : 0;
 
 // From the cycle ST passes B-cyc to the cyc its ST2 passes, access to the
 // same address will never  miss-hit, because cache line is held during that
@@ -101,16 +108,22 @@ assign OP_B_INTCODE = (OP_B_V & ((OP_B_OPC == SU_OPC_LD)|(OP_B_OPC == SU_OPC_ST)
 //         バイパスでは間に合わない。そこで OP-B の番地 (LBS_AD) で直接選ぶ。
 assign OP_FWD_E   = E_LS_ST_V & E_OPCLH_LCH & (LBS_AD == E_LS_LOG_AD);
 assign OP_FWD_STB = STB_V & (LBS_AD == STB_AD);
+// 【解説】(Verilog 版で追加, EXT_BUS=1) I/O 領域へのストアは B サイクルの読み出しを
+//         しない (読むと状態が変わるデバイスがあるため)。読んだことにしてすぐ
+//         ヒットを返し、データは 0。I/O 領域へはワード単位でストアすること
+//         (サブワードのストアは残りのバイトが 0 になる)。
+assign OP_B_IO_ST = OP_B_V & (OP_B_OPC == SU_OPC_ST) & is_io(LBS_AD);
 assign B_OPCLH = OP_B_V & ((OP_B_OPC==SU_OPC_LD)|(OP_B_OPC==SU_OPC_ST))
-	   & ( RANDOM_FOR_OPCLH | OP_FWD_STB | OP_FWD_E
+	   & ( RANDOM_FOR_OPCLH | OP_FWD_STB | OP_FWD_E | OP_B_IO_ST
 	      | (OP_B_INTCODE != 0)  );
 // 【解説】OP-B の要求にバスアクセスが要るか (stm_axi_master へ)。
 //         ST2 は書き込み, LD/ST は読み出し。フォワーディングで済む場合,
-//         アドレス比較割り込みの場合, 取り消された場合は要らない。
+//         アドレス比較割り込みの場合, I/O 領域へのストアの読み出し,
+//         取り消された場合は要らない。
 assign OP_B_BUSREQ = OP_B_V_NOCAN
 	   & ( (OP_B_OPC == SU_OPC_ST2)
 	     | ((OP_B_OPC==SU_OPC_LD)|(OP_B_OPC==SU_OPC_ST))
-	       & !OP_FWD_STB & !OP_FWD_E & (OP_B_INTCODE == 0) );
+	       & !OP_FWD_STB & !OP_FWD_E & !OP_B_IO_ST & !OP_B_CMP_INT );
 // 【解説】S ユニットが新しい要求を受け付けられるか (待ち行列 OP-WAIT が空き)。
 assign SU_OP_RDY = !OP_WAIT_V;
 assign SU_ST_RDY = !OP_WAIT_V;
@@ -126,5 +139,6 @@ assign SU_ST_RDY = !OP_WAIT_V;
 //         (E のストアの方が STB より新しいので優先)。
 assign OP_LBS_DATA =  !B_OPCLH ? 32'hdead0a0a :
 		 !EXT_BUS   ? MEM_DT_OP     :
+		 OP_B_IO_ST ? 32'd0         :
 		 OP_FWD_E   ? EE_ALU_OUTPUT :
 		 OP_FWD_STB ? STB_DT        : MEM_DT_OP;
