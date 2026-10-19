@@ -8,7 +8,7 @@ the complete CPU with an AXI4 master port, `stm_axi_top` (see the last section).
 | Directory | Tool | Contents |
 |---|---|---|
 | `quartus/` | Intel/Altera Quartus II (tested with 13.0sp1) | projects (`stm_cntl.qpf` / `.qsf`, `stm_axi_top.qpf` / `.qsf`) and timing constraints (`stm_cntl.sdc`, `stm_axi_top.sdc`) |
-| `vivado/` | AMD/Xilinx Vivado (tested with 2022.2) | batch synthesis scripts (`synth.tcl`, `synth_axi.tcl`) and constraints (`stm_cntl.xdc`, `stm_axi_top.xdc`) |
+| `vivado/` | AMD/Xilinx Vivado (tested with 2022.2) | batch synthesis scripts (`synth.tcl`, `synth_axi.tcl`) and constraints (`stm_cntl.xdc`, `stm_axi_top.xdc`), a script that builds an IP Integrator block design (`create_bd.tcl`, last section) |
 
 ## What is synthesized
 
@@ -95,3 +95,52 @@ vivado -mode batch -source synth_axi.tcl        # reports in vivado/reports_axi/
 The extra warnings compared with `stm_cntl` are pipeline tags used only for observation that are
 now removed, address bits the cache does not use, and the note that the register file is
 implemented in registers.
+
+## IP Integrator block design (`vivado/create_bd.tcl`)
+
+A script that builds a project using `stm_axi_top` in IP Integrator. Tested with Vivado 2022.2.
+
+```sh
+cd verilog/syn/vivado
+vivado -mode batch -source create_bd.tcl                                            # memory starts as zeros
+vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/hello.hex   # part and program
+```
+
+It creates `vivado/stm_bd/stm_bd.xpr`. From the Tcl console of the GUI you can also run
+`cd <this folder>; set argv {xc7a100tcsg324-1 ../../work/hello.hex}; source create_bd.tcl`.
+
+Contents of the block design `stm_system`:
+
+```
+sys_clk (100 MHz) ─▶ Clocking Wizard (25 MHz) ─▶ aclk of everything
+reset_n (active low) ─▶ Clocking Wizard, Processor System Reset ─▶ aresetn
+Constant 0x300 ─▶ cpu/RESET_PC
+cpu (stm_axi_top, module reference) ──m_axi──▶ AXI SmartConnect
+      M00 ─▶ AXI BRAM Controller + stm_prog_ram   0x0000_0000–0x0000_1FFF (8KB)
+      M01 ─▶ AXI UART Lite (115200 baud)         0xF000_0000–0xF000_FFFF
+bus_error, uart (rxd / txd) ─▶ top-level ports
+```
+
+* The CPU is placed from the RTL as a **module reference** (*Add Module*). A module reference
+  needs the include files to be in the project as well, so `rtl/*.vh` and `rtl/ch/*.vh` are added.
+  `rtl/ch/*.vh` are parts of the body of `stm_cntl` and are syntax errors on their own, so their
+  `used_in` is set to empty: they are not parsed alone, only read through `` `include ``.
+* The program memory is [`vivado/stm_prog_ram.v`](vivado/stm_prog_ram.v) (a module reference)
+  instead of the Block Memory Generator, because a Block Memory Generator driven by an AXI BRAM
+  Controller in a block design would not accept an init file. `stm_prog_ram` reads the output of
+  `tools/mem2hex.py` as it is with `$readmemh` and maps to block RAM (two RAMB36 for 8KB).
+* The UART Lite is in the CPU's I/O region (`0xF000_0000`–). Loads there are not speculative, so
+  reading the RX FIFO (which consumes data) is safe. Registers: +0x0 RX FIFO, +0x4 TX FIFO,
+  +0x8 status (bit 3 = TX FIFO full), +0xC control. Write whole words.
+* `samples/hello.s` writes to the testbench console (`F000_0008`), so it prints nothing on a real
+  UART. To use the UART, write to the TX FIFO (`F000_0004`) while checking the status register.
+* Pin assignments for `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd` and `bus_error` depend on the
+  board; add an XDC before implementation.
+
+Checked: the project was created with `hello.hex` and synthesized with no errors or critical
+warnings. `hello.hex` is loaded into the program memory, which maps to block RAM. It has not been
+run on hardware.
+
+> With Vivado 2022.2, creating the block design (`create_bd_design`) occasionally stopped with an
+> error about Vivado's own IP scripts (`couldn't read file ...`, `Failed to load feature
+> 'ipintegrator'` and so on). This is unrelated to the script; running it again works.

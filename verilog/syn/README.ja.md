@@ -8,7 +8,7 @@ CPU 本体 `stm_cntl` (中の EXU 2 個を含む) と、AXI4 マスタ・ポー�
 | フォルダ | ツール | 内容 |
 |---|---|---|
 | `quartus/` | Intel/Altera Quartus II (13.0sp1 で確認) | プロジェクト (`stm_cntl.qpf` / `.qsf`, `stm_axi_top.qpf` / `.qsf`) とタイミング制約 (`stm_cntl.sdc`, `stm_axi_top.sdc`) |
-| `vivado/` | AMD/Xilinx Vivado (2022.2 で確認) | バッチ合成スクリプト (`synth.tcl`, `synth_axi.tcl`) と制約 (`stm_cntl.xdc`, `stm_axi_top.xdc`) |
+| `vivado/` | AMD/Xilinx Vivado (2022.2 で確認) | バッチ合成スクリプト (`synth.tcl`, `synth_axi.tcl`) と制約 (`stm_cntl.xdc`, `stm_axi_top.xdc`), IP Integrator のブロックデザインを作るスクリプト (`create_bd.tcl`, 最後の節) |
 
 ## 合成の対象
 
@@ -94,3 +94,52 @@ vivado -mode batch -source synth_axi.tcl        # 結果は vivado/reports_axi/
 
 `stm_cntl` 単体より増える警告は、観測用にしか使わないパイプラインのタグが削除されるもの、
 キャッシュが使わないアドレスのビット、レジスタファイルを FF で作るという通知です。
+
+## IP Integrator のブロックデザイン (`vivado/create_bd.tcl`)
+
+`stm_axi_top` を IP Integrator で使うプロジェクトを作るスクリプトです。Vivado 2022.2 で確認しました。
+
+```sh
+cd verilog/syn/vivado
+vivado -mode batch -source create_bd.tcl                                            # メモリは 0 のまま
+vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/hello.hex   # デバイスとプログラムを指定
+```
+
+`vivado/stm_bd/stm_bd.xpr` ができます。GUI の Tcl コンソールからは
+`cd <このフォルダ>; set argv {xc7a100tcsg324-1 ../../work/hello.hex}; source create_bd.tcl` でも実行できます。
+
+ブロックデザイン `stm_system` の中身:
+
+```
+sys_clk (100 MHz) ─▶ Clocking Wizard (25 MHz) ─▶ 全体の aclk
+reset_n (L で有効) ─▶ Clocking Wizard, Processor System Reset ─▶ aresetn
+Constant 0x300 ─▶ cpu/RESET_PC
+cpu (stm_axi_top, モジュール参照) ──m_axi──▶ AXI SmartConnect
+      M00 ─▶ AXI BRAM Controller + stm_prog_ram   0x0000_0000〜0x0000_1FFF (8KB)
+      M01 ─▶ AXI UART Lite (115200 baud)         0xF000_0000〜0xF000_FFFF
+bus_error, uart (rxd / txd) ─▶ 外部ポート
+```
+
+* CPU は RTL のまま **モジュール参照** (*Add Module*) で置いています。モジュール参照では include
+  ファイルもプロジェクトに入っている必要があるので、`rtl/*.vh` と `rtl/ch/*.vh` を追加しています。
+  `rtl/ch/*.vh` は `stm_cntl` の本体の一部で単独では構文エラーになるため、`used_in` を空にして
+  単独では解析させず、`` `include `` からだけ読ませています。
+* プログラムメモリは Block Memory Generator ではなく [`vivado/stm_prog_ram.v`](vivado/stm_prog_ram.v)
+  (モジュール参照) です。ブロックデザインの中で AXI BRAM Controller につないだ Block Memory
+  Generator には初期値ファイルを設定できなかったためです。`stm_prog_ram` は `tools/mem2hex.py`
+  の出力をそのまま `$readmemh` で読み、ブロック RAM になります (8KB で RAMB36 × 2)。
+* UART Lite は CPU の I/O 領域 (`0xF000_0000`〜) に置いています。I/O 領域のロードは投機的に
+  実行されないので、読むと中身が減る受信 FIFO を安全に読めます。レジスタは +0x0 受信 FIFO,
+  +0x4 送信 FIFO, +0x8 ステータス (ビット 3 = 送信 FIFO が満杯), +0xC 制御。語単位で書いてください。
+* `samples/hello.s` はテストベンチのコンソール (`F000_0008`) に書くので、実機の UART には出ません。
+  UART に出すには、ステータスを見ながら送信 FIFO (`F000_0004`) に書くようにします。
+* `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd`, `bus_error` のピン配置はボードごとに違うので、
+  配置配線の前に XDC を追加してください。
+
+確認したこと: `hello.hex` を指定してプロジェクトを作り、合成まで通しました (エラー・クリティカル
+警告無し)。プログラムメモリには `hello.hex` が読み込まれ、ブロック RAM になっています。
+実機での動作は未確認です。
+
+> Vivado 2022.2 では、ブロックデザインを作るとき (`create_bd_design`) に、Vivado 自身の IP の
+> スクリプトが読めないというエラー (`couldn't read file ...`, `Failed to load feature 'ipintegrator'`
+> など) でまれに止まることがありました。スクリプトの内容とは関係がなく、もう一度実行すると通ります。
