@@ -23,6 +23,11 @@
 assign IB_V_NEW = IF_REQ_V & SU_IF_RDY ? 1 :   SU_IF_CLH | CANCEL_IB ? 0 : IB_V;
 assign IB_AD_NEW = IF_REQ_V & SU_IF_RDY ? IF_REQ_AD : IB_AD;
 assign IB_ID_NEW = IF_REQ_V & SU_IF_RDY ? IF_REQ_ID : IB_ID;
+// 【解説】(Verilog 版で追加) 外部バス用: IB_V と、次のサイクルの IB_AD。
+//         命令キャッシュ (stm_icache) は IB_AD_NXT で RAM を 1 サイクル先に引き、
+//         ヒットなら元のメモリと同じく要求の次のサイクルに命令を返す。
+assign IB_VALID   = IB_V;
+assign IB_AD_NXT  = IB_AD_NEW;
 
 // CUR-ID         -- Change if (BC-issue & predict TKN) | (just after BC-cancel)
 

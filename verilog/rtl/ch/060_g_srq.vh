@@ -59,7 +59,22 @@ assign A_EAB =
 //         (元コメント: レベル 0 用の仮の実装)。
 //         ST2 が詰まっていてどうせ進めない場合は要求を出さない。
 assign AA_LD_REQ_VAL = A_V_NOCAN & !A_EAB & (A_LS_LD_V | A_LS_ST_V)
-	 & !( STB_V & E_V_NOCAN & E_LS_ST_V & B_V_NOCAN );
+	 & !( STB_V & E_V_NOCAN & E_LS_ST_V & B_V_NOCAN )
+	 & !AA_IO_LD_HOLD;
+
+// 【解説】(Verilog 版で追加, EXT_BUS=1) I/O 領域へのロードは、確定するまで
+//         S ユニットに渡さない (A サイクルで待たせる)。待つ条件:
+//           ・未解決の条件分岐の先にある (予測ミスで取り消されるかもしれない)
+//           ・B / E に先行する命令がいる (それが割り込みを起こすかもしれない)
+//           ・先行するストアが終わっていない (STB, または S ユニットの ST2)。
+//             I/O の読み書きの順序を守るため (STB からのフォワーディングもしない)
+//         待っているロードは先行する命令に依存しないのでデッドロックはしない。
+//         W の命令の割り込みは CANCEL_BY_INT で同じサイクルに A を取り消す。
+//         同じ組で先に発行した EX 命令のオーバーフローだけは防げない。
+assign AA_IO_LD_HOLD = A_LS_LD_V & is_io(AA_EAG_OUTPUT)
+	 & ( A_JB_SUBJECT_TO_BC | B_V | E_V | STB_V
+	   | OP_B_V & (OP_B_OPC == SU_OPC_ST2)
+	   | OP_WAIT_V & (OP_WAIT_OPC == SU_OPC_ST2) );
 
 // 【解説】ストアバッファ STB からの実書き込み (ST2) の要求。
 assign WW_ST_REQ_VAL = STB_V;

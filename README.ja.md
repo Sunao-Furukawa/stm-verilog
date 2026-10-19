@@ -22,6 +22,10 @@ STM-1.2 (2-way superscalar 32-bit RISC CPU, 1995) のハードウェア記述 (C
 * `iverilog -g2001 -Wall` で警告なし
 * `bup0` / `bup1` の全 64 本 × (キャッシュミス無し / 乱数キャッシュミス有り) = 128/128 成功
 * 元の C シミュレータと、65 本のプログラムで全サイクルの内部状態が完全一致
+* **命令キャッシュ付きの AXI4 マスタ版** (`verilog/rtl/stm_axi_top.v`): 同じ 64 本を、乱数ウェイト・
+  順不同応答の AXI4 スレーブモデルとキャッシュ構成 5 通りで実行し, I/O 領域・バスエラー例外の
+  テストも含めて 350/350 成功, AXI の規則違反なし
+  ([verilog/README.ja.md 8 章](verilog/README.ja.md#8-axi4-マスタ版-stm_axi_top) 参照)
 
 ## 動かし方
 
@@ -31,6 +35,8 @@ Python 3 と Icarus Verilog が必要です (Perl は不要)。
 cd verilog
 powershell -ExecutionPolicy Bypass -File run_bup.ps1   # Windows PowerShell
 sh run_bup.sh                                          # sh / Git Bash
+powershell -ExecutionPolicy Bypass -File run_bup_axi.ps1   # AXI4 版
+sh run_bup_axi.sh                                          # AXI4 版 (sh)
 ```
 
 ## ドキュメントの文字コードについて

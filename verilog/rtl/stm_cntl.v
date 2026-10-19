@@ -51,12 +51,28 @@
 //   ..1 / ..2 (WE1, WAD1 …) : 1 = LS パイプ側, 2 = EX パイプ側 (W_WE1 / W_WE2 など)
 //
 // =====================================================================
-module stm_cntl (
+module stm_cntl #(
+  // 0: 元の動作 (メモリは同じサイクルに応答する。stm_sys / stm_memory 用)
+  // 1: 外部バス (AXI4) 用。メモリの応答が何サイクル遅れてもよいように、
+  //    RANDOM_FOR_OPCLH / RANDOM_FOR_IFCLH を「バスのデータが揃った」合図として
+  //    使い、ST2 の書き込みも完了 (RANDOM_FOR_OPCLH) を待つ。stm_axi_top 用。
+  parameter EXT_BUS = 0,
+  // I/O 領域 (EXT_BUS=1 のときだけ使う): (番地 & IO_MASK) == IO_BASE の番地。
+  // ここへのロードは投機的に実行せず, 先行するストアがすべて終わってから出す。
+  // ストアの B サイクルの読み出しもしない (050_op_lb1.vh, 060_g_srq.vh)。
+  parameter        IO_EN   = 1,
+  parameter [31:0] IO_BASE = 32'hF000_0000,
+  parameter [31:0] IO_MASK = 32'hF000_0000
+) (
   input              clk,
   input              rst,
   input      [31:0]  RESET_PC,
 
   // キャッシュミス模擬 (C 版の random_clh)。常時 1 ならミス無し。
+  // EXT_BUS=1 のときは stm_axi_master からの応答:
+  //   RANDOM_FOR_OPCLH = OP-B の要求 (LD/ST の読み出し, ST2 の書き込み) が完了
+  //   RANDOM_FOR_IFCLH = IB の命令フェッチ (8 バイト) が届いた (stm_icache から)
+  //   RANDOM_FOR_IFRDY = 1 に固定
   input              RANDOM_FOR_OPCLH,
   input              RANDOM_FOR_IFRDY,
   input              RANDOM_FOR_IFCLH,
@@ -82,9 +98,16 @@ module stm_cntl (
   output reg [31:0]  LBS_AD,
   output reg [31:0]  LBS_DT,
   input      [31:0]  MEM_DT_OP,
+  input              MEM_OP_ERR,     // EXT_BUS=1: OP-B の読み出しがエラー応答 (RANDOM_FOR_OPCLH と同時)
   output reg [31:0]  IB_AD,
   input      [31:0]  MEM_DT_IF_H,
   input      [31:0]  MEM_DT_IF_L,
+
+  // 外部バス (EXT_BUS=1) 用の要求信号 (stm_axi_master へ)。EXT_BUS=0 では未使用。
+  output             IB_VALID,      // IB の命令フェッチ要求が有効 (= IB_V)
+  output     [31:0]  IB_AD_NXT,     // 次のサイクルの IB_AD (命令キャッシュの先読み用)
+  output reg         OP_B_NEW,      // OP-B に新しい要求が入った最初のサイクル
+  output             OP_B_BUSREQ,   // OP-B の要求にバスアクセスが要る
 
   // 観測用
   output reg [31:0]  PC
@@ -94,6 +117,11 @@ module stm_cntl (
 `include "stm_defs.vh"
 `include "stm_fmt_ls_ex.vh"
 `include "stm_fmt_jb.vh"
+
+// (Verilog 版で追加) 番地が I/O 領域か。EXT_BUS=0 では常に 0。
+function is_io(input [31:0] a);
+  is_io = EXT_BUS && IO_EN && ((a & IO_MASK) == IO_BASE);
+endfunction
 
 // ---------------------------------------------------------------------
 //  宣言 (元の .ch ファイルごと)。ビット幅は vh/prop.tab, vh/assi.tab による。
@@ -295,7 +323,13 @@ wire           B_OPCLH;
 wire           SU_OP_RDY;
 wire           SU_ST_RDY;
 wire [31:0]    OP_LBS_DATA;
+wire           OP_FWD_E;
+wire           OP_FWD_STB;
+wire           OP_B_CMP_INT;
+wire           OP_B_BUS_ERR;
+wire           OP_B_IO_ST;
 // ---- 060-g-srq.ch
+wire           AA_IO_LD_HOLD;
 wire           E_V_NOCAN;
 wire           B_V_NOCAN;
 wire           A_V_NOCAN;
@@ -621,6 +655,7 @@ wire [31:0]    LBS_AD_NEW;
 wire [31:0]    LBS_DT_NEW;
 reg            OP_B_SUBJECT_TO_BC;
 wire           OP_B_SUBJECT_TO_BC_NEW;
+wire           OP_B_NEW_NEW;
 // ---- 170-if-req.ch
 wire           IWQ_FULL;
 wire [31:0]    IF_INCR_1;
@@ -902,6 +937,7 @@ always @(posedge clk) begin
     LBS_AD                  <= 0;
     LBS_DT                  <= 0;
     OP_B_SUBJECT_TO_BC      <= 0;
+    OP_B_NEW                <= 0;
     IB_V                    <= 0;
     IB_AD                   <= 0;
     IB_ID                   <= 0;
@@ -1068,6 +1104,7 @@ always @(posedge clk) begin
     LBS_AD                  <= LBS_AD_NEW;
     LBS_DT                  <= LBS_DT_NEW;
     OP_B_SUBJECT_TO_BC      <= OP_B_SUBJECT_TO_BC_NEW;
+    OP_B_NEW                <= OP_B_NEW_NEW;
     IB_V                    <= IB_V_NEW;
     IB_AD                   <= IB_AD_NEW;
     IB_ID                   <= IB_ID_NEW;

@@ -55,4 +55,14 @@ assign IF_REQ_AD = IF_CASE_START ? PC : IF_CASE_J ? AA_EAG_OUTPUT :
 assign IF_REQ_ID = IF_CASE_START ?  0 : IF_CASE_BC ? !EID  : EID;
 
 // 【解説】要求中のフェッチが無駄になったので取り消す (分岐した, 再スタート)。
-assign CANCEL_IB = IF_CASE_START | (IF_CASE_BA | IF_CASE_NULL) & (IB_ID == EID);
+// 【解説】(Verilog 版で追加, EXT_BUS=1 のときだけ)
+//         未解決 BC を発行したとき、分岐先を入れる側のキュー (!EID) 宛てのフェッチが
+//         まだ届いていなければ、それも取り消す。
+//         元の設計ではフェッチは要求の次のサイクルに必ず届くので、この BC の
+//         分岐先の要求 (IF_CASE_BC) は必ず受け付けられる。外部バスではフェッチが
+//         何サイクルも残るので、要求が受け付けられずに消え、次のサイクルからは
+//         残っていた古いフェッチ (IB_AD) の続きを分岐先のキューに入れてしまう。
+//         取り消せば IB が空き、次のサイクルに D_IF_AD (= 分岐先) から要求し直す。
+//         取り消したフェッチのデータは、そのキューをクリア (CLEAR_NIP) するので元々使わない。
+assign CANCEL_IB = IF_CASE_START | (IF_CASE_BA | IF_CASE_NULL) & (IB_ID == EID)
+		 | EXT_BUS & IF_CASE_BC & D_FWD & (IB_ID != EID);

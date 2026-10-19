@@ -68,7 +68,9 @@ assign E_LS_INTCODE_NEW = !E_STB_INTLK ? OP_B_INTCODE 	: E_LS_INTCODE;
 //           ・E のストアが書こうとしている → その書き込みデータ (EE_ALU_OUTPUT)
 //           ・ストアバッファ STB が持っている → STB_DT
 //         ならそちらを使い、そうでなければキャッシュの値。
-assign BB_MEM_DATA = 
+//         EXT_BUS=1 ではフォワーディングを OP_LBS_DATA (050_op_lb1.vh) で
+//         済ませているので、ここでは何もしない。
+assign BB_MEM_DATA = EXT_BUS ? OP_LBS_DATA :
 	(B_LS_LD_V & E_LS_ST_V & (B_LS_LOG_AD == E_LS_LOG_AD)) ? EE_ALU_OUTPUT :
 	(B_LS_LD_V & STB_V & (B_LS_LOG_AD == STB_AD)) ? STB_DT :
 	 OP_LBS_DATA;

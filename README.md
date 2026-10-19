@@ -23,6 +23,11 @@ distribution together with the translated Verilog.
 * Compiles with `iverilog -g2001 -Wall` without warnings
 * All 64 programs in `bup0` / `bup1` × (no cache misses / random cache misses) = 128/128 pass
 * Every internal state compared cycle by cycle against the original C simulator over 65 programs: identical
+* **AXI4 master version with an instruction cache** (`verilog/rtl/stm_axi_top.v`): the same 64
+  programs against an AXI4 slave model with random waits and out-of-order responses, in five
+  cache configurations, plus tests for the I/O region and bus-error exceptions: 350/350 pass with
+  no protocol violations
+  (see [verilog/README.md §8](verilog/README.md#8-axi4-master-version-stm_axi_top))
 
 ## Running
 
@@ -32,6 +37,8 @@ Requires Python 3 and Icarus Verilog (Perl is not needed).
 cd verilog
 powershell -ExecutionPolicy Bypass -File run_bup.ps1   # Windows PowerShell
 sh run_bup.sh                                          # sh / Git Bash
+powershell -ExecutionPolicy Bypass -File run_bup_axi.ps1   # AXI4 version
+sh run_bup_axi.sh                                          # AXI4 version (sh)
 ```
 
 ## Character encoding of the documentation
