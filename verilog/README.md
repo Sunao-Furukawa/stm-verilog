@@ -203,6 +203,24 @@ vvp sim.vvp +HEX=mem.hex +PC=300 +CYCLES=200 +TRACE
 * `+RANDOM` (+`SEED=n`) enables cache-miss emulation; `+CTRACE` prints in the same format as the
   C version's `siml.res`.
 
+### Console output (Hello World)
+
+The testbenches (`tb_stm.v`, and `axi4_mem_slave.v` for the AXI4 version) have a console added in
+the Verilog version: storing a word to address `F000_0008` prints its low 8 bits as one
+character. [`../samples/hello.s`](../samples/hello.s) uses it to print `Hello World`.
+
+```powershell
+python tools/asm.py ../samples/hello.s 1000 -o hello.dat
+python tools/mem2hex.py hello.dat hello.hex
+vvp sim.vvp +HEX=hello.hex +PC=300 +CYCLES=1000     # prints Hello World and stops with OK
+```
+
+* The `stm_sys` memory only looks at the low 12 address bits, so the value is also written to
+  memory address `0x008`.
+* On the AXI4 version `F000_0008` is in the I/O region, so store whole words. To make sure the
+  last character is out before stopping, read the I/O region once as `hello.s` does (an I/O load
+  waits until all earlier stores have finished).
+
 ## 8. AXI4 master version (`stm_axi_top`)
 
 `stm_axi_top` is the complete CPU (core + register file) with an **instruction cache** and a

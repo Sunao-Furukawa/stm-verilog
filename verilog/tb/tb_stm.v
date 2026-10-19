@@ -13,6 +13,10 @@
 //    +SEED=<dec>      乱数の種
 //    +TRACE           毎サイクル PC 等を表示
 //    +CTRACE          C シミュレータの siml.res と同じ形式で毎サイクル出力
+//
+//  コンソール (Verilog 版で追加): 番地 F000_0008 に語をストアすると, その下位 8bit を
+//  1 文字として表示する ($write)。tb_stm_axi.v (axi4_mem_slave) と同じ番地。
+//  stm_memory は番地の下位 12bit しか見ないので, メモリの 0x008 にも書かれる。
 // =====================================================================
 module tb_stm;
   reg         clk = 1'b0;
@@ -37,6 +41,11 @@ module tb_stm;
   );
 
   always #5 clk = ~clk;
+
+  // コンソール: F000_0008 へのストアで 1 文字表示
+  always @(posedge clk)
+    if (!rst && u_sys.u_mem.we && u_sys.u_mem.opad == 32'hf000_0008)
+      $write("%c", u_sys.u_mem.stdt[7:0]);
 
   initial begin
     if (!$value$plusargs("HEX=%s", hexfile)) begin
