@@ -23,8 +23,9 @@ distribution together with the translated Verilog.
 * Compiles with `iverilog -g2001 -Wall` without warnings
 * All 64 programs in `bup0` / `bup1` × (no cache misses / random cache misses) = 128/128 pass
 * Every internal state compared cycle by cycle against the original C simulator over 65 programs: identical
-* **AXI4 master version** (`verilog/rtl/stm_axi_top.v`): the same 64 programs against an AXI4 slave
-  model with random waits and out-of-order responses, 192/192 pass with no protocol violations
+* **AXI4 master version with an instruction cache** (`verilog/rtl/stm_axi_top.v`): the same 64
+  programs against an AXI4 slave model with random waits and out-of-order responses, in five
+  cache configurations, 320/320 pass with no protocol violations
   (see [verilog/README.md §8](verilog/README.md#8-axi4-master-version-stm_axi_top))
 
 ## Running

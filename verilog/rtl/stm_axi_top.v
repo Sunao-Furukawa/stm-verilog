@@ -1,18 +1,22 @@
 // =====================================================================
 //  stm_axi_top.v  -  AXI4 マスタ・インタフェースを持つ STM CPU
 //
-//     +--------------------+  LBS_*, IB_AD    +----------------+
-//     | stm_cntl           | ---------------> |                |  AXI4
-//     |  (EXT_BUS=1)       | <--------------- | stm_axi_master | <=======> m_axi_*
-//     |                    |  *_RDY, MEM_DT_* |                |  (32bit データ)
-//     +--------------------+                  +----------------+
+//     +--------------------+  IB_AD     +------------+
+//     | stm_cntl           | ---------> | stm_icache | --+
+//     |  (EXT_BUS=1)       | <--------- | (命令)     |   |  +----------------+
+//     |                    |            +------------+   +->|                |  AXI4
+//     |                    |  LBS_* (オペランド)            | stm_axi_master | <=====> m_axi_*
+//     |                    | ------------------------------>|                |  (32bit データ)
+//     |                    | <------------------------------|                |
+//     +--------------------+                                +----------------+
 //          |      ^
 //          v      |  GR
 //     +--------------------+
 //     | stm_regfile        |
 //     +--------------------+
 //
-//  stm_sys.v から stm_memory を外し、代わりに AXI4 マスタを付けたもの。
+//  stm_sys.v から stm_memory を外し、代わりに命令キャッシュと AXI4 マスタを
+//  付けたもの。データ側にキャッシュは無い。
 //  命令もデータも同じ AXI4 ポートからアクセスする (命令フェッチは ARPROT[2]=1)。
 //  クロックは aclk 1 本, リセットは AXI の慣習どおり aresetn (0 でリセット,
 //  aclk に同期して扱う)。リセット解除後, RESET_PC から実行を始める。
@@ -21,7 +25,10 @@ module stm_axi_top #(
   parameter ID_W      = 4,
   parameter IF_ID     = 0,
   parameter OP_ID     = 1,
-  parameter BYTE_SWAP = 0           // stm_axi_master.v を参照
+  parameter BYTE_SWAP = 0,          // stm_axi_master.v を参照
+  parameter ICACHE    = 1,          // 0 にすると命令キャッシュ無し (stm_icache.v を参照)
+  parameter IC_LINE_W = 5,          // 命令キャッシュのライン = 2^IC_LINE_W バイト
+  parameter IC_SET_W  = 7           // 命令キャッシュのライン数 = 2^IC_SET_W (既定 4KB)
 ) (
   input                 aclk,
   input                 aresetn,
@@ -79,8 +86,13 @@ module stm_axi_top #(
   wire        lbs_we;
   wire [31:0] lbs_ad, lbs_dt, ib_ad;
   wire [31:0] mem_dt_op, mem_dt_if_h, mem_dt_if_l;
-  wire        ib_valid, ib_new, op_b_new, op_b_busreq;
+  wire        ib_valid, op_b_new, op_b_busreq;
+  wire [31:0] ib_ad_nxt;
   wire        if_rdy, op_rdy;
+  wire        fr_req, fr_ack, fr_valid, fr_last;
+  wire [31:0] fr_addr, fr_data;
+  wire [7:0]  fr_len;
+  wire [1:0]  fr_burst;
 
   stm_cntl #(.EXT_BUS(1)) u_cntl (
     .clk              (aclk),
@@ -111,7 +123,7 @@ module stm_axi_top #(
     .MEM_DT_IF_H      (mem_dt_if_h),
     .MEM_DT_IF_L      (mem_dt_if_l),
     .IB_VALID         (ib_valid),
-    .IB_NEW           (ib_new),
+    .IB_AD_NXT        (ib_ad_nxt),
     .OP_B_NEW         (op_b_new),
     .OP_B_BUSREQ      (op_b_busreq),
     .PC               (PC)
@@ -126,17 +138,38 @@ module stm_axi_top #(
     .rdt1 (gr_dt_1), .rdt2 (gr_dt_2), .rdtb (gr_dt_b), .rdts (gr_dt_s)
   );
 
+  stm_icache #(.ENABLE(ICACHE), .LINE_W(IC_LINE_W), .SET_W(IC_SET_W)) u_icache (
+    .clk       (aclk),
+    .rst       (rst),
+    .ib_valid  (ib_valid),
+    .ib_ad     (ib_ad),
+    .ib_ad_nxt (ib_ad_nxt),
+    .if_rdy    (if_rdy),
+    .if_dt_h   (mem_dt_if_h),
+    .if_dt_l   (mem_dt_if_l),
+    .fr_req    (fr_req),
+    .fr_addr   (fr_addr),
+    .fr_len    (fr_len),
+    .fr_burst  (fr_burst),
+    .fr_ack    (fr_ack),
+    .fr_valid  (fr_valid),
+    .fr_data   (fr_data),
+    .fr_last   (fr_last)
+  );
+
   stm_axi_master #(
     .ID_W(ID_W), .IF_ID(IF_ID), .OP_ID(OP_ID), .BYTE_SWAP(BYTE_SWAP)
   ) u_axi (
     .clk           (aclk),
     .rst           (rst),
-    .ib_valid      (ib_valid),
-    .ib_new        (ib_new),
-    .ib_ad         (ib_ad),
-    .if_rdy        (if_rdy),
-    .if_dt_h       (mem_dt_if_h),
-    .if_dt_l       (mem_dt_if_l),
+    .ifr_req       (fr_req),
+    .ifr_addr      (fr_addr),
+    .ifr_len       (fr_len),
+    .ifr_burst     (fr_burst),
+    .ifr_ack       (fr_ack),
+    .ifr_valid     (fr_valid),
+    .ifr_data      (fr_data),
+    .ifr_last      (fr_last),
     .op_new        (op_b_new),
     .op_busreq     (op_b_busreq),
     .op_we         (lbs_we),

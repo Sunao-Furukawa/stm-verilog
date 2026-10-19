@@ -70,9 +70,10 @@ vivado -mode batch -source synth.tcl -tclargs xc7a35tcpg236-1     # 別のデバ
 ## AXI4 マスタ付きの CPU (`stm_axi_top`)
 
 `stm_axi_top` ([../README.ja.md 8 章](../README.ja.md#8-axi4-マスタ版-stm_axi_top) 参照) は
-`stm_cntl`, `stm_regfile`, ブリッジ `stm_axi_master` を含む CPU 一式で、外とのつながりは
-AXI4 マスタ・ポートだけです (観測用の `PC` / `bus_error` を含めて 281 ピン)。
-レジスタファイルは同じサイクルで読める読み出しポートが 4 本あるので FF で作られます。
+`stm_cntl`, `stm_regfile`, 命令キャッシュ `stm_icache`, ブリッジ `stm_axi_master` を含む CPU 一式で、
+外とのつながりは AXI4 マスタ・ポートだけです (観測用の `PC` / `bus_error` を含めて 281 ピン)。
+命令キャッシュ (既定 4KB) はブロック RAM になります。レジスタファイルは同じサイクルで読める
+読み出しポートが 4 本あるので FF で作られます。
 
 ```sh
 cd verilog/syn/quartus
@@ -83,8 +84,8 @@ vivado -mode batch -source synth_axi.tcl        # 結果は vivado/reports_axi/
 
 | ツール / デバイス | 使用量 | タイミング |
 |---|---|---|
-| Quartus II 13.0sp1, Cyclone IV E EP4CE115F29C7 (配置配線まで) | 7,686 LE, レジスタ 2,333, ピン 281 | 25 MHz で達成 (セットアップ余裕 +2.4 ns) |
-| Vivado 2022.2, Artix-7 xc7a100tcsg324-1 (合成のみ, out-of-context) | LUT 4,412, FF 2,337 | 25 MHz で達成 (WNS +11.5 ns, 合成後の見積もり) |
+| Quartus II 13.0sp1, Cyclone IV E EP4CE115F29C7 (配置配線まで) | 8,230 LE, レジスタ 2,557, メモリ 35,328 ビット, ピン 281 | 25 MHz で達成 (セットアップ余裕 +2.7 ns) |
+| Vivado 2022.2, Artix-7 xc7a100tcsg324-1 (合成のみ, out-of-context) | LUT 4,839, FF 2,561, ブロック RAM 1.5 タイル | 25 MHz で達成 (WNS +10.9 ns, 合成後の見積もり) |
 
-`stm_cntl` 単体より増える警告は、観測用にしか使わないパイプラインのタグが削除されるものと、
-レジスタファイルを FF で作るという通知です。
+`stm_cntl` 単体より増える警告は、観測用にしか使わないパイプラインのタグが削除されるもの、
+キャッシュが使わないアドレスのビット、レジスタファイルを FF で作るという通知です。

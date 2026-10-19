@@ -16,12 +16,16 @@
 //    +TRACE           毎サイクル PC 等を表示
 //    +VCD             tb_stm_axi.vcd に波形を書く
 //
-//  パラメータ BYTE_SWAP (iverilog -P tb_stm_axi.BYTE_SWAP=1) で
-//  stm_axi_master のバイトレーンの並びを切り替えられる。1 のときは
-//  メモリイメージを語ごとにバイト反転してスレーブに入れる。
+//  パラメータ (iverilog -P tb_stm_axi.<名前>=<値>):
+//    BYTE_SWAP  stm_axi_master のバイトレーンの並び。1 のときは
+//               メモリイメージを語ごとにバイト反転してスレーブに入れる
+//    ICACHE, IC_LINE_W, IC_SET_W   命令キャッシュの有無と大きさ (stm_icache.v)
 // =====================================================================
 module tb_stm_axi;
   parameter BYTE_SWAP = 0;
+  parameter ICACHE    = 1;
+  parameter IC_LINE_W = 5;
+  parameter IC_SET_W  = 7;
   localparam ID_W = 4;
 
   reg         clk = 1'b0;
@@ -46,7 +50,8 @@ module tb_stm_axi;
   wire            awvalid, awready, wlast, wvalid, wready, bvalid, bready;
   wire            arvalid, arready, rlast, rvalid, rready;
 
-  stm_axi_top #(.ID_W(ID_W), .BYTE_SWAP(BYTE_SWAP)) u_dut (
+  stm_axi_top #(.ID_W(ID_W), .BYTE_SWAP(BYTE_SWAP), .ICACHE(ICACHE),
+                .IC_LINE_W(IC_LINE_W), .IC_SET_W(IC_SET_W)) u_dut (
     .aclk(clk), .aresetn(aresetn), .RESET_PC(reset_pc), .PC(pc),
     .bus_error(bus_error),
     .m_axi_awid(awid), .m_axi_awaddr(awaddr), .m_axi_awlen(awlen),
@@ -83,6 +88,10 @@ module tb_stm_axi;
 
   always #5 clk = ~clk;
 
+  // 命令フェッチの AR を数える (キャッシュのミス回数)
+  integer n_if = 0;
+  always @(posedge clk) if (arvalid && arready && arid == 0) n_if = n_if + 1;
+
   function [31:0] bswap;
     input [31:0] d;
     bswap = {d[7:0], d[15:8], d[23:16], d[31:24]};
@@ -93,8 +102,8 @@ module tb_stm_axi;
     begin
       if (u_mem.errors != 0) verdict = "AXIERR";
       $display("RESULT: stop at PC=%h after %0d cycles -> %0s", pc, cycles, verdict);
-      $display("AXI: reads=%0d writes=%0d protocol_errors=%0d bus_error=%b",
-               u_mem.n_rd, u_mem.n_wr, u_mem.errors, bus_error);
+      $display("AXI: reads=%0d (fetch %0d) writes=%0d protocol_errors=%0d bus_error=%b",
+               u_mem.n_rd, n_if, u_mem.n_wr, u_mem.errors, bus_error);
       $finish;
     end
   endtask

@@ -40,13 +40,15 @@ verilog/
 │   ├── stm_regfile.v     <- GR[] in 045-g-ram.ch  (16 general-purpose registers)
 │   ├── stm_memory.v      <- Mem[] in 045-g-ram.ch (memory model for simulation)
 │   ├── stm_sys.v         top level connecting everything (equivalent to vh/behave/sys.vst)
+│   ├── stm_icache.v      instruction cache (section 8)
 │   ├── stm_axi_master.v  memory requests of stm_cntl -> AXI4 master (section 8)
-│   └── stm_axi_top.v     CPU with an AXI4 master port (stm_cntl + stm_regfile + stm_axi_master)
+│   └── stm_axi_top.v     CPU with an AXI4 master port (stm_cntl + stm_regfile + stm_icache + stm_axi_master)
 ├── syn/                  logic-synthesis setups for Quartus / Vivado (see syn/README.md)
 ├── tb/
 │   ├── tb_stm.v          testbench
 │   ├── tb_stm_axi.v      testbench for stm_axi_top
 │   └── axi4_mem_slave.v  AXI4 slave memory model (random waits / reordering, protocol checks)
+├── bench/loop.s          loop benchmark (shows the effect of the instruction cache)
 ├── tools/
 │   ├── asm.py            assembler (Python port of soft/asm.pl; use this one normally)
 │   ├── asm64.pl          soft/asm.pl fixed for 64-bit Perl (for reference)
@@ -199,13 +201,15 @@ vvp sim.vvp +HEX=mem.hex +PC=300 +CYCLES=200 +TRACE
 
 ## 8. AXI4 master version (`stm_axi_top`)
 
-`stm_axi_top` is the complete CPU (core + register file) with a single **AXI4 master** port
-in place of `stm_memory`. Instructions and data both go through this port.
+`stm_axi_top` is the complete CPU (core + register file) with an **instruction cache** and a
+single **AXI4 master** port in place of `stm_memory`. Instructions and data both go through
+this port; there is no data cache.
 
 ```
- stm_cntl (EXT_BUS=1) --LBS_*, IB_AD--> stm_axi_master <==AXI4 (32bit data)==> m_axi_*
-      ^  |                                                (interconnect / memory)
-      |  v GR
+ stm_cntl (EXT_BUS=1) --IB_AD, IB_AD_NXT--> stm_icache --line fills--+
+      ^  |  \                                                        v
+      |  |   +---------------LBS_* (loads / stores)-------------> stm_axi_master <==AXI4==> m_axi_*
+      |  v GR                                                     (32-bit data)
  stm_regfile
 ```
 
@@ -216,13 +220,37 @@ in place of `stm_memory`. Instructions and data both go through this port.
 | `m_axi_aw*`, `w*`, `b*`, `ar*`, `r*` | AXI4 master (32-bit data, 32-bit address, `ID_W`-bit IDs; no `*USER`/`*REGION`) |
 | `PC`, `bus_error` | observation: current PC; sticky flag set by any SLVERR/DECERR response |
 
-Parameters: `ID_W` (4), `IF_ID` (0), `OP_ID` (1), `BYTE_SWAP` (0, see below).
+| Parameter | Default | Meaning |
+|---|---|---|
+| `ID_W`, `IF_ID`, `OP_ID` | 4, 0, 1 | AXI ID width; IDs used for instruction fetches and for loads/stores |
+| `BYTE_SWAP` | 0 | byte-lane order (see below) |
+| `ICACHE` | 1 | 1 = instruction cache, 0 = no cache (each fetch reads 8 bytes) |
+| `IC_LINE_W` | 5 | cache line = 2^`IC_LINE_W` bytes (4–6: 16–64 bytes) |
+| `IC_SET_W` | 7 | number of lines = 2^`IC_SET_W` (default 32 B × 128 = 4 KB) |
+
+### Instruction cache (`rtl/stm_icache.v`)
+
+* Direct-mapped, read-only. The data array is 64 bits wide (one entry = the 8 bytes the core
+  fetches at a time); data and tag arrays are synchronous-read RAMs with one write port, so they
+  map to FPGA block RAM. Only the valid bits are flip-flops.
+* **Hits take no extra cycle.** The core now also outputs the address it will fetch next cycle
+  (`IB_AD_NXT`), and the cache reads its RAM one cycle ahead with it. A hit is therefore answered
+  in the same cycle as the original same-cycle `stm_memory`; code that stays in the cache runs
+  at the original cycle count for instruction fetch.
+* **Misses** fill the whole line with one WRAP burst starting at the requested 8 bytes. That
+  pair goes to the core as soon as its two beats arrive (early restart), and each later pair is
+  handed over as it arrives, so straight-line code does not wait for the end of the fill. Other
+  hits resume when the fill has finished.
+* A fill that was started is always completed, even if the core cancels the fetch. Requests are
+  matched by address, so the cache does not need to know where the core's requests begin.
+* The cache is not kept coherent with stores (see self-modifying code below).
 
 ### What appears on the bus
 
 | Access | Channel | Burst |
 |---|---|---|
-| Instruction fetch (8 bytes = 2 instructions) | AR/R, `ARID=IF_ID`, `ARPROT=3'b100` (instruction) | `ARLEN=1`, `ARSIZE=2`, INCR, 8-byte aligned |
+| Instruction fetch, `ICACHE=1` (line fill) | AR/R, `ARID=IF_ID`, `ARPROT=3'b100` (instruction) | WRAP, `ARLEN=2^(IC_LINE_W-2)-1` (8 beats by default), `ARSIZE=2`, starts at the requested 8 bytes |
+| Instruction fetch, `ICACHE=0` (8 bytes = 2 instructions) | the same | INCR, `ARLEN=1`, 8-byte aligned |
 | Load, and the B-cycle read of a store | AR/R, `ARID=OP_ID`, `ARPROT=3'b000` | single beat, 4-byte aligned |
 | Store (ST2 from the store buffer) | AW/W/B, `AWID=OP_ID` | single beat, `WSTRB=4'hf` |
 
@@ -236,15 +264,16 @@ Parameters: `ID_W` (4), `IF_ID` (0), `OP_ID` (1), `BYTE_SWAP` (0, see below).
   only after its B response.
 * `AxCACHE=4'b0011` (normal, non-cacheable, bufferable), `AxLOCK=0`, `AxQOS=0`. `RREADY` and
   `BREADY` are always 1.
-* All responses are registered before they reach the core: there is no combinational path from
-  AXI inputs into `stm_cntl`.
+* Every response is registered (operand data in `stm_axi_master`, instructions in the cache
+  RAM / fill registers) before it reaches the core: there is no combinational path from AXI
+  inputs into `stm_cntl`.
 
 ### Changes to the core (`EXT_BUS` parameter of `stm_cntl`)
 
 The core already had a handshake for cache misses (`RANDOM_FOR_OPCLH/IFRDY/IFCLH`). The AXI4
 version reuses it as a "bus data has arrived" signal. With the default `EXT_BUS=0` the core is
 exactly as before (the 128/128 regression and the cycle-by-cycle match with the C version are
-unchanged); `stm_axi_top` sets `EXT_BUS=1`, which changes three things:
+unchanged); `stm_axi_top` sets `EXT_BUS=1`, which changes four things:
 
 1. **ST2 waits for the bus.** In the original an ST2 always finished in one cycle; now it stays in
    OP-B until the write completes (`OP_B_FORWARDING` in 160-op-lb2).
@@ -253,21 +282,40 @@ unchanged); `stm_axi_top` sets `EXT_BUS=1`, which changes three things:
    the B cycle (`BB_MEM_DATA`). With a bus a request can wait in OP-B for many cycles, by which
    time the instruction is no longer in B, so the data is now selected directly by `LBS_AD`
    (`OP_LBS_DATA` in 050-op-lb1). The same applies to the B-cycle read of a store.
-3. **New outputs** that tell the bridge where requests begin and whether they need the bus:
-   `IB_VALID`, `IB_NEW`, `OP_B_NEW`, `OP_B_BUSREQ`. They are left unconnected in `stm_sys`.
+3. **A stale fetch is cancelled when an unsolved BC is issued** (`CANCEL_IB` in 170-if-req).
+   The fetch request for the target of an unsolved conditional branch is issued only once and
+   is lost if the fetch unit is busy. The original never noticed, because its fetches always
+   completed in the next cycle. With slow fetches the target queue went on filling from an old
+   fetch, so wrong-path code was executed. Cancelling that old fetch frees the fetch unit, and the
+   core then re-requests the target from `D_IF_AD` in the next cycle.
+4. **New outputs** for the cache and the bridge: `IB_VALID`, `IB_AD_NXT` (next-cycle `IB_AD`),
+   `OP_B_NEW`, `OP_B_BUSREQ`. They are left unconnected in `stm_sys`.
 
-When the core cancels a request (branch misprediction, interrupt) after its AXI transaction has
-started, `stm_axi_master` finishes the transaction and discards the result.
+When the core cancels a load/store (branch misprediction, interrupt) after its AXI transaction
+has started, `stm_axi_master` finishes the transaction and discards the result.
+
+### Performance
+
+Cycles to SUCCESS. `stm_sys` is the original same-cycle memory, i.e. the ideal case.
+
+| Program | `stm_sys` | AXI, no cache | AXI, I-cache 4 KB | AXI random waits, no cache | AXI random waits, I-cache 4 KB |
+|---|---|---|---|---|---|
+| `bench/loop.s` (100 iterations, 9 loads + 1 store each) | 2,218 | 6,737 | **5,047** | 13,408 | **9,397** |
+| all 64 bup programs (total) | 4,275 | 12,157 | **9,180** | — | — |
+
+In `bench/loop.s` the cache cuts instruction-fetch bus reads from 1,208 to 6. What remains is
+the loads and stores, which all go to the bus. The bup programs are short and run mostly on cold
+misses, so they gain less.
 
 ### Points to be aware of
 
-* **No caches**: every fetch and memory operand is a bus transaction. Over the 64 bup programs
-  the AXI version takes about 2.9× the cycles of the zero-latency `stm_memory` with a no-wait
-  slave, and about 6× with the random-wait slave.
+* **No data cache**: every load and store is a bus transaction, which is now the main cost.
 * **Speculative reads**: loads on a mispredicted path can reach the bus before they are cancelled
   (as in the original, which also read memory speculatively). Do not map read-sensitive devices
-  where such loads can hit them.
-* **Self-modifying code** is not supported: instruction fetches are not ordered against stores.
+  where such loads can hit them. Instruction prefetches and line fills can also read past the
+  end of the code.
+* **Self-modifying code** is not supported: the instruction cache does not see stores, and
+  instruction fetches are not ordered against stores.
 * **Bus errors** only set `bus_error`; the CPU has no bus-error exception.
 * **Byte order**: STM is big-endian (the byte at address 4n is the most significant byte).
   `BYTE_SWAP=0` puts the CPU's word on the bus unchanged, so a `$readmemh` word image can be used
@@ -278,10 +326,13 @@ started, `stm_axi_master` finishes the transaction and discards the result.
 ### Verification
 
 * `iverilog -g2001 -Wall` compiles without warnings.
-* `run_bup_axi.ps1` / `run_bup_axi.sh` run all 64 bup0/bup1 programs three ways — no-wait
-  slave; random waits, reordering and interleaving of read responses; the same with
-  `BYTE_SWAP=1` — 192/192 finish at SUCCESS.
-* Stress run: all 64 programs × 30 more seeds of the random slave = 1920/1920 pass.
+* `run_bup_axi.ps1` / `run_bup_axi.sh` run all 64 bup0/bup1 programs five ways — 4 KB cache
+  with a no-wait slave; 4 KB cache with random waits, reordering and interleaving of read
+  responses; the same with `BYTE_SWAP=1`; a 2-line × 16-byte cache (many replacements); no
+  cache — 320/320 finish at SUCCESS.
+* Stress run: all 64 programs × 20 more seeds of the random slave, spread over five cache
+  configurations (4 KB, 4 KB + `BYTE_SWAP`, 2 × 16 B, 4 × 64 B, none) = 1280/1280 pass.
+  `bench/loop.s` also passes in every configuration tried.
 * `tb/axi4_mem_slave.v` checks the master's protocol on every cycle (VALID held until READY with
   stable payload, WLAST matching the burst length, no 4 KB crossing, size ≤ bus width) and the
   testbench reports `AXIERR` on any violation; none were found.
@@ -296,11 +347,12 @@ sh run_bup_axi.sh                                          # sh / Git Bash
 A single program:
 
 ```powershell
-python tools/asm.py ../samples/tst.s 200 -o mem.dat
+python tools/asm.py bench/loop.s 20000 -o mem.dat
 python tools/mem2hex.py mem.dat mem.hex
-iverilog -g2001 -I rtl -o axi.vvp tb/tb_stm_axi.v tb/axi4_mem_slave.v rtl/stm_axi_top.v rtl/stm_axi_master.v rtl/stm_cntl.v rtl/stm_exu.v rtl/stm_regfile.v
-vvp axi.vvp +HEX=mem.hex +PC=300 +CYCLES=4000 +RANDOM +SEED=5 +TRACE
+iverilog -g2001 -I rtl -o axi.vvp tb/tb_stm_axi.v tb/axi4_mem_slave.v rtl/stm_axi_top.v rtl/stm_icache.v rtl/stm_axi_master.v rtl/stm_cntl.v rtl/stm_exu.v rtl/stm_regfile.v
+vvp axi.vvp +HEX=mem.hex +PC=300 +CYCLES=20000 +RANDOM +SEED=5
 ```
 
-`+RANDOM` turns on random waits and reordering in the slave, `+VCD` writes `tb_stm_axi.vcd`,
-and `-P tb_stm_axi.BYTE_SWAP=1` on the `iverilog` line selects the swapped byte lanes.
+`+RANDOM` turns on random waits and reordering in the slave, `+TRACE` prints every cycle, and
+`+VCD` writes `tb_stm_axi.vcd`. Parameters are set on the `iverilog` line, e.g.
+`-P tb_stm_axi.ICACHE=0`, `-P tb_stm_axi.IC_SET_W=4`, `-P tb_stm_axi.BYTE_SWAP=1`.

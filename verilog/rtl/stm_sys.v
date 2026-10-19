@@ -62,7 +62,7 @@ module stm_sys #(
     .MEM_DT_IF_H      (mem_dt_if_h),
     .MEM_DT_IF_L      (mem_dt_if_l),
     .IB_VALID         (),             // 外部バス (EXT_BUS=1) 用。ここでは未使用
-    .IB_NEW           (),
+    .IB_AD_NXT        (),
     .OP_B_NEW         (),
     .OP_B_BUSREQ      (),
     .PC               (PC)

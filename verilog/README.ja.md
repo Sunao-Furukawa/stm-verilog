@@ -39,13 +39,15 @@ verilog/
 │   ├── stm_regfile.v     <- 045-g-ram.ch の GR[]  (汎用レジスタ 16 本)
 │   ├── stm_memory.v      <- 045-g-ram.ch の Mem[] (シミュレーション用メモリ)
 │   ├── stm_sys.v         全体を接続するトップ (VHDL 版 vh/behave/sys.vst 相当)
+│   ├── stm_icache.v      命令キャッシュ (8 章)
 │   ├── stm_axi_master.v  stm_cntl のメモリ要求 → AXI4 マスタ (8 章)
-│   └── stm_axi_top.v     AXI4 マスタ・ポートを持つ CPU (stm_cntl + stm_regfile + stm_axi_master)
+│   └── stm_axi_top.v     AXI4 マスタ・ポートを持つ CPU (stm_cntl + stm_regfile + stm_icache + stm_axi_master)
 ├── syn/                  論理合成用の設定 (Quartus / Vivado, syn/README.ja.md 参照)
 ├── tb/
 │   ├── tb_stm.v          テストベンチ
 │   ├── tb_stm_axi.v      stm_axi_top のテストベンチ
 │   └── axi4_mem_slave.v  AXI4 スレーブ (メモリ) モデル (乱数ウェイト・順序入れ替え, 規則違反の検査)
+├── bench/loop.s          ループのベンチマーク (命令キャッシュの効果を見る)
 ├── tools/
 │   ├── asm.py            アセンブラ (soft/asm.pl の Python 移植版。通常はこちらを使う)
 │   ├── asm64.pl          soft/asm.pl の 64bit perl 対応版 (参考用)
@@ -180,13 +182,15 @@ vvp sim.vvp +HEX=mem.hex +PC=300 +CYCLES=200 +TRACE
 
 ## 8. AXI4 マスタ版 (`stm_axi_top`)
 
-`stm_axi_top` は、CPU 本体とレジスタファイルに `stm_memory` の代わりに **AXI4 マスタ** の
-ポートを 1 つ付けた、CPU 一式です。命令もデータもこのポートからアクセスします。
+`stm_axi_top` は、CPU 本体とレジスタファイルに、`stm_memory` の代わりに **命令キャッシュ** と
+**AXI4 マスタ** のポートを 1 つ付けた CPU 一式です。命令もデータもこのポートからアクセスします。
+データキャッシュはありません。
 
 ```
- stm_cntl (EXT_BUS=1) --LBS_*, IB_AD--> stm_axi_master <==AXI4 (データ 32bit)==> m_axi_*
-      ^  |                                                (インタコネクト / メモリ)
-      |  v GR
+ stm_cntl (EXT_BUS=1) --IB_AD, IB_AD_NXT--> stm_icache --ライン埋め--+
+      ^  |  \                                                       v
+      |  |   +---------------LBS_* (ロード / ストア)------------> stm_axi_master <==AXI4==> m_axi_*
+      |  v GR                                                    (データ 32bit)
  stm_regfile
 ```
 
@@ -197,13 +201,37 @@ vvp sim.vvp +HEX=mem.hex +PC=300 +CYCLES=200 +TRACE
 | `m_axi_aw*`, `w*`, `b*`, `ar*`, `r*` | AXI4 マスタ (データ 32bit, アドレス 32bit, ID は `ID_W` ビット。`*USER`/`*REGION` は無し) |
 | `PC`, `bus_error` | 観測用: 現在の PC / SLVERR・DECERR 応答があったら 1 (sticky) |
 
-パラメータ: `ID_W` (4), `IF_ID` (0), `OP_ID` (1), `BYTE_SWAP` (0, 後述)。
+| パラメータ | 既定値 | 意味 |
+|---|---|---|
+| `ID_W`, `IF_ID`, `OP_ID` | 4, 0, 1 | AXI の ID 幅, 命令フェッチとロード/ストアに使う ID |
+| `BYTE_SWAP` | 0 | バイトレーンの並び (後述) |
+| `ICACHE` | 1 | 1 = 命令キャッシュあり, 0 = 無し (毎回 8 バイトを読む) |
+| `IC_LINE_W` | 5 | ライン = 2^`IC_LINE_W` バイト (4〜6: 16〜64 バイト) |
+| `IC_SET_W` | 7 | ライン数 = 2^`IC_SET_W` (既定 32 バイト × 128 = 4KB) |
+
+### 命令キャッシュ (`rtl/stm_icache.v`)
+
+* ダイレクトマップ, 読み出し専用。データ配列は 64bit 幅 (1 エントリ = CPU が一度にフェッチする
+  8 バイト)。データ配列もタグ配列も「書き 1 ポート + クロック同期の読み 1 ポート」の RAM なので、
+  FPGA のブロック RAM になります。有効ビットだけは FF です。
+* **ヒットは余分なサイクル無し**: CPU に「次のサイクルにフェッチする番地」(`IB_AD_NXT`) の
+  出力を足し、キャッシュはそれで 1 サイクル先に RAM を引いておきます。そのためヒットは元の
+  `stm_memory` (同じサイクルに応答) と同じタイミングで返り、キャッシュに収まるコードは
+  命令フェッチについて元の設計と同じサイクル数で動きます。
+* **ミス** のときはそのラインを WRAP バースト 1 回で埋めます。要求した 8 バイトから読み始め、
+  その 2 ビートが届いた時点で CPU に返し (early restart)、続く 8 バイトも届いた順に渡すので、
+  順に実行するコードはライン埋めの終わりを待ちません。それ以外のヒットはライン埋めが
+  終わってから返します。
+* 始めたライン埋めは、CPU がフェッチを取り消しても最後まで行います。要求は番地で照合するので、
+  キャッシュは CPU 側の要求の切れ目を知る必要がありません。
+* ストアとの一貫性は取りません (下の「自己書き換えコード」を参照)。
 
 ### バスに出るアクセス
 
 | アクセス | チャネル | バースト |
 |---|---|---|
-| 命令フェッチ (8 バイト = 2 命令) | AR/R, `ARID=IF_ID`, `ARPROT=3'b100` (命令) | `ARLEN=1`, `ARSIZE=2`, INCR, 8 バイト境界 |
+| 命令フェッチ, `ICACHE=1` (ライン埋め) | AR/R, `ARID=IF_ID`, `ARPROT=3'b100` (命令) | WRAP, `ARLEN=2^(IC_LINE_W-2)-1` (既定 8 ビート), `ARSIZE=2`, 要求した 8 バイトから |
+| 命令フェッチ, `ICACHE=0` (8 バイト = 2 命令) | 同上 | INCR, `ARLEN=1`, 8 バイト境界 |
 | ロード, ストアの B サイクルの読み出し | AR/R, `ARID=OP_ID`, `ARPROT=3'b000` | 1 ビート, 4 バイト境界 |
 | ストア (ストアバッファからの ST2) | AW/W/B, `AWID=OP_ID` | 1 ビート, `WSTRB=4'hf` |
 
@@ -216,15 +244,15 @@ vvp sim.vvp +HEX=mem.hex +PC=300 +CYCLES=200 +TRACE
   ストアはプログラム順にバスへ出ます。ストアは B 応答が返って初めて完了扱いです。
 * `AxCACHE=4'b0011` (normal, non-cacheable, bufferable), `AxLOCK=0`, `AxQOS=0`。
   `RREADY` と `BREADY` は常に 1。
-* 応答はいったんレジスタで受けてから CPU に渡すので、AXI の入力から `stm_cntl` への
-  組合せ回路はありません。
+* 応答はすべてレジスタで受けてから CPU に渡します (オペランドは `stm_axi_master`, 命令は
+  キャッシュの RAM / レジスタ)。AXI の入力から `stm_cntl` への組合せ回路はありません。
 
 ### CPU 本体の変更 (`stm_cntl` のパラメータ `EXT_BUS`)
 
 CPU にはもともとキャッシュミス用のハンドシェーク (`RANDOM_FOR_OPCLH/IFRDY/IFCLH`) があるので、
 AXI4 版ではこれを「バスのデータが届いた」合図として使います。既定の `EXT_BUS=0` では
 動作は以前とまったく同じです (128/128 の回帰テスト, C 版とのサイクル一致もそのまま)。
-`stm_axi_top` は `EXT_BUS=1` にしていて、変わるのは次の 3 点です。
+`stm_axi_top` は `EXT_BUS=1` にしていて、変わるのは次の 4 点です。
 
 1. **ST2 がバスを待つ**: 元は ST2 は必ず 1 サイクルで終わったが、書き込みが完了するまで
    OP-B に留まるようにした (160-op-lb2 の `OP_B_FORWARDING`)。
@@ -233,21 +261,40 @@ AXI4 版ではこれを「バスのデータが届いた」合図として使い
    補っていた。バスでは要求が OP-B で何サイクルも待つことがあり、そのころには命令がもう
    B にいないので、`LBS_AD` で直接データを選ぶようにした (050-op-lb1 の `OP_LBS_DATA`)。
    ストアの B サイクルの読み出しも同様。
-3. **出力の追加**: 要求の切れ目とバスアクセスの要否をブリッジに知らせる
-   `IB_VALID`, `IB_NEW`, `OP_B_NEW`, `OP_B_BUSREQ`。`stm_sys` では未接続。
+3. **未解決 BC を発行したら古いフェッチを取り消す** (170-if-req の `CANCEL_IB`):
+   未解決の条件分岐の分岐先を取りに行く要求は 1 回しか出ず、フェッチ部が使用中だと消えて
+   しまう。元の設計ではフェッチが必ず次のサイクルに終わるので問題にならなかったが、
+   フェッチが遅いと分岐先のキューに古いフェッチの続きが入り、予測と違う側のコードを
+   実行してしまった。その古いフェッチを取り消してフェッチ部を空け、次のサイクルに
+   `D_IF_AD` から分岐先を要求し直すようにした。
+4. **出力の追加**: キャッシュとブリッジ用に `IB_VALID`, `IB_AD_NXT` (次のサイクルの `IB_AD`),
+   `OP_B_NEW`, `OP_B_BUSREQ`。`stm_sys` では未接続。
 
-AXI トランザクションを出した後に CPU が要求を取り消した場合 (分岐予測ミス, 割り込み) は、
-`stm_axi_master` がトランザクションを最後まで受け取ってから結果を捨てます。
+AXI トランザクションを出した後に CPU がロード/ストアを取り消した場合 (分岐予測ミス,
+割り込み) は、`stm_axi_master` がトランザクションを最後まで受け取ってから結果を捨てます。
+
+### 性能
+
+SUCCESS までのサイクル数。`stm_sys` は元の (同じサイクルに応答する) メモリで、理想値です。
+
+| プログラム | `stm_sys` | AXI, キャッシュ無し | AXI, 命令キャッシュ 4KB | AXI 乱数ウェイト, キャッシュ無し | AXI 乱数ウェイト, 命令キャッシュ 4KB |
+|---|---|---|---|---|---|
+| `bench/loop.s` (100 回のループ, 1 回にロード 9 + ストア 1) | 2,218 | 6,737 | **5,047** | 13,408 | **9,397** |
+| bup の 64 本 (合計) | 4,275 | 12,157 | **9,180** | — | — |
+
+`bench/loop.s` では、命令フェッチのバス読み出しが 1,208 回から 6 回に減りました。
+残りの差はロードとストアで、これらは毎回バスに出ます。bup の各プログラムは短く、ほとんど
+初回のミスで終わるので、効果は小さめです。
 
 ### 注意点
 
-* **キャッシュは無い**: 命令フェッチもメモリオペランドも毎回バスに出ます。bup の 64 本では、
-  ウェイト無しのスレーブで遅延 0 の `stm_memory` の約 2.9 倍、乱数ウェイトのスレーブで
-  約 6 倍のサイクル数でした。
+* **データキャッシュは無い**: ロードとストアは毎回バスに出ます。これが今の主なコストです。
 * **投機的な読み出し**: 予測ミスした側のロードが取り消される前にバスへ出ることがあります
   (元の設計でもメモリは投機的に読まれていた)。読むと状態が変わるデバイスは、そうした
-  ロードが届く番地に置かないでください。
-* **自己書き換えコードには対応していません**: 命令フェッチとストアの順序は保証しません。
+  ロードが届く番地に置かないでください。命令の先読みとライン埋めも、コードの終わりより
+  先を読むことがあります。
+* **自己書き換えコードには対応していません**: 命令キャッシュはストアを見ていません。
+  命令フェッチとストアの順序も保証しません。
 * **バスエラー** は `bus_error` を立てるだけです。CPU にバスエラー例外はありません。
 * **バイト順**: STM はビッグエンディアン (番地 4n のバイトが語の最上位)。`BYTE_SWAP=0` では
   CPU の語をそのままバスに載せるので、`$readmemh` の語イメージがそのまま使えます。
@@ -258,10 +305,13 @@ AXI トランザクションを出した後に CPU が要求を取り消した�
 ### 検証
 
 * `iverilog -g2001 -Wall` で警告なしにコンパイルできることを確認。
-* `run_bup_axi.ps1` / `run_bup_axi.sh` で bup0/bup1 の全 64 本を 3 通り
-  (ウェイト無しのスレーブ / 乱数ウェイト + 読み出し応答の順序入れ替え・インタリーブ /
-  同じく `BYTE_SWAP=1`) で実行し、192/192 が SUCCESS で終了。
-* 追加のストレステスト: 全 64 本 × 乱数スレーブの種 30 通り = 1920/1920 成功。
+* `run_bup_axi.ps1` / `run_bup_axi.sh` で bup0/bup1 の全 64 本を 5 通り
+  (4KB キャッシュ + ウェイト無しのスレーブ / 4KB キャッシュ + 乱数ウェイト・読み出し応答の
+  順序入れ替え・インタリーブ / 同じく `BYTE_SWAP=1` / 16 バイト × 2 ラインのキャッシュ
+  (入れ替えが多い) / キャッシュ無し) で実行し、320/320 が SUCCESS で終了。
+* 追加のストレステスト: 全 64 本 × 乱数スレーブの種 20 通りを 5 つのキャッシュ構成
+  (4KB, 4KB + `BYTE_SWAP`, 2 × 16 バイト, 4 × 64 バイト, 無し) に振り分けて 1280/1280 成功。
+  `bench/loop.s` も試したすべての構成で成功。
 * `tb/axi4_mem_slave.v` が毎サイクル、マスタの AXI の規則 (READY まで VALID と内容を保持,
   WLAST とバースト長の一致, 4KB 境界をまたがない, サイズがバス幅以下) を検査し、違反があれば
   テストベンチが `AXIERR` を出します。違反はありませんでした。
@@ -276,11 +326,12 @@ sh run_bup_axi.sh                                          # sh / Git Bash
 1 本だけ動かす場合:
 
 ```powershell
-python tools/asm.py ../samples/tst.s 200 -o mem.dat
+python tools/asm.py bench/loop.s 20000 -o mem.dat
 python tools/mem2hex.py mem.dat mem.hex
-iverilog -g2001 -I rtl -o axi.vvp tb/tb_stm_axi.v tb/axi4_mem_slave.v rtl/stm_axi_top.v rtl/stm_axi_master.v rtl/stm_cntl.v rtl/stm_exu.v rtl/stm_regfile.v
-vvp axi.vvp +HEX=mem.hex +PC=300 +CYCLES=4000 +RANDOM +SEED=5 +TRACE
+iverilog -g2001 -I rtl -o axi.vvp tb/tb_stm_axi.v tb/axi4_mem_slave.v rtl/stm_axi_top.v rtl/stm_icache.v rtl/stm_axi_master.v rtl/stm_cntl.v rtl/stm_exu.v rtl/stm_regfile.v
+vvp axi.vvp +HEX=mem.hex +PC=300 +CYCLES=20000 +RANDOM +SEED=5
 ```
 
-`+RANDOM` でスレーブの乱数ウェイト・順序入れ替え、`+VCD` で `tb_stm_axi.vcd` に波形を出力、
-`iverilog` に `-P tb_stm_axi.BYTE_SWAP=1` を付けるとバイトレーン入れ替え版になります。
+`+RANDOM` でスレーブの乱数ウェイト・順序入れ替え、`+TRACE` で毎サイクルの表示、`+VCD` で
+`tb_stm_axi.vcd` に波形を出力します。パラメータは `iverilog` に `-P tb_stm_axi.ICACHE=0`,
+`-P tb_stm_axi.IC_SET_W=4`, `-P tb_stm_axi.BYTE_SWAP=1` のように付けます。

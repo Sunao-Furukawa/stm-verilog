@@ -1,9 +1,10 @@
 // =====================================================================
 //  stm_axi_master.v  -  stm_cntl (EXT_BUS=1) のメモリ要求を AXI4 マスタに変換する
 //
-//  stm_cntl のメモリ側には 2 つの要求元がある:
-//    IF : 命令フェッチ。IB_AD の 8 バイト (2 命令) を読む
-//         -> AXI4 読み出し 2 ビートのバースト (ARLEN=1, INCR, 4 バイト/ビート)
+//  メモリ側には 2 つの要求元がある:
+//    IF : 命令フェッチ。stm_icache (命令キャッシュ) からのバースト読み出し
+//         (ライン埋め, またはキャッシュ無しのときは 8 バイト)。
+//         アドレス・長さ・バースト種別は stm_icache が決める
 //    OP : S ユニットの OP-B。LD/ST は LBS_AD の 1 語を読み, ST2 は 1 語を書く
 //         -> AXI4 読み出し / 書き込み 1 ビート (LEN=0, WSTRB=4'hf)
 //  サブワードのストアは CPU 内部で語に組み立ててから ST2 で書くので、
@@ -16,17 +17,22 @@
 //  ・IF と OP はそれぞれ同時に 1 トランザクションまで。OP は 1 要求ずつ
 //    完了 (読み出しデータ / 書き込み応答 B) を待つので、OP の読み書きの順序は
 //    プログラム順のまま保たれる。
-//  ・CPU 側が要求を取り消しても、出してしまった AXI トランザクションは
+//  ・CPU 側が OP の要求を取り消しても、出してしまった AXI トランザクションは
 //    最後まで受け取ってから捨てる (stale)。
-//  ・応答はいったんレジスタに受けてから CPU に返す。AXI の入力から CPU への
+//  ・OP の応答はいったんレジスタに受けてから CPU に返す。IF のビートは
+//    stm_icache がレジスタ (キャッシュの RAM) に受ける。AXI の入力から CPU への
 //    組合せ回路は無い。
 //
-//  CPU (stm_cntl) との約束:
-//    IB_NEW / OP_B_NEW  : 新しい要求が入った最初のサイクルに 1。
-//                         要求の切れ目はこれで知る (前の要求の結果は捨てる)。
-//    IB_VALID           : フェッチ要求が有効 (取り消されると 0)
-//    OP_B_BUSREQ        : OP-B の要求にバスアクセスが要る (組合せ)
-//    if_rdy / op_rdy    : 今の要求の結果が揃った。次の要求 (*_NEW) が来るまで保持
+//  stm_icache との約束 (IF):
+//    ifr_req             : 読み出し要求 (ifr_addr / ifr_len / ifr_burst)。
+//                          ifr_ack (AR が受け付けられた) まで出し続けること。
+//                          一度出した要求は取り下げられない。
+//    ifr_valid / ifr_last : ビートが届いた / 最後のビート (ifr_data にデータ)
+//  CPU (stm_cntl) との約束 (OP):
+//    OP_B_NEW            : 新しい要求が入った最初のサイクルに 1。
+//                          要求の切れ目はこれで知る (前の要求の結果は捨てる)。
+//    OP_B_BUSREQ         : OP-B の要求にバスアクセスが要る (組合せ)
+//    op_rdy              : 今の要求の結果が揃った。次の要求 (OP_B_NEW) が来るまで保持
 //
 //  BYTE_SWAP: STM はビッグエンディアン (番地 4n のバイトが語の最上位)。
 //    0 : 語をそのままバスに載せる (RDATA[31:24] = 番地 4n のバイト)。
@@ -48,13 +54,15 @@ module stm_axi_master #(
   input                 clk,
   input                 rst,        // 同期リセット (1 でリセット)
 
-  // ---- stm_cntl 側: 命令フェッチ
-  input                 ib_valid,
-  input                 ib_new,
-  input      [31:0]     ib_ad,
-  output                if_rdy,     // -> RANDOM_FOR_IFCLH
-  output reg [31:0]     if_dt_h,    // -> MEM_DT_IF_H (先の命令, 番地 8n)
-  output reg [31:0]     if_dt_l,    // -> MEM_DT_IF_L (後の命令, 番地 8n+4)
+  // ---- stm_icache 側: 命令フェッチのバースト読み出し
+  input                 ifr_req,
+  input      [31:0]     ifr_addr,
+  input      [7:0]      ifr_len,    // ARLEN (ビート数 - 1)
+  input      [1:0]      ifr_burst,  // ARBURST
+  output                ifr_ack,    // AR が受け付けられた
+  output                ifr_valid,  // ビートが届いた
+  output     [31:0]     ifr_data,
+  output                ifr_last,
 
   // ---- stm_cntl 側: オペランド (S ユニット OP-B)
   input                 op_new,
@@ -132,21 +140,22 @@ module stm_axi_master #(
   wire b_op  = m_axi_bvalid & (m_axi_bid == OPID);
 
   // =================================================================
-  //  命令フェッチ (IF)
+  //  命令フェッチ (IF): stm_icache の要求をそのまま AR に出し, ビートを返す
   // =================================================================
   reg  [1:0]  if_st;
-  reg  [31:0] if_ad_q;      // 出しているアドレス (8 バイト境界)
-  reg         if_done;      // 今の要求のデータが if_dt_h/l に揃っている
-  reg         if_stale;     // 出しているトランザクションは取り消された要求のもの
-  reg         if_beat;      // 0 = 1 ビート目 (H) を待っている, 1 = 2 ビート目 (L)
+  reg  [31:0] if_ad_q;      // 出しているアドレス
+  reg  [7:0]  if_len_q;
+  reg  [1:0]  if_burst_q;
 
-  // 要求があってまだ結果を持っていなければ出す。IB_NEW のサイクルは
-  // 前の要求の if_done が残っているので無視する。
-  wire        if_launch = (if_st == S_IDLE) & ib_valid & (!if_done | ib_new);
+  wire        if_launch = (if_st == S_IDLE) & ifr_req;
   wire        if_arv    = if_launch | (if_st == S_ADDR);
-  wire [31:0] if_araddr = (if_st == S_ADDR) ? if_ad_q : {ib_ad[31:3], 3'b000};
+  wire [31:0] if_araddr = (if_st == S_ADDR) ? if_ad_q    : ifr_addr;
+  wire [7:0]  if_arlen  = (if_st == S_ADDR) ? if_len_q   : ifr_len;
+  wire [1:0]  if_arbst  = (if_st == S_ADDR) ? if_burst_q : ifr_burst;
 
-  assign if_rdy = if_done & !ib_new;
+  assign ifr_valid = r_if & (if_st == S_RESP);
+  assign ifr_data  = lane(m_axi_rdata);
+  assign ifr_last  = m_axi_rlast;
 
   // =================================================================
   //  オペランド (OP)
@@ -186,9 +195,9 @@ module stm_axi_master #(
   assign m_axi_arvalid = gnt_op | gnt_if;
   assign m_axi_arid    = gnt_op ? OPID    : IFID;
   assign m_axi_araddr  = gnt_op ? op_addr : if_araddr;
-  assign m_axi_arlen   = gnt_op ? 8'd0    : 8'd1;     // IF は 2 ビート
+  assign m_axi_arlen   = gnt_op ? 8'd0    : if_arlen;
   assign m_axi_arsize  = 3'b010;                      // 4 バイト/ビート
-  assign m_axi_arburst = 2'b01;                       // INCR
+  assign m_axi_arburst = gnt_op ? 2'b01   : if_arbst; // OP は INCR
   assign m_axi_arlock  = 1'b0;
   assign m_axi_arcache = 4'b0011;                     // Normal, non-cacheable, bufferable
   assign m_axi_arprot  = gnt_op ? 3'b000 : 3'b100;    // [2]=1: 命令アクセス
@@ -196,6 +205,7 @@ module stm_axi_master #(
 
   wire if_ar_acc = gnt_if & m_axi_arready;
   wire op_ar_acc = gnt_op & m_axi_arready;
+  assign ifr_ack = if_ar_acc;
 
   // ---- AW / W (OP の書き込みだけ)
   assign m_axi_awvalid = op_awv;
@@ -224,13 +234,10 @@ module stm_axi_master #(
   // =================================================================
   always @(posedge clk) begin
     if (rst) begin
-      if_st     <= S_IDLE;
-      if_ad_q   <= 32'd0;
-      if_done   <= 1'b0;
-      if_stale  <= 1'b0;
-      if_beat   <= 1'b0;
-      if_dt_h   <= 32'd0;
-      if_dt_l   <= 32'd0;
+      if_st      <= S_IDLE;
+      if_ad_q    <= 32'd0;
+      if_len_q   <= 8'd0;
+      if_burst_q <= 2'b01;
       op_st     <= S_IDLE;
       op_wr_q   <= 1'b0;
       op_ad_q   <= 32'd0;
@@ -248,31 +255,18 @@ module stm_axi_master #(
       ar_own_op <= gnt_op;
 
       // ---------------- IF ----------------
-      if (ib_new) if_done <= 1'b0;
-      if (ib_new && if_st != S_IDLE) if_stale <= 1'b1;
-
       case (if_st)
         S_IDLE:
           if (if_launch) begin
-            if_ad_q  <= if_araddr;
-            if_stale <= 1'b0;
-            if_beat  <= 1'b0;
-            if_st    <= if_ar_acc ? S_RESP : S_ADDR;
+            if_ad_q    <= ifr_addr;
+            if_len_q   <= ifr_len;
+            if_burst_q <= ifr_burst;
+            if_st      <= if_ar_acc ? S_RESP : S_ADDR;
           end
         S_ADDR:
           if (if_ar_acc) if_st <= S_RESP;
         default: // S_RESP
-          if (r_if) begin
-            if (!if_beat) if_dt_h <= lane(m_axi_rdata);
-            else          if_dt_l <= lane(m_axi_rdata);
-            if_beat <= 1'b1;
-            if (m_axi_rlast) begin
-              if_st <= S_IDLE;
-              // 取り消された要求のデータは捨てる。このサイクルに次の要求が
-              // 来た (ib_new) ときも、届いたのは前の要求のデータ。
-              if (!if_stale && !ib_new) if_done <= 1'b1;
-            end
-          end
+          if (r_if && m_axi_rlast) if_st <= S_IDLE;
       endcase
 
       // ---------------- OP ----------------

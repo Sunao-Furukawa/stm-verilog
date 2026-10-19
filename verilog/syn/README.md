@@ -70,9 +70,10 @@ and decoded fields / pipeline tags that are never read and get optimized away.
 ## The CPU with an AXI4 master (`stm_axi_top`)
 
 `stm_axi_top` (see [../README.md §8](../README.md#8-axi4-master-version-stm_axi_top)) contains
-`stm_cntl`, `stm_regfile` and the bridge `stm_axi_master`, so it is a complete CPU whose only
-interface is the AXI4 master port (281 pins including the observation outputs `PC` / `bus_error`).
-The register file is built from flip-flops (it has four same-cycle read ports).
+`stm_cntl`, `stm_regfile`, the instruction cache `stm_icache` and the bridge `stm_axi_master`, so
+it is a complete CPU whose only interface is the AXI4 master port (281 pins including the
+observation outputs `PC` / `bus_error`). The instruction cache (4 KB by default) maps to block
+RAM; the register file is built from flip-flops (it has four same-cycle read ports).
 
 ```sh
 cd verilog/syn/quartus
@@ -83,8 +84,9 @@ vivado -mode batch -source synth_axi.tcl        # reports in vivado/reports_axi/
 
 | Tool / device | Resources | Timing |
 |---|---|---|
-| Quartus II 13.0sp1, Cyclone IV E EP4CE115F29C7 (full compile) | 7,686 LEs, 2,333 registers, 281 pins | met at 25 MHz (setup slack +2.4 ns) |
-| Vivado 2022.2, Artix-7 xc7a100tcsg324-1 (synthesis only, out of context) | 4,412 LUTs, 2,337 FFs | met at 25 MHz (WNS +11.5 ns, post-synthesis estimate) |
+| Quartus II 13.0sp1, Cyclone IV E EP4CE115F29C7 (full compile) | 8,230 LEs, 2,557 registers, 35,328 memory bits, 281 pins | met at 25 MHz (setup slack +2.7 ns) |
+| Vivado 2022.2, Artix-7 xc7a100tcsg324-1 (synthesis only, out of context) | 4,839 LUTs, 2,561 FFs, 1.5 block RAM tiles | met at 25 MHz (WNS +10.9 ns, post-synthesis estimate) |
 
 The extra warnings compared with `stm_cntl` are pipeline tags used only for observation that are
-now removed, and the note that the register file is implemented in registers.
+now removed, address bits the cache does not use, and the note that the register file is
+implemented in registers.

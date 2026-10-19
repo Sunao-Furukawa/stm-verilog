@@ -1,6 +1,7 @@
 # =====================================================================
 #  synth_axi.tcl - Vivado synthesis script for the STM CPU with an AXI4
-#  master interface (stm_axi_top = stm_cntl + stm_regfile + stm_axi_master).
+#  master interface (stm_axi_top = stm_cntl + stm_regfile + stm_icache +
+#  stm_axi_master).
 #  Tested with Vivado 2022.2.
 #
 #  Usage (from this directory):
@@ -19,10 +20,13 @@ set here [file dirname [file normalize [info script]]]
 set rtl  [file normalize [file join $here .. .. rtl]]
 cd $here
 
-read_verilog [list [file join $rtl stm_axi_top.v] [file join $rtl stm_axi_master.v]                    [file join $rtl stm_cntl.v] [file join $rtl stm_exu.v]                    [file join $rtl stm_regfile.v]]
+read_verilog [list [file join $rtl stm_axi_top.v]    [file join $rtl stm_icache.v] \
+                   [file join $rtl stm_axi_master.v] [file join $rtl stm_cntl.v] \
+                   [file join $rtl stm_exu.v]        [file join $rtl stm_regfile.v]]
 read_xdc -mode out_of_context [file join $here stm_axi_top.xdc]
 
-synth_design -top stm_axi_top -part $part -mode out_of_context              -include_dirs [list $rtl]
+synth_design -top stm_axi_top -part $part -mode out_of_context \
+             -include_dirs [list $rtl]
 
 file mkdir reports_axi
 report_utilization    -file reports_axi/utilization.rpt

@@ -1,12 +1,14 @@
 # =====================================================================
 #  stm_axi_top.qsf - Quartus II project settings for the STM CPU with an
-#  AXI4 master interface (stm_cntl + stm_regfile + stm_axi_master).
+#  AXI4 master interface (stm_cntl + stm_regfile + stm_icache +
+#  stm_axi_master).
 #  Tested with Quartus II 13.0sp1.
 #
 #  Unlike stm_cntl.qsf this is a complete CPU: its only ports are the
 #  clock, reset, RESET_PC and the AXI4 master port (plus PC / bus_error
-#  for observation). The register file becomes flip-flops (four
-#  asynchronous read ports). See ../README.md for details.
+#  for observation). The instruction cache maps to block RAM; the
+#  register file becomes flip-flops (four asynchronous read ports).
+#  See ../README.md for details.
 #
 #  Device: Cyclone IV E EP4CE115F29C7 (as on the DE2-115 board).
 # =====================================================================
@@ -17,6 +19,7 @@ set_global_assignment -name TOP_LEVEL_ENTITY stm_axi_top
 # ---- Sources (paths are relative to this file) ----
 set_global_assignment -name VERILOG_INPUT_VERSION VERILOG_2001
 set_global_assignment -name VERILOG_FILE ../../rtl/stm_axi_top.v
+set_global_assignment -name VERILOG_FILE ../../rtl/stm_icache.v
 set_global_assignment -name VERILOG_FILE ../../rtl/stm_axi_master.v
 set_global_assignment -name VERILOG_FILE ../../rtl/stm_cntl.v
 set_global_assignment -name VERILOG_FILE ../../rtl/stm_exu.v

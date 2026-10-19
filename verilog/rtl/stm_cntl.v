@@ -65,7 +65,7 @@ module stm_cntl #(
   // キャッシュミス模擬 (C 版の random_clh)。常時 1 ならミス無し。
   // EXT_BUS=1 のときは stm_axi_master からの応答:
   //   RANDOM_FOR_OPCLH = OP-B の要求 (LD/ST の読み出し, ST2 の書き込み) が完了
-  //   RANDOM_FOR_IFCLH = IB の命令フェッチ (8 バイト) が届いた
+  //   RANDOM_FOR_IFCLH = IB の命令フェッチ (8 バイト) が届いた (stm_icache から)
   //   RANDOM_FOR_IFRDY = 1 に固定
   input              RANDOM_FOR_OPCLH,
   input              RANDOM_FOR_IFRDY,
@@ -98,7 +98,7 @@ module stm_cntl #(
 
   // 外部バス (EXT_BUS=1) 用の要求信号 (stm_axi_master へ)。EXT_BUS=0 では未使用。
   output             IB_VALID,      // IB の命令フェッチ要求が有効 (= IB_V)
-  output reg         IB_NEW,        // IB に新しい要求が入った最初のサイクル
+  output     [31:0]  IB_AD_NXT,     // 次のサイクルの IB_AD (命令キャッシュの先読み用)
   output reg         OP_B_NEW,      // OP-B に新しい要求が入った最初のサイクル
   output             OP_B_BUSREQ,   // OP-B の要求にバスアクセスが要る
 
@@ -662,7 +662,6 @@ wire [31:0]    I_LBS_L;
 // ---- 190-if-stm.ch
 reg            IB_V;
 wire           IB_V_NEW;
-wire           IB_NEW_NEW;
 wire [31:0]    IB_AD_NEW;
 reg            IB_ID;
 wire           IB_ID_NEW;
@@ -924,7 +923,6 @@ always @(posedge clk) begin
     OP_B_SUBJECT_TO_BC      <= 0;
     OP_B_NEW                <= 0;
     IB_V                    <= 0;
-    IB_NEW                  <= 0;
     IB_AD                   <= 0;
     IB_ID                   <= 0;
     CUR_IWQ_ID              <= 0;
@@ -1092,7 +1090,6 @@ always @(posedge clk) begin
     OP_B_SUBJECT_TO_BC      <= OP_B_SUBJECT_TO_BC_NEW;
     OP_B_NEW                <= OP_B_NEW_NEW;
     IB_V                    <= IB_V_NEW;
-    IB_NEW                  <= IB_NEW_NEW;
     IB_AD                   <= IB_AD_NEW;
     IB_ID                   <= IB_ID_NEW;
     CUR_IWQ_ID              <= CUR_IWQ_ID_NEW;
