@@ -5,18 +5,23 @@
 #
 #  Usage (from this directory):
 #      vivado -mode batch -source create_bd.tcl
-#      vivado -mode batch -source create_bd.tcl -tclargs <part> <program.hex>
+#      vivado -mode batch -source create_bd.tcl -tclargs <part> <program.hex> <pins.xdc>
 #  or in the Vivado Tcl console:
-#      cd <this directory>; set argv {xc7a100tcsg324-1 ../../work/hello.hex}; source create_bd.tcl
+#      cd <this directory>; set argv {xc7a100tcsg324-1 ../../work/hello_uart.hex}; source create_bd.tcl
+#  For the Digilent Arty A7-35:
+#      vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/hello_uart.hex arty_a7_35.xdc
 #
 #    <part>         FPGA part (default xc7a100tcsg324-1)
 #    <program.hex>  initial contents of the program memory, as written by
 #                   tools/mem2hex.py. Read with $readmemh at synthesis.
-#                   Without it the memory starts as all zeros.
+#                   Without it (or with "-") the memory starts as all zeros.
+#    <pins.xdc>     board constraints (pins) added to the project, e.g.
+#                   arty_a7_35.xdc. Without it, add your own before
+#                   implementation.
 #
 #  Block design "stm_system":
 #
-#    sys_clk (100 MHz) -> Clocking Wizard (25 MHz) -> aclk of everything
+#    sys_clk (100 MHz) -> Clocking Wizard (24 MHz) -> aclk of everything
 #    reset_n (low)     -> Clocking Wizard, Processor System Reset -> aresetn
 #    Constant 0x300    -> cpu/RESET_PC
 #    cpu (stm_axi_top, module reference) --m_axi--> AXI SmartConnect
@@ -35,20 +40,27 @@
 #
 #  The project is created in ./stm_bd with the HDL wrapper stm_system_wrapper
 #  as top. Pin constraints for sys_clk, reset_n, uart_rxd, uart_txd and
-#  bus_error depend on the board and must be added before implementation.
+#  bus_error depend on the board: give them as <pins.xdc> or add them
+#  before implementation.
 #
 #  Note: run from a path without non-ASCII characters (see ../README.md).
+#  Close the stm_bd project in any open Vivado GUI first: the project is
+#  re-created with -force, and a GUI that still has the old one open can
+#  write it back (and the program memory loses its INIT_FILE).
 # =====================================================================
 set part    xc7a100tcsg324-1
 set hexfile ""
 if {[llength $argv] > 0} { set part    [lindex $argv 0] }
-if {[llength $argv] > 1} { set hexfile [file normalize [lindex $argv 1]] }
+set xdcfile ""
+if {[llength $argv] > 1 && [lindex $argv 1] ne "-"} { set hexfile [file normalize [lindex $argv 1]] }
+if {[llength $argv] > 2} { set xdcfile [file normalize [lindex $argv 2]] }
 
 set here     [file dirname [file normalize [info script]]]
 set rtl      [file normalize [file join $here .. .. rtl]]
 set proj_dir [file join $here stm_bd]
 
 if {$hexfile ne "" && ![file exists $hexfile]} { error "$hexfile not found" }
+if {$xdcfile ne "" && ![file exists $xdcfile]} { error "$xdcfile not found" }
 
 # ---------------------------------------------------------------------
 #  Project and sources
@@ -74,6 +86,9 @@ set_property used_in {} [get_files $vh_ch]
 set_property include_dirs [list $rtl] [current_fileset]
 update_compile_order -fileset sources_1
 
+# Board constraints
+if {$xdcfile ne ""} { add_files -fileset constrs_1 -norecurse $xdcfile }
+
 # ---------------------------------------------------------------------
 #  Block design
 # ---------------------------------------------------------------------
@@ -84,15 +99,17 @@ set sys_clk [create_bd_port -dir I -type clk -freq_hz 100000000 sys_clk]
 set reset_n [create_bd_port -dir I -type rst reset_n]
 set_property CONFIG.POLARITY ACTIVE_LOW $reset_n
 
-# Clock: 100 MHz in -> 25 MHz (the frequency the CPU was checked at)
+# Clock: 100 MHz in -> 24 MHz. The CPU was checked at 25 MHz, but the UART Lite
+# divides its clock by 16 x baud rate: 25 MHz / (16 x 115200) = 13.56 is 3.1%
+# off and the IP then quietly falls back to 110 baud. 24 MHz gives 13.02 (0.16%).
 set clk_wiz [create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz]
 set_property -dict [list \
   CONFIG.PRIM_IN_FREQ {100.000} \
-  CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {25.000} \
+  CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {24.000} \
   CONFIG.RESET_TYPE {ACTIVE_LOW} \
   CONFIG.RESET_PORT {resetn}] $clk_wiz
 
-# Reset synchronised to the 25 MHz clock (the polarity of ext_reset_in is
+# Reset synchronised to the 24 MHz clock (the polarity of ext_reset_in is
 # taken from the reset_n port)
 create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 rst
 
@@ -154,6 +171,14 @@ regenerate_bd_layout
 validate_bd_design
 save_bd_design
 
+# Make sure the settings that Vivado may drop without a message are there
+if {[get_property CONFIG.C_BAUDRATE $uart] != 115200} {
+  error "C_BAUDRATE of /uart is [get_property CONFIG.C_BAUDRATE $uart], not 115200"
+}
+if {$hexfile ne "" && [get_property CONFIG.INIT_FILE $ram] ne $hexfile} {
+  error "INIT_FILE of /ram is '[get_property CONFIG.INIT_FILE $ram]', not $hexfile"
+}
+
 # ---------------------------------------------------------------------
 #  HDL wrapper as the top
 # ---------------------------------------------------------------------
@@ -165,4 +190,5 @@ set_property top stm_system_wrapper [current_fileset]
 update_compile_order -fileset sources_1
 
 if {$hexfile ne ""} { puts "Program memory initialised from $hexfile" }
+if {$xdcfile ne ""} { puts "Constraints added from $xdcfile" }
 puts "Block design created: [file join $proj_dir stm_bd.xpr]"
