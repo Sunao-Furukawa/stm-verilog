@@ -101,13 +101,16 @@ implemented in registers.
 A script that builds a project using `stm_axi_top` in IP Integrator. Tested with Vivado 2022.2.
 
 ```sh
-cd verilog/syn/vivado
+cd verilog
+python tools/asm.py ../samples/hello_uart.s 1000 -o work/hello_uart.dat     # prints Hello World on the UART
+python tools/mem2hex.py work/hello_uart.dat work/hello_uart.hex
+cd syn/vivado
 vivado -mode batch -source create_bd.tcl                                            # memory starts as zeros
-vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/hello.hex   # part and program
+vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/hello_uart.hex   # part and program
 ```
 
 It creates `vivado/stm_bd/stm_bd.xpr`. From the Tcl console of the GUI you can also run
-`cd <this folder>; set argv {xc7a100tcsg324-1 ../../work/hello.hex}; source create_bd.tcl`.
+`cd <this folder>; set argv {xc7a100tcsg324-1 ../../work/hello_uart.hex}; source create_bd.tcl`.
 
 Contents of the block design `stm_system`:
 
@@ -132,8 +135,13 @@ bus_error, uart (rxd / txd) ─▶ top-level ports
 * The UART Lite is in the CPU's I/O region (`0xF000_0000`–). Loads there are not speculative, so
   reading the RX FIFO (which consumes data) is safe. Registers: +0x0 RX FIFO, +0x4 TX FIFO,
   +0x8 status (bit 3 = TX FIFO full), +0xC control. Write whole words.
-* `samples/hello.s` writes to the testbench console (`F000_0008`), so it prints nothing on a real
-  UART. To use the UART, write to the TX FIFO (`F000_0004`) while checking the status register.
+* [`samples/hello_uart.s`](../../samples/hello_uart.s) checks the status register and writes one
+  character at a time to `F000_0004` while the TX FIFO has room, prints `Hello World` (with CR LF)
+  and then stops in an endless loop. `samples/hello.s` writes to the testbench console
+  (`F000_0008`) instead, so it prints nothing on a real UART. The testbenches have no UART, so a
+  simulation of `hello_uart.s` shows nothing and ends with TIMEOUT (on the AXI4 version, the 13
+  bytes of `Hello World
+` were checked to be written to `F000_0004`, with exactly 13 status reads).
 * Pin assignments for `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd` and `bus_error` depend on the
   board; add an XDC before implementation.
 
