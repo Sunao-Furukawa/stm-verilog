@@ -100,13 +100,16 @@ vivado -mode batch -source synth_axi.tcl        # 結果は vivado/reports_axi/
 `stm_axi_top` を IP Integrator で使うプロジェクトを作るスクリプトです。Vivado 2022.2 で確認しました。
 
 ```sh
-cd verilog/syn/vivado
+cd verilog
+python tools/asm.py ../samples/hello_uart.s 1000 -o work/hello_uart.dat     # UART に Hello World を出すプログラム
+python tools/mem2hex.py work/hello_uart.dat work/hello_uart.hex
+cd syn/vivado
 vivado -mode batch -source create_bd.tcl                                            # メモリは 0 のまま
-vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/hello.hex   # デバイスとプログラムを指定
+vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/hello_uart.hex   # デバイスとプログラムを指定
 ```
 
 `vivado/stm_bd/stm_bd.xpr` ができます。GUI の Tcl コンソールからは
-`cd <このフォルダ>; set argv {xc7a100tcsg324-1 ../../work/hello.hex}; source create_bd.tcl` でも実行できます。
+`cd <このフォルダ>; set argv {xc7a100tcsg324-1 ../../work/hello_uart.hex}; source create_bd.tcl` でも実行できます。
 
 ブロックデザイン `stm_system` の中身:
 
@@ -131,8 +134,13 @@ bus_error, uart (rxd / txd) ─▶ 外部ポート
 * UART Lite は CPU の I/O 領域 (`0xF000_0000`〜) に置いています。I/O 領域のロードは投機的に
   実行されないので、読むと中身が減る受信 FIFO を安全に読めます。レジスタは +0x0 受信 FIFO,
   +0x4 送信 FIFO, +0x8 ステータス (ビット 3 = 送信 FIFO が満杯), +0xC 制御。語単位で書いてください。
-* `samples/hello.s` はテストベンチのコンソール (`F000_0008`) に書くので、実機の UART には出ません。
-  UART に出すには、ステータスを見ながら送信 FIFO (`F000_0004`) に書くようにします。
+* [`samples/hello_uart.s`](../../samples/hello_uart.s) は、ステータスを見て送信 FIFO に空きがあれば
+  `F000_0004` に 1 文字ずつ書き、`Hello World` (CR LF 付き) を出して無限ループで止まります。
+  `samples/hello.s` のほうはテストベンチのコンソール (`F000_0008`) に書くので、実機の UART には
+  出ません。テストベンチには UART が無いので、`hello_uart.s` をシミュレーションすると何も表示
+  されず TIMEOUT になります (AXI4 版で、`F000_0004` に `Hello World
+` の 13 バイトが書かれ、
+  ステータスがちょうど 13 回読まれることは確認済み)。
 * `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd`, `bus_error` のピン配置はボードごとに違うので、
   配置配線の前に XDC を追加してください。
 
