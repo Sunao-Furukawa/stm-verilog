@@ -143,3 +143,38 @@ bus_error, uart (rxd / txd) ─▶ 外部ポート
 > Vivado 2022.2 では、ブロックデザインを作るとき (`create_bd_design`) に、Vivado 自身の IP の
 > スクリプトが読めないというエラー (`couldn't read file ...`, `Failed to load feature 'ipintegrator'`
 > など) でまれに止まることがありました。スクリプトの内容とは関係がなく、もう一度実行すると通ります。
+
+### 自分のプロジェクトで *Add Module* を使う場合
+
+`create_bd.tcl` を使わず、自分のプロジェクトのブロックデザインに *Add Module* で `stm_axi_top`
+を置こうとすると、次のエラーになることがあります。
+
+```
+[filemgmt 56-591] Given include File '.../verilog/rtl/ch/130_a_act.vh' needs to be addded to the project in order to use it as an RTL module.
+```
+
+モジュール参照では、`` `include `` で読み込むファイルもすべてプロジェクトに入っている必要が
+あるためです。`stm_cntl.v` は `rtl/*.vh` (4 個) と `rtl/ch/*.vh` (23 個) を読み込んでいます。
+プロジェクトを開いた状態で、Tcl Console に次を入力してください (`rtl` のパスは自分の環境に合わせる)。
+
+```tcl
+set rtl C:/work/stm-verilog/verilog/rtl
+set vh_ch [glob $rtl/ch/*.vh]
+set vh    [concat [glob $rtl/*.vh] $vh_ch]
+add_files -norecurse $vh
+set_property file_type {Verilog Header} [get_files $vh]
+set_property used_in {} [get_files $vh_ch]
+set_property include_dirs [list $rtl] [current_fileset]
+update_compile_order -fileset sources_1
+```
+
+* `rtl/*.vh` と `rtl/ch/*.vh` を Verilog Header としてプロジェクトに追加します。
+* `rtl/ch/*.vh` は `stm_cntl` の本体を分けたもので、単独では Verilog として成り立ちません。
+  追加しただけだと Vivado が 1 つずつ解析して `Syntax error near 'assign'` の CRITICAL WARNING を
+  23 個出すので、`used_in` を空にして単独では解析させないようにします (`` `include `` からは読まれます)。
+* `stm_cntl.v` は `"ch/010_d_pre.vh"` のように `rtl/` からの相対パスで読み込むので、`rtl/` を
+  include の検索パスにします。
+
+GUI で行う場合は、*Add Sources* で上の 27 個の `.vh` を追加し、Type が *Verilog Header* か確かめ、
+`ch/` の 23 個の *Source File Properties* で *Used In* のチェックをすべて外し、*Settings →
+General → Verilog options → Include Search Paths* に `verilog/rtl` を追加します。
