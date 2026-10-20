@@ -21,7 +21,7 @@
 #
 #  Block design "stm_system":
 #
-#    sys_clk (100 MHz) -> Clocking Wizard (25 MHz) -> aclk of everything
+#    sys_clk (100 MHz) -> Clocking Wizard (24 MHz) -> aclk of everything
 #    reset_n (low)     -> Clocking Wizard, Processor System Reset -> aresetn
 #    Constant 0x300    -> cpu/RESET_PC
 #    cpu (stm_axi_top, module reference) --m_axi--> AXI SmartConnect
@@ -99,15 +99,17 @@ set sys_clk [create_bd_port -dir I -type clk -freq_hz 100000000 sys_clk]
 set reset_n [create_bd_port -dir I -type rst reset_n]
 set_property CONFIG.POLARITY ACTIVE_LOW $reset_n
 
-# Clock: 100 MHz in -> 25 MHz (the frequency the CPU was checked at)
+# Clock: 100 MHz in -> 24 MHz. The CPU was checked at 25 MHz, but the UART Lite
+# divides its clock by 16 x baud rate: 25 MHz / (16 x 115200) = 13.56 is 3.1%
+# off and the IP then quietly falls back to 110 baud. 24 MHz gives 13.02 (0.16%).
 set clk_wiz [create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz]
 set_property -dict [list \
   CONFIG.PRIM_IN_FREQ {100.000} \
-  CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {25.000} \
+  CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {24.000} \
   CONFIG.RESET_TYPE {ACTIVE_LOW} \
   CONFIG.RESET_PORT {resetn}] $clk_wiz
 
-# Reset synchronised to the 25 MHz clock (the polarity of ext_reset_in is
+# Reset synchronised to the 24 MHz clock (the polarity of ext_reset_in is
 # taken from the reset_n port)
 create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 rst
 
@@ -169,7 +171,10 @@ regenerate_bd_layout
 validate_bd_design
 save_bd_design
 
-# Make sure the program really went into the block design
+# Make sure the settings that Vivado may drop without a message are there
+if {[get_property CONFIG.C_BAUDRATE $uart] != 115200} {
+  error "C_BAUDRATE of /uart is [get_property CONFIG.C_BAUDRATE $uart], not 115200"
+}
 if {$hexfile ne "" && [get_property CONFIG.INIT_FILE $ram] ne $hexfile} {
   error "INIT_FILE of /ram is '[get_property CONFIG.INIT_FILE $ram]', not $hexfile"
 }

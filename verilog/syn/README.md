@@ -119,7 +119,7 @@ It creates `vivado/stm_bd/stm_bd.xpr`. From the Tcl console of the GUI you can a
 Contents of the block design `stm_system`:
 
 ```
-sys_clk (100 MHz) ─▶ Clocking Wizard (25 MHz) ─▶ aclk of everything
+sys_clk (100 MHz) ─▶ Clocking Wizard (24 MHz) ─▶ aclk of everything
 reset_n (active low) ─▶ Clocking Wizard, Processor System Reset ─▶ aresetn
 Constant 0x300 ─▶ cpu/RESET_PC
 cpu (stm_axi_top, module reference) ──m_axi──▶ AXI SmartConnect
@@ -136,6 +136,11 @@ bus_error, uart (rxd / txd) ─▶ top-level ports
   instead of the Block Memory Generator, because a Block Memory Generator driven by an AXI BRAM
   Controller in a block design would not accept an init file. `stm_prog_ram` reads the output of
   `tools/mem2hex.py` as it is with `$readmemh` and maps to block RAM (two RAMB36 for 8KB).
+* The clock is 24 MHz (the CPU on its own was checked at 25 MHz). The UART Lite divides its clock by
+  16 × the baud rate; at 25 MHz that is 3.1% off for 115200 baud (25 MHz / (16 × 115200) = 13.56),
+  and Vivado silently set the UART to 110 baud. At 24 MHz the divisor is 13.02, 0.16% off. The
+  script checks at the end that the baud rate and the `INIT_FILE` of the program memory are as
+  requested, and stops with an error if not.
 * The UART Lite is in the CPU's I/O region (`0xF000_0000`–). Loads there are not speculative, so
   reading the RX FIFO (which consumes data) is safe. Registers: +0x0 RX FIFO, +0x4 TX FIFO,
   +0x8 status (bit 3 = TX FIFO full), +0xC control. Write whole words.
@@ -158,9 +163,13 @@ Checked:
 * With `xc7a100tcsg324-1` and `hello.hex`: project creation and synthesis (no errors or critical
   warnings). The `.hex` is loaded into the program memory, which maps to block RAM.
 * For the Arty A7-35 (`xc7a35ticsg324-1L`, `hello_uart.hex`, `arty_a7_35.xdc`): through to the
-  bitstream (no errors, critical warnings or DRC violations). WNS +19.9 ns / WHS +0.015 ns at
-  25 MHz. 7,651 LUTs (37%), 5,582 FFs (13%), 3.5 block RAM tiles, 1 MMCM.
-* It has not been run on hardware.
+  bitstream (no errors, critical warnings or DRC violations). WNS +22.8 ns / WHS +0.024 ns at
+  24 MHz. 7,651 LUTs (37%), 5,582 FFs (13%), 3.5 block RAM tiles, 1 MMCM.
+* The generated design (including SmartConnect, the BRAM controller and the UART Lite) was
+  simulated with Vivado's simulator (xsim): `uart_txd` sends `Hello World
+` at 115200 baud.
+* **On hardware**: with this bitstream on an Arty A7-35, pressing the RESET button prints
+  `Hello World` on a PC terminal at 115200 baud.
 
 > With Vivado 2022.2, creating the block design (`create_bd_design`) occasionally stopped with an
 > error about Vivado's own IP scripts (`couldn't read file ...`, `Failed to load feature

@@ -118,7 +118,7 @@ vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/h
 ブロックデザイン `stm_system` の中身:
 
 ```
-sys_clk (100 MHz) ─▶ Clocking Wizard (25 MHz) ─▶ 全体の aclk
+sys_clk (100 MHz) ─▶ Clocking Wizard (24 MHz) ─▶ 全体の aclk
 reset_n (L で有効) ─▶ Clocking Wizard, Processor System Reset ─▶ aresetn
 Constant 0x300 ─▶ cpu/RESET_PC
 cpu (stm_axi_top, モジュール参照) ──m_axi──▶ AXI SmartConnect
@@ -135,6 +135,10 @@ bus_error, uart (rxd / txd) ─▶ 外部ポート
   (モジュール参照) です。ブロックデザインの中で AXI BRAM Controller につないだ Block Memory
   Generator には初期値ファイルを設定できなかったためです。`stm_prog_ram` は `tools/mem2hex.py`
   の出力をそのまま `$readmemh` で読み、ブロック RAM になります (8KB で RAMB36 × 2)。
+* クロックは 24 MHz です (CPU 単体の確認は 25 MHz)。UART Lite はクロックを 16 × ボーレートで割るので、
+  25 MHz では 115200 baud に対して 3.1% ずれ (25 MHz / (16 × 115200) = 13.56)、Vivado は何も言わずに
+  110 baud にしてしまいました。24 MHz なら 13.02 で、ずれは 0.16% です。スクリプトは、ボーレートと
+  プログラムメモリの `INIT_FILE` が設定どおりかを最後に確かめ、違えばエラーで止まります。
 * UART Lite は CPU の I/O 領域 (`0xF000_0000`〜) に置いています。I/O 領域のロードは投機的に
   実行されないので、読むと中身が減る受信 FIFO を安全に読めます。レジスタは +0x0 受信 FIFO,
   +0x4 送信 FIFO, +0x8 ステータス (ビット 3 = 送信 FIFO が満杯), +0xC 制御。語単位で書いてください。
@@ -156,9 +160,13 @@ bus_error, uart (rxd / txd) ─▶ 外部ポート
 * `xc7a100tcsg324-1` と `hello.hex` で、プロジェクトの作成と合成 (エラー・クリティカル警告無し)。
   プログラムメモリには `.hex` が読み込まれ、ブロック RAM になっています。
 * Arty A7-35 (`xc7a35ticsg324-1L`, `hello_uart.hex`, `arty_a7_35.xdc`) で、ビットストリームまで
-  (エラー・クリティカル警告無し, DRC 違反無し)。25 MHz で WNS +19.9 ns / WHS +0.015 ns。
+  (エラー・クリティカル警告無し, DRC 違反無し)。24 MHz で WNS +22.8 ns / WHS +0.024 ns。
   LUT 7,651 (37%), FF 5,582 (13%), ブロック RAM 3.5 タイル, MMCM 1。
-* 実機での動作は未確認です。
+* 生成された回路 (SmartConnect, BRAM コントローラ, UART Lite を含む) を Vivado のシミュレータ (xsim) で
+  動かし、`uart_txd` に `Hello World
+` が 115200 baud で出ることを確認。
+* **実機**: Arty A7-35 にこのビットストリームを書き込み、RESET ボタンを押すと、PC のターミナル
+  (115200 baud) に `Hello World` が表示されることを確認しました。
 
 > Vivado 2022.2 では、ブロックデザインを作るとき (`create_bd_design`) に、Vivado 自身の IP の
 > スクリプトが読めないというエラー (`couldn't read file ...`, `Failed to load feature 'ipintegrator'`
