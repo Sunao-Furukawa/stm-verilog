@@ -107,7 +107,11 @@ python tools/mem2hex.py work/hello_uart.dat work/hello_uart.hex
 cd syn/vivado
 vivado -mode batch -source create_bd.tcl                                            # memory starts as zeros
 vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/hello_uart.hex   # part and program
+vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/hello_uart.hex arty_a7_35.xdc   # Arty A7-35 (with pins)
 ```
+
+All arguments are optional: 1st = part (default `xc7a100tcsg324-1`), 2nd = program `.hex` (`-` for
+none), 3rd = board XDC (added to the project).
 
 It creates `vivado/stm_bd/stm_bd.xpr`. From the Tcl console of the GUI you can also run
 `cd <this folder>; set argv {xc7a100tcsg324-1 ../../work/hello_uart.hex}; source create_bd.tcl`.
@@ -143,11 +147,20 @@ bus_error, uart (rxd / txd) ─▶ top-level ports
   bytes of `Hello World
 ` were checked to be written to `F000_0004`, with exactly 13 status reads).
 * Pin assignments for `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd` and `bus_error` depend on the
-  board; add an XDC before implementation.
+  board. For the Digilent Arty A7-35 use [`vivado/arty_a7_35.xdc`](vivado/arty_a7_35.xdc) (the
+  Arty A7-100 has the same pins): the 100 MHz oscillator (E3), the RESET button (C2, low when
+  pressed), the USB-UART (A9 / D10), and `bus_error` on LD4 (H5). The pins come from Digilent's
+  `Arty-A7-35-Master.xdc`. For another board, write an XDC along the same lines and pass it as the
+  3rd argument, or add it before implementation.
 
-Checked: the project was created with `hello.hex` and synthesized with no errors or critical
-warnings. `hello.hex` is loaded into the program memory, which maps to block RAM. It has not been
-run on hardware.
+Checked:
+
+* With `xc7a100tcsg324-1` and `hello.hex`: project creation and synthesis (no errors or critical
+  warnings). The `.hex` is loaded into the program memory, which maps to block RAM.
+* For the Arty A7-35 (`xc7a35ticsg324-1L`, `hello_uart.hex`, `arty_a7_35.xdc`): through to the
+  bitstream (no errors, critical warnings or DRC violations). WNS +19.9 ns / WHS +0.015 ns at
+  25 MHz. 7,651 LUTs (37%), 5,582 FFs (13%), 3.5 block RAM tiles, 1 MMCM.
+* It has not been run on hardware.
 
 > With Vivado 2022.2, creating the block design (`create_bd_design`) occasionally stopped with an
 > error about Vivado's own IP scripts (`couldn't read file ...`, `Failed to load feature

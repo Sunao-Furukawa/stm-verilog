@@ -5,14 +5,19 @@
 #
 #  Usage (from this directory):
 #      vivado -mode batch -source create_bd.tcl
-#      vivado -mode batch -source create_bd.tcl -tclargs <part> <program.hex>
+#      vivado -mode batch -source create_bd.tcl -tclargs <part> <program.hex> <pins.xdc>
 #  or in the Vivado Tcl console:
-#      cd <this directory>; set argv {xc7a100tcsg324-1 ../../work/hello.hex}; source create_bd.tcl
+#      cd <this directory>; set argv {xc7a100tcsg324-1 ../../work/hello_uart.hex}; source create_bd.tcl
+#  For the Digilent Arty A7-35:
+#      vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/hello_uart.hex arty_a7_35.xdc
 #
 #    <part>         FPGA part (default xc7a100tcsg324-1)
 #    <program.hex>  initial contents of the program memory, as written by
 #                   tools/mem2hex.py. Read with $readmemh at synthesis.
-#                   Without it the memory starts as all zeros.
+#                   Without it (or with "-") the memory starts as all zeros.
+#    <pins.xdc>     board constraints (pins) added to the project, e.g.
+#                   arty_a7_35.xdc. Without it, add your own before
+#                   implementation.
 #
 #  Block design "stm_system":
 #
@@ -35,20 +40,24 @@
 #
 #  The project is created in ./stm_bd with the HDL wrapper stm_system_wrapper
 #  as top. Pin constraints for sys_clk, reset_n, uart_rxd, uart_txd and
-#  bus_error depend on the board and must be added before implementation.
+#  bus_error depend on the board: give them as <pins.xdc> or add them
+#  before implementation.
 #
 #  Note: run from a path without non-ASCII characters (see ../README.md).
 # =====================================================================
 set part    xc7a100tcsg324-1
 set hexfile ""
 if {[llength $argv] > 0} { set part    [lindex $argv 0] }
-if {[llength $argv] > 1} { set hexfile [file normalize [lindex $argv 1]] }
+set xdcfile ""
+if {[llength $argv] > 1 && [lindex $argv 1] ne "-"} { set hexfile [file normalize [lindex $argv 1]] }
+if {[llength $argv] > 2} { set xdcfile [file normalize [lindex $argv 2]] }
 
 set here     [file dirname [file normalize [info script]]]
 set rtl      [file normalize [file join $here .. .. rtl]]
 set proj_dir [file join $here stm_bd]
 
 if {$hexfile ne "" && ![file exists $hexfile]} { error "$hexfile not found" }
+if {$xdcfile ne "" && ![file exists $xdcfile]} { error "$xdcfile not found" }
 
 # ---------------------------------------------------------------------
 #  Project and sources
@@ -73,6 +82,9 @@ set_property file_type {Verilog Header} [get_files $vh]
 set_property used_in {} [get_files $vh_ch]
 set_property include_dirs [list $rtl] [current_fileset]
 update_compile_order -fileset sources_1
+
+# Board constraints
+if {$xdcfile ne ""} { add_files -fileset constrs_1 -norecurse $xdcfile }
 
 # ---------------------------------------------------------------------
 #  Block design
@@ -165,4 +177,5 @@ set_property top stm_system_wrapper [current_fileset]
 update_compile_order -fileset sources_1
 
 if {$hexfile ne ""} { puts "Program memory initialised from $hexfile" }
+if {$xdcfile ne ""} { puts "Constraints added from $xdcfile" }
 puts "Block design created: [file join $proj_dir stm_bd.xpr]"

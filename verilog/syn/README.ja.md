@@ -106,7 +106,11 @@ python tools/mem2hex.py work/hello_uart.dat work/hello_uart.hex
 cd syn/vivado
 vivado -mode batch -source create_bd.tcl                                            # メモリは 0 のまま
 vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/hello_uart.hex   # デバイスとプログラムを指定
+vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/hello_uart.hex arty_a7_35.xdc   # Arty A7-35 (ピン配置も)
 ```
+
+引数はどれも省略できます: 1 番目 = デバイス (既定 `xc7a100tcsg324-1`), 2 番目 = プログラムの `.hex`
+(`-` なら無し), 3 番目 = ボードの XDC (プロジェクトに追加される)。
 
 `vivado/stm_bd/stm_bd.xpr` ができます。GUI の Tcl コンソールからは
 `cd <このフォルダ>; set argv {xc7a100tcsg324-1 ../../work/hello_uart.hex}; source create_bd.tcl` でも実行できます。
@@ -141,12 +145,20 @@ bus_error, uart (rxd / txd) ─▶ 外部ポート
   されず TIMEOUT になります (AXI4 版で、`F000_0004` に `Hello World
 ` の 13 バイトが書かれ、
   ステータスがちょうど 13 回読まれることは確認済み)。
-* `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd`, `bus_error` のピン配置はボードごとに違うので、
-  配置配線の前に XDC を追加してください。
+* `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd`, `bus_error` のピン配置はボードごとに違います。
+  Digilent Arty A7-35 用は [`vivado/arty_a7_35.xdc`](vivado/arty_a7_35.xdc) です (Arty A7-100 も同じピン)。
+  100 MHz の発振器 (E3), RESET ボタン (C2, 押すと L), USB-UART (A9 / D10), `bus_error` を LD4 (H5) に
+  割り当てています。ピンは Digilent の `Arty-A7-35-Master.xdc` から取りました。他のボードでは、
+  これを参考に XDC を作って 3 番目の引数に渡すか、配置配線の前に追加してください。
 
-確認したこと: `hello.hex` を指定してプロジェクトを作り、合成まで通しました (エラー・クリティカル
-警告無し)。プログラムメモリには `hello.hex` が読み込まれ、ブロック RAM になっています。
-実機での動作は未確認です。
+確認したこと:
+
+* `xc7a100tcsg324-1` と `hello.hex` で、プロジェクトの作成と合成 (エラー・クリティカル警告無し)。
+  プログラムメモリには `.hex` が読み込まれ、ブロック RAM になっています。
+* Arty A7-35 (`xc7a35ticsg324-1L`, `hello_uart.hex`, `arty_a7_35.xdc`) で、ビットストリームまで
+  (エラー・クリティカル警告無し, DRC 違反無し)。25 MHz で WNS +19.9 ns / WHS +0.015 ns。
+  LUT 7,651 (37%), FF 5,582 (13%), ブロック RAM 3.5 タイル, MMCM 1。
+* 実機での動作は未確認です。
 
 > Vivado 2022.2 では、ブロックデザインを作るとき (`create_bd_design`) に、Vivado 自身の IP の
 > スクリプトが読めないというエラー (`couldn't read file ...`, `Failed to load feature 'ipintegrator'`
