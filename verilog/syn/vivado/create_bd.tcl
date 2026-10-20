@@ -44,6 +44,9 @@
 #  before implementation.
 #
 #  Note: run from a path without non-ASCII characters (see ../README.md).
+#  Close the stm_bd project in any open Vivado GUI first: the project is
+#  re-created with -force, and a GUI that still has the old one open can
+#  write it back (and the program memory loses its INIT_FILE).
 # =====================================================================
 set part    xc7a100tcsg324-1
 set hexfile ""
@@ -165,6 +168,11 @@ assign_bd_address -target_address_space [get_bd_addr_spaces cpu/m_axi] \
 regenerate_bd_layout
 validate_bd_design
 save_bd_design
+
+# Make sure the program really went into the block design
+if {$hexfile ne "" && [get_property CONFIG.INIT_FILE $ram] ne $hexfile} {
+  error "INIT_FILE of /ram is '[get_property CONFIG.INIT_FILE $ram]', not $hexfile"
+}
 
 # ---------------------------------------------------------------------
 #  HDL wrapper as the top
