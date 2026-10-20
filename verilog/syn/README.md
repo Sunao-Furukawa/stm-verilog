@@ -144,3 +144,39 @@ run on hardware.
 > With Vivado 2022.2, creating the block design (`create_bd_design`) occasionally stopped with an
 > error about Vivado's own IP scripts (`couldn't read file ...`, `Failed to load feature
 > 'ipintegrator'` and so on). This is unrelated to the script; running it again works.
+
+### Using *Add Module* in your own project
+
+If you place `stm_axi_top` with *Add Module* in a block design of your own project instead of
+using `create_bd.tcl`, you may get this error:
+
+```
+[filemgmt 56-591] Given include File '.../verilog/rtl/ch/130_a_act.vh' needs to be addded to the project in order to use it as an RTL module.
+```
+
+A module reference needs every file read through `` `include `` to be part of the project.
+`stm_cntl.v` includes `rtl/*.vh` (4 files) and `rtl/ch/*.vh` (23 files). With the project open,
+enter the following in the Tcl Console (adjust the `rtl` path to your setup):
+
+```tcl
+set rtl C:/work/stm-verilog/verilog/rtl
+set vh_ch [glob $rtl/ch/*.vh]
+set vh    [concat [glob $rtl/*.vh] $vh_ch]
+add_files -norecurse $vh
+set_property file_type {Verilog Header} [get_files $vh]
+set_property used_in {} [get_files $vh_ch]
+set_property include_dirs [list $rtl] [current_fileset]
+update_compile_order -fileset sources_1
+```
+
+* `rtl/*.vh` and `rtl/ch/*.vh` are added to the project as Verilog Headers.
+* `rtl/ch/*.vh` are pieces of the body of `stm_cntl` and are not valid Verilog on their own. If
+  they are only added, Vivado parses each of them and reports 23 CRITICAL WARNINGs
+  (`Syntax error near 'assign'`), so their `used_in` is set to empty to stop that. They are still
+  read through `` `include ``.
+* `stm_cntl.v` includes files with paths relative to `rtl/` (`"ch/010_d_pre.vh"`), so `rtl/` is
+  added to the include search path.
+
+In the GUI: add the 27 `.vh` files with *Add Sources*, check that their Type is *Verilog Header*,
+uncheck everything under *Used In* in the *Source File Properties* of the 23 files in `ch/`, and
+add `verilog/rtl` to *Settings → General → Verilog options → Include Search Paths*.
