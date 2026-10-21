@@ -49,7 +49,7 @@ verilog/
 │   └── axi4_mem_slave.v  AXI4 スレーブ (メモリ) モデル (乱数ウェイト・順序入れ替え, 規則違反の検査)
 ├── bench/loop.s          ループのベンチマーク (命令キャッシュの効果を見る)
 ├── tests/                AXI4 版のテスト (I/O 領域, バスエラー例外。8 章)
-├── rtos/                 小さなリアルタイム OS (rtos.s) と検査ツール。rtos/README.ja.md 参照
+├── rtos/                 小さなリアルタイム OS (rtos.s), Arty A7-35 用のアプリ (greet_uart.s), 検査ツール。rtos/README.ja.md 参照
 ├── tools/
 │   ├── asm.py            アセンブラ (soft/asm.pl の Python 移植版。通常はこちらを使う。SVC 命令を追加)
 │   ├── asm64.pl          soft/asm.pl の 64bit perl 対応版 (参考用)

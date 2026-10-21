@@ -11,6 +11,12 @@
    しか見ていないため, WSR の GR, ストアと J のベースレジスタは, 直前のロードの
    結果を待たずに古い値を使う。これらの直前 LOAD_N 命令に, そのレジスタへの
    ロードがないことを調べる (間に GR を書く EX 命令でコピーすればよい)。
+3. RFE の後ろの条件分岐: RFE はパイプラインの命令を取り消すが, 未解決の BC の印
+   (G_BC_PENDING) は消さない (消すのは割り込みだけ)。RFE の後ろで先に発行された
+   条件分岐が残り, 復帰先で CC を作る最初の命令で「解決」されて, 予測と違えば
+   復帰先の命令が取り消され, その条件分岐の飛び先 (カーネル) へ進んでしまう。
+   I/O 領域へのロードは未解決の BC がある間は待つので, そこで止まる。
+   RFE の後ろ RFE_N 命令 (無条件分岐はたどる) に条件分岐がないことを調べる。
 
 使い方: python rtos/check_bc.py rtos/rtos.s    (問題があれば終了コード 1)
 """
@@ -20,6 +26,7 @@ import sys
 WRONG_N = 4     # 取り消し時に誤って発行されている命令数 (実際は 1 組 = 2 命令, 余裕を見て 2 組)
 FIRST_N = 2     # 取り消しと同じサイクルに D にいる正しい側の命令数
 LOAD_N = 4      # WSR の前に見る命令数
+RFE_N = 8       # RFE の後ろで見る命令数 (RFE が W に着くまでに D を通りうる数より多め)
 
 EX_RE = re.compile(r"^([ASC]U?|[NOX]|S[RL][AL]?)(\.c)?\s+(.*)$")
 
@@ -162,6 +169,19 @@ def main():
                 break
             if kind != "seq":
                 break
+    # RFE の後ろの条件分岐
+    for ad, text in sorted(insns.items()):
+        if text.split()[0] != "RFE":
+            continue
+        a, seen = ad + 4, 0
+        while seen < RFE_N and a in insns:
+            _, _, kind, tgt = regs_of(insns[a])
+            if kind == "cond":
+                bad += 1
+                print("%03x %-14s is followed by %03x %s" % (ad, text, a, insns[a]))
+                break
+            seen += 1
+            a = labels[tgt] if kind == "jump" else a + 4
     print("conflicts: %d" % bad)
     sys.exit(1 if bad else 0)
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # AXI4 マスタ版 (stm_axi_top) で bup0/bup1 の全テストと, AXI4 版用のテスト
-# (tests/*.s: I/O 領域, バスエラー例外) とベンチマーク (bench/*.s), RTOS (rtos/*.s) を
+# (tests/*.s: I/O 領域, バスエラー例外) とベンチマーク (bench/*.s), RTOS (rtos/rtos.s) を
 # Icarus Verilog で実行する。
 # メモリは AXI4 スレーブモデル (tb/axi4_mem_slave.v)。各テストを 5 通りで動かす:
 #   (axi)       ウェイト無しのスレーブ                     (命令キャッシュ 4KB)
@@ -22,7 +22,7 @@ iverilog -g2001 -Wall -I rtl -P tb_stm_axi.ICACHE=0 -o work/axi_nc.vvp $SRC
 
 PY=python3; command -v $PY >/dev/null 2>&1 || PY=python
 ok=0; ng=0
-for x in ../bup0/* ../bup1/* tests/*.s bench/*.s rtos/*.s; do
+for x in ../bup0/* ../bup1/* tests/*.s bench/*.s rtos/rtos.s; do
     name=$(basename "$x")
     [ "$name" = head ] && continue
     # ベンチマークと RTOS は長いので最大サイクル数を増やす

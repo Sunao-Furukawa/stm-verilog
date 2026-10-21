@@ -1,5 +1,5 @@
 ﻿# run_bup_axi.sh の PowerShell 版。AXI4 マスタ版 (stm_axi_top) で bup0/bup1 の全テストと,
-# AXI4 版用のテスト (tests/*.s) とベンチマーク (bench/*.s), RTOS (rtos/*.s) を実行する。
+# AXI4 版用のテスト (tests/*.s) とベンチマーク (bench/*.s), RTOS (rtos/rtos.s) を実行する。
 # 各テストを 5 通りで動かす:
 #   (axi)       ウェイト無しのスレーブ                     (命令キャッシュ 4KB)
 #   (axi r)     乱数でウェイト・応答順の入れ替え           (SEED=1)
@@ -32,7 +32,7 @@ $modes = @(
 )
 $ok = 0; $ng = 0
 $files = @(Get-ChildItem '../bup0', '../bup1' -File | Where-Object { $_.Name -ne 'head' }) +
-         @(Get-ChildItem 'tests', 'bench', 'rtos' -File -Filter '*.s')
+         @(Get-ChildItem 'tests', 'bench' -File -Filter '*.s') + @(Get-Item 'rtos/rtos.s')
 foreach ($f in $files) {
     # ベンチマークと RTOS は長いので最大サイクル数を増やす
     $n = switch ($f.Directory.Name) { 'bench' { 2000 } 'rtos' { 20000 } default { 250 } }

@@ -50,7 +50,7 @@ verilog/
 │   └── axi4_mem_slave.v  AXI4 slave memory model (random waits / reordering, protocol checks)
 ├── bench/loop.s          loop benchmark (shows the effect of the instruction cache)
 ├── tests/                tests for the AXI4 version (I/O region, bus-error exceptions; section 8)
-├── rtos/                 a small real-time OS (rtos.s) and a checker; see rtos/README.md
+├── rtos/                 a small real-time OS (rtos.s), an Arty A7-35 application (greet_uart.s) and a checker; see rtos/README.md
 ├── tools/
 │   ├── asm.py            assembler (Python port of soft/asm.pl; use this one normally; adds SVC)
 │   ├── asm64.pl          soft/asm.pl fixed for 64-bit Perl (for reference)
