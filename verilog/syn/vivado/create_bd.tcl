@@ -27,7 +27,8 @@
 #    cpu (stm_axi_top, module reference) --m_axi--> AXI SmartConnect
 #        M00 -> AXI BRAM Controller + stm_prog_ram  0x0000_0000 - 0x0000_1FFF
 #        M01 -> AXI UART Lite (115200 baud)         0xF000_0000 - 0xF000_FFFF
-#    bus_error, uart (rxd / txd) -> top-level ports
+#        M02 -> AXI GPIO (4 inputs, switches)       0xF001_0000 - 0xF001_FFFF
+#    bus_error, uart (rxd / txd), sw_tri_i[3:0] -> top-level ports
 #
 #  The program memory is stm_prog_ram.v (a module reference) rather than the
 #  Block Memory Generator, because the Block Memory Generator does not take
@@ -37,10 +38,12 @@
 #  not speculative, so reading its RX FIFO is safe. Registers: +0x0 RX FIFO,
 #  +0x4 TX FIFO, +0x8 status (bit 3 = TX FIFO full), +0xC control.
 #  Write whole words to it (the I/O region does not merge sub-word stores).
+#  The GPIO (all inputs, for slide switches) is in the I/O region too:
+#  +0x0 data, bits 0-3 = sw_tri_i[0-3].
 #
 #  The project is created in ./stm_bd with the HDL wrapper stm_system_wrapper
-#  as top. Pin constraints for sys_clk, reset_n, uart_rxd, uart_txd and
-#  bus_error depend on the board: give them as <pins.xdc> or add them
+#  as top. Pin constraints for sys_clk, reset_n, uart_rxd, uart_txd,
+#  bus_error and sw_tri_i[3:0] depend on the board: give them as <pins.xdc> or add them
 #  before implementation.
 #
 #  Note: run from a path without non-ASCII characters (see ../README.md).
@@ -120,9 +123,9 @@ create_bd_cell -type module -reference stm_axi_top cpu
 set reset_pc [create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 reset_pc]
 set_property -dict [list CONFIG.CONST_WIDTH {32} CONFIG.CONST_VAL {768}] $reset_pc
 
-# Interconnect: 1 master -> 2 slaves
+# Interconnect: 1 master -> 3 slaves
 set sc [create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 smartconnect]
-set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {2}] $sc
+set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {3}] $sc
 
 # Program memory: 8KB (2^11 words)
 set bram_ctrl [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_bram_ctrl:4.1 bram_ctrl]
@@ -136,6 +139,10 @@ if {$hexfile ne ""} { set_property CONFIG.INIT_FILE $hexfile $ram }
 set uart [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_uartlite:2.0 uart]
 set_property CONFIG.C_BAUDRATE {115200} $uart
 
+# GPIO: 4 inputs (slide switches)
+set gpio [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 gpio]
+set_property -dict [list CONFIG.C_GPIO_WIDTH {4} CONFIG.C_ALL_INPUTS {1}] $gpio
+
 # ---- Connections
 connect_bd_net $sys_clk [get_bd_pins clk_wiz/clk_in1]
 connect_bd_net $reset_n [get_bd_pins clk_wiz/resetn] [get_bd_pins rst/ext_reset_in]
@@ -144,20 +151,24 @@ connect_bd_net [get_bd_pins clk_wiz/locked] [get_bd_pins rst/dcm_locked]
 connect_bd_net [get_bd_pins clk_wiz/clk_out1] \
   [get_bd_pins rst/slowest_sync_clk] [get_bd_pins cpu/aclk] \
   [get_bd_pins smartconnect/aclk] [get_bd_pins bram_ctrl/s_axi_aclk] \
-  [get_bd_pins uart/s_axi_aclk]
+  [get_bd_pins uart/s_axi_aclk] [get_bd_pins gpio/s_axi_aclk]
 connect_bd_net [get_bd_pins rst/peripheral_aresetn] \
   [get_bd_pins cpu/aresetn] [get_bd_pins smartconnect/aresetn] \
-  [get_bd_pins bram_ctrl/s_axi_aresetn] [get_bd_pins uart/s_axi_aresetn]
+  [get_bd_pins bram_ctrl/s_axi_aresetn] [get_bd_pins uart/s_axi_aresetn] \
+  [get_bd_pins gpio/s_axi_aresetn]
 
 connect_bd_net [get_bd_pins reset_pc/dout] [get_bd_pins cpu/RESET_PC]
 
 connect_bd_intf_net [get_bd_intf_pins cpu/m_axi] [get_bd_intf_pins smartconnect/S00_AXI]
 connect_bd_intf_net [get_bd_intf_pins smartconnect/M00_AXI] [get_bd_intf_pins bram_ctrl/S_AXI]
 connect_bd_intf_net [get_bd_intf_pins smartconnect/M01_AXI] [get_bd_intf_pins uart/S_AXI]
+connect_bd_intf_net [get_bd_intf_pins smartconnect/M02_AXI] [get_bd_intf_pins gpio/S_AXI]
 connect_bd_intf_net [get_bd_intf_pins bram_ctrl/BRAM_PORTA] [get_bd_intf_pins ram/BRAM_PORTA]
 
 make_bd_intf_pins_external [get_bd_intf_pins uart/UART]
 set_property name uart [get_bd_intf_ports UART_0]
+make_bd_intf_pins_external [get_bd_intf_pins gpio/GPIO]
+set_property name sw [get_bd_intf_ports GPIO_0]
 make_bd_pins_external [get_bd_pins cpu/bus_error]
 set_property name bus_error [get_bd_ports bus_error_0]
 
@@ -166,6 +177,8 @@ assign_bd_address -target_address_space [get_bd_addr_spaces cpu/m_axi] \
   -offset 0x00000000 -range 8K [get_bd_addr_segs bram_ctrl/S_AXI/Mem0]
 assign_bd_address -target_address_space [get_bd_addr_spaces cpu/m_axi] \
   -offset 0xF0000000 -range 64K [get_bd_addr_segs uart/S_AXI/Reg]
+assign_bd_address -target_address_space [get_bd_addr_spaces cpu/m_axi] \
+  -offset 0xF0010000 -range 64K [get_bd_addr_segs gpio/S_AXI/Reg]
 
 regenerate_bd_layout
 validate_bd_design

@@ -109,6 +109,17 @@ vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/he
 vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/hello_uart.hex arty_a7_35.xdc   # Arty A7-35 (ピン配置も)
 ```
 
+スイッチで選んだあいさつ (Hello / Nihao / Konnichiwa / annyeonghaseyo) を RTOS で出すプログラムは
+[`rtos/greet_uart.s`](../rtos/greet_uart.s) です ([../rtos/README.ja.md](../rtos/README.ja.md) 参照)。
+
+```sh
+cd verilog
+python tools/asm.py rtos/greet_uart.s 20000 -o work/greet_uart.dat
+python tools/mem2hex.py work/greet_uart.dat work/greet_uart.hex
+cd syn/vivado
+vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/greet_uart.hex arty_a7_35.xdc
+```
+
 引数はどれも省略できます: 1 番目 = デバイス (既定 `xc7a100tcsg324-1`), 2 番目 = プログラムの `.hex`
 (`-` なら無し), 3 番目 = ボードの XDC (プロジェクトに追加される)。
 
@@ -124,7 +135,8 @@ Constant 0x300 ─▶ cpu/RESET_PC
 cpu (stm_axi_top, モジュール参照) ──m_axi──▶ AXI SmartConnect
       M00 ─▶ AXI BRAM Controller + stm_prog_ram   0x0000_0000〜0x0000_1FFF (8KB)
       M01 ─▶ AXI UART Lite (115200 baud)         0xF000_0000〜0xF000_FFFF
-bus_error, uart (rxd / txd) ─▶ 外部ポート
+      M02 ─▶ AXI GPIO (入力 4 ビット, スイッチ)   0xF001_0000〜0xF001_FFFF
+bus_error, uart (rxd / txd), sw_tri_i[3:0] ─▶ 外部ポート
 ```
 
 * CPU は RTL のまま **モジュール参照** (*Add Module*) で置いています。モジュール参照では include
@@ -142,6 +154,8 @@ bus_error, uart (rxd / txd) ─▶ 外部ポート
 * UART Lite は CPU の I/O 領域 (`0xF000_0000`〜) に置いています。I/O 領域のロードは投機的に
   実行されないので、読むと中身が減る受信 FIFO を安全に読めます。レジスタは +0x0 受信 FIFO,
   +0x4 送信 FIFO, +0x8 ステータス (ビット 3 = 送信 FIFO が満杯), +0xC 制御。語単位で書いてください。
+* GPIO (すべて入力, 4 ビット) もスライドスイッチ用に I/O 領域 (`0xF001_0000`) に置いています。
+  +0x0 を読むと、ビット 0〜3 に `sw_tri_i[0]`〜`[3]` が入ります。
 * [`samples/hello_uart.s`](../../samples/hello_uart.s) は、ステータスを見て送信 FIFO に空きがあれば
   `F000_0004` に 1 文字ずつ書き、`Hello World` (CR LF 付き) を出して無限ループで止まります。
   `samples/hello.s` のほうはテストベンチのコンソール (`F000_0008`) に書くので、実機の UART には
@@ -149,10 +163,10 @@ bus_error, uart (rxd / txd) ─▶ 外部ポート
   されず TIMEOUT になります (AXI4 版で、`F000_0004` に `Hello World
 ` の 13 バイトが書かれ、
   ステータスがちょうど 13 回読まれることは確認済み)。
-* `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd`, `bus_error` のピン配置はボードごとに違います。
+* `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd`, `bus_error`, `sw_tri_i[3:0]` のピン配置はボードごとに違います。
   Digilent Arty A7-35 用は [`vivado/arty_a7_35.xdc`](vivado/arty_a7_35.xdc) です (Arty A7-100 も同じピン)。
-  100 MHz の発振器 (E3), RESET ボタン (C2, 押すと L), USB-UART (A9 / D10), `bus_error` を LD4 (H5) に
-  割り当てています。ピンは Digilent の `Arty-A7-35-Master.xdc` から取りました。他のボードでは、
+  100 MHz の発振器 (E3), RESET ボタン (C2, 押すと L), USB-UART (A9 / D10), `bus_error` を LD4 (H5),
+  `sw_tri_i[0]`〜`[3]` をスライドスイッチ SW0〜SW3 (A8, C11, C10, A10) に割り当てています。ピンは Digilent の `Arty-A7-35-Master.xdc` から取りました。他のボードでは、
   これを参考に XDC を作って 3 番目の引数に渡すか、配置配線の前に追加してください。
 
 確認したこと:
@@ -167,6 +181,12 @@ bus_error, uart (rxd / txd) ─▶ 外部ポート
 ` が 115200 baud で出ることを確認。
 * **実機**: Arty A7-35 にこのビットストリームを書き込み、RESET ボタンを押すと、PC のターミナル
   (115200 baud) に `Hello World` が表示されることを確認しました。
+* GPIO を足した後、Arty A7-35 (`xc7a35ticsg324-1L`, `rtos/greet_uart.s`, `arty_a7_35.xdc`) で
+  ビットストリームまで (エラー・クリティカル警告無し, DRC 違反無し)。24 MHz で WNS +22.7 ns /
+  WHS +0.015 ns。LUT 8,406 (40%), FF 6,383 (15%), ブロック RAM 3.5 タイル, MMCM 1。
+* 同じ回路を xsim で動かし (`DELAY` だけ短くしたプログラム)、スイッチを 0 → 1 → 2 → 3 と変えると
+  `uart_txd` に `Hello`, `Nihao`, `Konnichiwa`, `annyeonghaseyo` が 115200 baud で出ることを確認
+  (フレーミングエラー無し, `bus_error` = 0)。実機では未確認です。
 
 > Vivado 2022.2 では、ブロックデザインを作るとき (`create_bd_design`) に、Vivado 自身の IP の
 > スクリプトが読めないというエラー (`couldn't read file ...`, `Failed to load feature 'ipintegrator'`

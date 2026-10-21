@@ -4,6 +4,8 @@
 
 A small real-time OS for STM-1.2. A single assembly source, [`rtos.s`](rtos.s), assembled with
 `tools/asm.py`, contains the kernel, four demo tasks and a self-check of the result.
+[`greet_uart.s`](greet_uart.s) is an application for the Arty A7-35 on the same kernel
+(see [below](#example-application-greetings-selected-by-switches-greet_uarts)).
 
 ## Features
 
@@ -121,21 +123,55 @@ run this RTOS in all five configurations together with bup and the other tests.
 
 ### Verification
 
-* `stm_sys` (no cache misses): passes (7,548 cycles).
+* `stm_sys` (no cache misses): passes (7,518 cycles).
 * AXI4 version: no waits, plus 20 seeds of random waits and reordered responses in each of four
   configurations (4KB cache, the same with `BYTE_SWAP=1`, a 2-line 16-byte cache, no cache):
   81/81 pass.
-* With `stm_sys` in `+RANDOM` mode (random cache misses, like `stmsiml -r` of the C version),
-  1 of 20 seeds (`SEED=7`) stops at `DEADLOCK`. This is not an RTOS problem but a bug in the
-  original design: when an instruction fetch is late, instructions on the wrong side of a
-  resolved conditional branch are executed instead of being cancelled. It is the same problem as
-  "cancel the old fetch when an unresolved BC is issued" in
-  [../README.md §8](../README.md); that fix (`CANCEL_IB`) was applied only to the AXI4 version
-  (`EXT_BUS=1`), so the random mode of `stm_sys` still shows it.
+* `stm_sys` in `+RANDOM` mode (random cache misses, like `stmsiml -r` of the C version): all 20
+  seeds pass. Earlier, 1 of 20 seeds (`SEED=7`) stopped at `DEADLOCK`, which was put down to the
+  fetch bug of the original design ("cancel the old fetch when an unresolved BC is issued" in
+  [../README.md §8](../README.md)). With the workaround for bug 3 below (no conditional branch
+  after RFE) it no longer stops. In that run the old kernel left `G_BC_PENDING` at 1 right after
+  RFE 26 times, so bug 3 was most likely the cause.
+
+## Example application: greetings selected by switches (`greet_uart.s`)
+
+[`greet_uart.s`](greet_uart.s) is a program for real hardware (Digilent Arty A7-35) running on
+this RTOS. Every 0.5 s or so it prints the greeting selected by slide switches SW1 and SW0 on the
+UART (115200 baud). The kernel part is the same as `rtos.s`; only the user tasks and data differ.
+
+| SW1 | SW0 | Output |
+|---|---|---|
+| 0 | 0 | `Hello` |
+| 0 | 1 | `Nihao` |
+| 1 | 0 | `Konnichiwa` |
+| 1 | 1 | `annyeonghaseyo` |
+
+| Task | Priority | Behaviour |
+|---|---|---|
+| T0 | 1 | Output task. Receives the address of a string from mailbox 0 (`RECV`) and writes it to the UART one character at a time |
+| T1 | 2 | Switch task. Reads the switches from the GPIO and sends the address of the string to mailbox 0 (`SEND`). T0, waiting to receive, has a higher priority, so the kernel switches to it at once and returns to T1 after the line has been written. T1 then waits about 0.5 s in a busy loop |
+| T2, T3 | 3 | Unused (`EXIT` at once) |
+
+With no timer interrupt, the wait is a busy loop in T1. One iteration takes 3 cycles, so the
+4,000,000 iterations in `DELAY` (0xF30) are 0.5 s at 24 MHz. The UART Lite (`F000_0000`) and the
+GPIO (`F001_0000`) are in the CPU's I/O region; the user-mode tasks access them directly.
+
+In the `verilog` folder:
+
+```sh
+python tools/asm.py rtos/greet_uart.s 20000 -o work/greet_uart.dat
+python tools/mem2hex.py work/greet_uart.dat work/greet_uart.hex
+python rtos/check_bc.py rtos/greet_uart.s      # "conflicts: 0" means OK
+cd syn/vivado
+vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/greet_uart.hex arty_a7_35.xdc
+```
+
+For the block design and the pins, see the last section of [../syn/README.md](../syn/README.md).
 
 ## Hardware bugs and the workarounds
 
-While writing the RTOS, two bugs were found in the CPU core. Both are in logic translated as-is
+While writing the RTOS, three bugs were found in the CPU core. All are in logic translated as-is
 from the original CHDL, so they are bugs of the original STM-1.2 design. The regression tests (bup) contain no instance of these
 patterns, so they had not shown up before. The CPU core is left unchanged so that it stays
 cycle-identical with the C version; the RTOS avoids the patterns instead.
@@ -185,6 +221,39 @@ WSR 5,1          # XPC receives GR1 from before the load
 
 Workaround: copy the loaded value with an EX instruction that writes a GR (`O 1,1,%0`) before
 using it. EX instructions do interlock, and their result is bypassed correctly.
+
+### 3. A conditional branch issued after RFE stays "unresolved"
+
+When RFE reaches the W cycle, every instruction in the pipeline is cancelled (`CANCEL_BY_INT` =
+interrupt | RFE | state change, 050_op_lb1.vh). But `G_BC_PENDING` (210_g_bc.vh), which marks an
+unresolved conditional branch, is cleared only by an interrupt (`WW_INTERRUPTION`), not by RFE.
+So if a conditional branch placed after RFE has already been issued in D, the branch is cancelled
+but the "unresolved" mark stays.
+
+* The first instruction that sets the CC in the task being resumed "resolves" that branch. If the
+  outcome differs from the prediction, the task's instructions are cancelled and execution goes to
+  the branch target (inside the kernel).
+* On the AXI4 version, a load from the I/O region waits in the A cycle while a conditional branch
+  is unresolved. The instructions behind it cannot advance, so the branch is never resolved and
+  the CPU stops there.
+
+An actual case (found while writing [`greet_uart.s`](greet_uart.s)):
+
+```
+DISPATCH: ...
+         RFE
+K_LOGPUT: L   2,LOGCNT
+         C   2,%20
+         BGE KLP_RET     # issued after RFE; G_BC_PENDING stayed 1
+...
+TASK1:   SETHI 9,%-FFF
+         L   3,9(0)      # the load of the switches (I/O region) waited here forever
+```
+
+Workaround (checked by `check_bc.py`): place no conditional branch after RFE. The kernel puts an
+unconditional branch to itself right after RFE (`DSP_SPIN: B DSP_SPIN`, never executed).
+`check_bc.py` checks that the 8 instructions after each RFE (following unconditional branches)
+contain no conditional branch.
 
 ## Assembler changes (`tools/asm.py`)
 

@@ -110,6 +110,17 @@ vivado -mode batch -source create_bd.tcl -tclargs xc7a100tcsg324-1 ../../work/he
 vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/hello_uart.hex arty_a7_35.xdc   # Arty A7-35 (with pins)
 ```
 
+[`rtos/greet_uart.s`](../rtos/greet_uart.s) is an RTOS program that prints the greeting selected by
+the switches (Hello / Nihao / Konnichiwa / annyeonghaseyo); see [../rtos/README.md](../rtos/README.md).
+
+```sh
+cd verilog
+python tools/asm.py rtos/greet_uart.s 20000 -o work/greet_uart.dat
+python tools/mem2hex.py work/greet_uart.dat work/greet_uart.hex
+cd syn/vivado
+vivado -mode batch -source create_bd.tcl -tclargs xc7a35ticsg324-1L ../../work/greet_uart.hex arty_a7_35.xdc
+```
+
 All arguments are optional: 1st = part (default `xc7a100tcsg324-1`), 2nd = program `.hex` (`-` for
 none), 3rd = board XDC (added to the project).
 
@@ -125,7 +136,8 @@ Constant 0x300 ─▶ cpu/RESET_PC
 cpu (stm_axi_top, module reference) ──m_axi──▶ AXI SmartConnect
       M00 ─▶ AXI BRAM Controller + stm_prog_ram   0x0000_0000–0x0000_1FFF (8KB)
       M01 ─▶ AXI UART Lite (115200 baud)         0xF000_0000–0xF000_FFFF
-bus_error, uart (rxd / txd) ─▶ top-level ports
+      M02 ─▶ AXI GPIO (4 inputs, switches)       0xF001_0000–0xF001_FFFF
+bus_error, uart (rxd / txd), sw_tri_i[3:0] ─▶ top-level ports
 ```
 
 * The CPU is placed from the RTL as a **module reference** (*Add Module*). A module reference
@@ -144,6 +156,8 @@ bus_error, uart (rxd / txd) ─▶ top-level ports
 * The UART Lite is in the CPU's I/O region (`0xF000_0000`–). Loads there are not speculative, so
   reading the RX FIFO (which consumes data) is safe. Registers: +0x0 RX FIFO, +0x4 TX FIFO,
   +0x8 status (bit 3 = TX FIFO full), +0xC control. Write whole words.
+* A GPIO (all inputs, 4 bits) for slide switches is in the I/O region too (`0xF001_0000`).
+  Reading +0x0 gives `sw_tri_i[0]`–`[3]` in bits 0–3.
 * [`samples/hello_uart.s`](../../samples/hello_uart.s) checks the status register and writes one
   character at a time to `F000_0004` while the TX FIFO has room, prints `Hello World` (with CR LF)
   and then stops in an endless loop. `samples/hello.s` writes to the testbench console
@@ -151,10 +165,12 @@ bus_error, uart (rxd / txd) ─▶ top-level ports
   simulation of `hello_uart.s` shows nothing and ends with TIMEOUT (on the AXI4 version, the 13
   bytes of `Hello World
 ` were checked to be written to `F000_0004`, with exactly 13 status reads).
-* Pin assignments for `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd` and `bus_error` depend on the
-  board. For the Digilent Arty A7-35 use [`vivado/arty_a7_35.xdc`](vivado/arty_a7_35.xdc) (the
-  Arty A7-100 has the same pins): the 100 MHz oscillator (E3), the RESET button (C2, low when
-  pressed), the USB-UART (A9 / D10), and `bus_error` on LD4 (H5). The pins come from Digilent's
+* Pin assignments for `sys_clk`, `reset_n`, `uart_rxd`, `uart_txd`, `bus_error` and
+  `sw_tri_i[3:0]` depend on the board. For the Digilent Arty A7-35 use
+  [`vivado/arty_a7_35.xdc`](vivado/arty_a7_35.xdc) (the Arty A7-100 has the same pins): the
+  100 MHz oscillator (E3), the RESET button (C2, low when pressed), the USB-UART (A9 / D10),
+  `bus_error` on LD4 (H5), and `sw_tri_i[0]`–`[3]` on slide switches SW0–SW3 (A8, C11, C10, A10).
+  The pins come from Digilent's
   `Arty-A7-35-Master.xdc`. For another board, write an XDC along the same lines and pass it as the
   3rd argument, or add it before implementation.
 
@@ -170,6 +186,13 @@ Checked:
 ` at 115200 baud.
 * **On hardware**: with this bitstream on an Arty A7-35, pressing the RESET button prints
   `Hello World` on a PC terminal at 115200 baud.
+* With the GPIO added, for the Arty A7-35 (`xc7a35ticsg324-1L`, `rtos/greet_uart.s`,
+  `arty_a7_35.xdc`): through to the bitstream (no errors, critical warnings or DRC violations).
+  WNS +22.7 ns / WHS +0.015 ns at 24 MHz. 8,406 LUTs (40%), 6,383 FFs (15%), 3.5 block RAM tiles,
+  1 MMCM.
+* The same design in xsim (with a program whose `DELAY` is shortened): setting the switches to
+  0 → 1 → 2 → 3 makes `uart_txd` send `Hello`, `Nihao`, `Konnichiwa` and `annyeonghaseyo` at
+  115200 baud (no framing errors, `bus_error` = 0). Not yet checked on hardware.
 
 > With Vivado 2022.2, creating the block design (`create_bd_design`) occasionally stopped with an
 > error about Vivado's own IP scripts (`couldn't read file ...`, `Failed to load feature
