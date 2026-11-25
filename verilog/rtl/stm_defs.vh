@@ -61,6 +61,8 @@ endfunction
 //   MASK の最上位ビット(8)が cc=0, 最下位ビット(1)が cc=3 に対応する。
 //   【解説】回路としては「cc を選択信号, mask の 4 本をデータとする 4:1 MUX」。
 //         例: BNE (mask=6=0110) は cc=1 (負) と cc=2 (正) で成立する。
+//   [Note] As a circuit this is "a 4:1 MUX with cc as the select and the 4 bits of mask as data".
+//          e.g. BNE (mask=6=0110) holds for cc=1 (negative) and cc=2 (positive).
 function cc_match(input [1:0] cc, input [3:0] mask);
   cc_match = mask[3 - cc];
 endfunction
@@ -84,6 +86,11 @@ endfunction
 //         PSW_CC (2bit), PSW_USER (1bit), PSW_TYPE (8bit) の 3 つの FF で、RSR で読む
 //         ときや XPSW に退避するときだけ build_psw で 32bit に並べる (配線のみ)。
 //         残りのビットは常に 0 (グランドにつながる)。
+//
+//   [Note] PSW does not exist as one 32-bit register. It really is the 3 FFs PSW_CC (2 bits),
+//          PSW_USER (1 bit) and PSW_TYPE (8 bits) of stm_cntl, lined up into 32 bits by
+//          build_psw (wiring only) only when RSR reads it or it is saved to XPSW.
+//          The other bits are always 0 (tied to ground).
 function [31:0] build_psw(input [1:0] cc, input user, input [7:0] type_);
   build_psw = {2'b00, cc, 3'b000, user, type_, 16'h0000};
 endfunction
@@ -127,6 +134,12 @@ endfunction
 //         例: x=1 (V45), y=4 (NIP), z=1 (1 命令目が分岐)  →  -16 + 16 + 0 = 0。
 //         つまり「4,5 番が埋まっていて NIP=4 なら、分岐命令は最後に入れた
 //         8 バイトの先頭 (D_IF_AD) にある」。
+//
+//   [Note] There are only 1+3+1 = 5 input bits, so synthesis can make this a 5-input truth table
+//          (one LUT5 for each of the 6 output bits) instead of an adder.
+//          e.g. x=1 (V45), y=4 (NIP), z=1 (first instruction is the branch)  ->  -16 + 16 + 0 = 0.
+//          That is, "with entries 4,5 filled and NIP=4, the branch is at the start of the last
+//          8 bytes put in (D_IF_AD)".
 function [5:0] add_4_5_3(input x, input [2:0] y, input z);
   add_4_5_3 = (x ? 6'd48 : 6'd56)          // -16 / -8 (6bit 2の補数)
             + {1'b0, y, 2'b00}              // 4 * y
@@ -140,6 +153,12 @@ endfunction
 //         その出力ネットが add_32_5_20_return[..])。
 //         D サイクルの中で IWQ → NIP → PART2 → この加算 → A_TGT の FF と続くので、
 //         長い経路の 1 つ。
+//
+//   [Note] A 3-input add (x + y + z). Synthesis makes an adder with carry chains (CARRY4)
+//          (in the Vivado result there is a row of CARRY4s named A_TGT_reg[..]_i_1, whose output
+//          nets are add_32_5_20_return[..]).
+//          Within the D cycle it goes IWQ -> NIP -> PART2 -> this add -> the A_TGT FFs,
+//          so it is one of the long paths.
 function [31:0] add_32_5_20(input [31:0] x, input [5:0] y, input [19:0] z);
   add_32_5_20 = x + {{26{y[5]}}, y} + {{12{z[19]}}, z};
 endfunction

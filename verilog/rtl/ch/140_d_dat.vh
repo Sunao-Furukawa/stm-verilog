@@ -12,6 +12,15 @@
 // A がインタロック中 (A_INTLK) は基本的に値を保持するが、待っていた
 // ロードデータ / ALU 結果が届いたらそれを取り込む (A_EAB の解除)。
 //
+// [Note] Selection of the operands passed from D to A (bypass)
+//
+// If a value newer than the one read from the register file is in the pipeline,
+// that is used. The priority (newest first) is
+//   EX result in A > EX result in B > load data (B/E) > ALU result in E
+//   > EX result in E > results in W > register file
+// While A is interlocked (A_INTLK) the values are basically held, but when the load data /
+// ALU result A was waiting for arrives, it is taken in (releasing A_EAB).
+//
 // 【ネットリスト解説】
 //   入力 : DD_RAD1/2/B (030), ポート GR_DT_1/2/B (stm_regfile),
 //          各ステージの書き込み番号と有効ビット (A_WAD2/A_WE2, B_WAD*/B_WE*, E_WAD*/E_WE*,
@@ -65,6 +74,8 @@
 
 // 【解説】各オペランドがレジスタから来るか。インタロック中のバイパス判定と
 //         A_EAB (060_g_srq.vh) に使う。
+// [Note] Does each operand come from a register? Used for the bypass decision during an interlock
+//        and for A_EAB (060_g_srq.vh).
 assign A_LS_OPB_IS_GR_NEW = A_INTLK ? A_LS_OPB_IS_GR  :
 	D_FWD ? DD_FIRST_RADB_V | DD_ISSUE_SECOND_INSN & DD_SECOND_RADB_V : 0;
 assign A_EX_OP1_IS_GR_NEW = A_INTLK ? A_EX_OP1_IS_GR  :
@@ -75,6 +86,8 @@ assign A_EX_OP2_IS_GR_NEW = A_INTLK ? A_EX_OP2_IS_GR  :
 
 // 【解説】リンク付き分岐の戻り番地 = 分岐命令の番地 + 4。
 //         PART1 (32bit) と PART2+4 (6bit) に分けて EXU に渡し、AU で足す。
+// [Note] Return address of a branch with link = address of the branch + 4.
+//        It is passed to the EXU in two parts, PART1 (32 bits) and PART2+4 (6 bits), and added by AU.
 assign DD_JB_INSN_AD_PART2P4 = add4_5(DD_JB_INSN_AD_PART2);   // ... + 4
 
 // ---- #if 0 (元ソースで無効化) ----
@@ -103,6 +116,7 @@ assign DD_JB_INSN_AD_PART2P4 = add4_5(DD_JB_INSN_AD_PART2);   // ... + 4
 //     (IJB-V & IJB-LINK)  ? DD-JB-INSN-AD-PART1 : GR-DT-2
 // ---- #else (有効) ----
 // 【解説】LS パイプのベースレジスタの値 (アドレス計算用)。
+// [Note] Value of the LS-pipe base register (for the address computation).
 assign A_LS_OPB_DT_NEW = 
 	  !A_INTLK & (DD_RADB == A_WAD2) & A_WE2 ? AA_EX_RES :
 	  !A_INTLK & (DD_RADB == B_WAD2) & B_WE2 ?  B_EX_RES :
@@ -126,6 +140,8 @@ assign A_LS_OPB_DT_NEW =
 
 // 【解説】EX パイプの第 1 オペランド。リンク付き分岐なら
 //         戻り番地の下位部分 PART2+4 を符号拡張したもの。
+// [Note] First operand of the EX pipe. For a branch with link,
+//        the low part of the return address, PART2+4, sign-extended.
 assign A_EX_OP1_DT_NEW = 
 	  !A_INTLK & (IJB_V & IJB_LINK)  ? sign_ext_6(DD_JB_INSN_AD_PART2P4) :
 	  !A_INTLK & (DD_RAD1 == A_WAD2) & A_WE2 ? AA_EX_RES :
@@ -150,6 +166,8 @@ assign A_EX_OP1_DT_NEW =
 
 // 【解説】EX パイプの第 2 オペランド。RI モードなら即値 (符号拡張),
 //         リンク付き分岐なら PART1。
+// [Note] Second operand of the EX pipe. The immediate (sign-extended) in RI mode,
+//        PART1 for a branch with link.
 assign A_EX_OP2_DT_NEW = 
 	  !A_INTLK & (IEX_OP2MODE == EXMOD_RI)     ? sign_ext_16(IEX_IMM16) :
 	  !A_INTLK & (IJB_V & IJB_LINK)  ? DD_JB_INSN_AD_PART1 :
@@ -176,6 +194,7 @@ assign A_EX_OP2_DT_NEW =
 
 
 // 【解説】読んだレジスタ番号を A へ (インタロック中のバイパス判定用)。
+// [Note] The register numbers read are passed to A (for the bypass decision during an interlock).
 assign A_LS_RADB_NEW = A_INTLK ? A_LS_RADB : DD_RADB;
 
 assign A_EX_RAD1_NEW = A_INTLK ? A_EX_RAD1 : DD_RAD1;
@@ -183,4 +202,5 @@ assign A_EX_RAD1_NEW = A_INTLK ? A_EX_RAD1 : DD_RAD1;
 assign A_EX_RAD2_NEW = A_INTLK ? A_EX_RAD2 : DD_RAD2;
 
 // 【解説】アドレス計算用の変位。
+// [Note] Displacement for the address computation.
 assign A_DISP_NEW = A_INTLK ? A_DISP    : DD_DISP;

@@ -33,6 +33,18 @@
 //   ・規則違反の検査 (ar_stall など) は、前のサイクルに VALID=1 & READY=0 だったのに
 //     このサイクルで VALID が落ちたか内容が変わったら数える。AXI の
 //     「VALID を出したら READY まで取り下げない・変えない」の検査そのもの。
+//
+// [Note] How this model is written
+//   - It is a "behavioural" model, not a real circuit. Inside the always blocks it freely uses
+//     blocking assignments (=), integers and for loops, and represents the queues
+//     (rq_*, wq_*, wd, bq_*) as arrays. Only the outputs *_ready / *_valid / r* / b* are written
+//     with non-blocking assignments (<=), so they look like FF outputs changing on the rising clock edge.
+//     So, seen from the DUT (stm_axi_top), it has the same timing as an ordinary synchronous slave.
+//   - Direction of the nets (ports): s_axi_aw* / s_axi_w* / s_axi_ar* / s_axi_bready / s_axi_rready
+//     are inputs (driven by the master); s_axi_*ready (AW/W/AR) and s_axi_b* / s_axi_r* are outputs.
+//   - The protocol checks (ar_stall etc.) count a violation when VALID=1 & READY=0 in the previous
+//     cycle and in this cycle VALID dropped or the contents changed. That is exactly AXI's
+//     rule "once VALID is raised, do not withdraw or change it until READY".
 // =====================================================================
 module axi4_mem_slave #(
   parameter AW   = 10,              // 語アドレス幅 (2^AW 語)
@@ -177,6 +189,11 @@ module axi4_mem_slave #(
   //         ビートを返すたびに rq_addr / rq_len を進め, 最後のビートで rq_v を落とす。
   //         rnd=1 では返す行を乱数で選ぶので, ID の違う応答が入れ替わり, ビート単位で
   //         インタリーブする (同じ ID どうしは rq_seq で受付順を守る)。
+  //
+  // [Note] Table of accepted read addresses (up to QD). One AR = one row; each returned beat
+  //        advances rq_addr / rq_len, and the last beat drops rq_v.
+  //        With rnd=1 the row to answer is chosen at random, so responses with different IDs swap
+  //        order and interleave beat by beat (rq_seq keeps the order within one ID).
   reg            rq_v    [0:QD-1];
   reg [ID_W-1:0] rq_id   [0:QD-1];
   reg [31:0]     rq_addr [0:QD-1];
@@ -289,6 +306,9 @@ module axi4_mem_slave #(
   // 【解説】書き込み側は AW / W / B の 3 本の FIFO。AXI では W が AW より先に来てもよいので
   //         別々に貯め, 両方の先頭が揃ったら 1 ビートずつメモリに書き,
   //         バーストの最後のビートで B 応答の FIFO に積む。
+  // [Note] The write side has 3 FIFOs, AW / W / B. In AXI, W may come before AW, so they are queued
+  //        separately; when both heads are present one beat at a time is written to memory,
+  //        and the last beat of a burst pushes a B response onto its FIFO.
   reg [ID_W-1:0] wq_id   [0:QD-1];    // AW の FIFO
   reg [31:0]     wq_addr [0:QD-1];
   reg [7:0]      wq_len  [0:QD-1];

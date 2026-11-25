@@ -13,6 +13,16 @@
 //   BA/BC : PC 相対分岐 → 分岐先 DD_TGT (未解決 BC は「もう一方の」キューへ)
 //   通常  : キューに空きがあれば続きの 8 バイト
 //
+// [Note] Generating instruction fetch (IF) requests
+//
+// Instructions are fetched 8 bytes (2 instructions) at a time, and the ID (0=A, 1=B)
+// tells which queue A/B they go into. The reasons for a request (IF_CASE_*), in priority order:
+//   START  : restart after an interrupt etc. -> from PC
+//   J      : register-indirect branch -> the address produced by the EAG in the A cycle
+//   NULL   : a register-indirect branch is being issued in D (address unknown yet, no request)
+//   BA/BC  : PC-relative branch -> the target DD_TGT (an unresolved BC goes to "the other" queue)
+//   normal : if the queue has room, the next 8 bytes
+//
 // 【ネットリスト解説】
 //   入力 : PC / START_TRIGGER (080), AA_EAG_OUTPUT (120), DD_TGT / DD_ISSUEING_* /
 //          IJB_IS_JA/JL (040), A_V_NOCAN (060), A_SET_EAG_TO_TGT (150), A_FWD / D_FWD (070),
@@ -51,12 +61,15 @@
 // IWQ-FULL
 
 // 【解説】キューが満杯 (6 語とも有効で, まだ先頭付近を実行中)。
+// [Note] The queue is full (all 6 words valid, still executing near the front).
 assign IWQ_FULL = (NIP_0 | NIP_1) & V01 & V23 & V45;
 
 // IF-REQ-V/AD/ID decision
 
 // 【解説】続きのフェッチ番地 = 最後に要求した番地 + 8。
 //         要求中のもの (IB) がこのキュー宛てならその番地から, なければキュー末尾の番地から。
+// [Note] Next fetch address = last requested address + 8.
+//        From the pending request (IB) if it is for this queue, otherwise from the address at the end of the queue.
 assign IF_INCR_1 = IB_V & (EID == IB_ID) ? IB_AD : EID ? D_IF_AD_B : D_IF_AD_A;
 assign IF_INCR_2 = IB_V & (EID == IB_ID)
 		 | NIP_0 | NIP_1 | NIP_2 | NIP_3 | NIP_4 | NIP_5  ? 8 : 0;
@@ -65,6 +78,7 @@ assign IF_INCR_OUT = add_32_4(IF_INCR_1,IF_INCR_2);
 // ---- #endif ----
 
 // 【解説】フェッチ要求の理由 (上の説明を参照)。
+// [Note] Reasons for a fetch request (see the explanation above).
 assign IF_CASE_START = START_TRIGGER;
 assign IF_CASE_J = A_V_NOCAN & A_SET_EAG_TO_TGT;
 assign IF_CASE_BA = DD_ISSUEING_TAKEN_BRANCH;
@@ -72,17 +86,21 @@ assign IF_CASE_BC = DD_ISSUEING_UNSOLVED_BC;
 assign IF_CASE_NULL = IJB_IS_JA | IJB_IS_JL;
 
 // 【解説】フェッチ要求を出すか (分岐系は D/A が進めるときだけ)。
+// [Note] Issue a fetch request? (branch cases only when D/A can move on)
 assign IF_REQ_V = IF_CASE_START ? 1 : IF_CASE_J ? A_FWD : IF_CASE_NULL ? 0 :
 	    IF_CASE_BA | IF_CASE_BC ? D_FWD : ! IWQ_FULL;
 
 // 【解説】フェッチ番地。
+// [Note] Fetch address.
 assign IF_REQ_AD = IF_CASE_START ? PC : IF_CASE_J ? AA_EAG_OUTPUT :
 	    IF_CASE_BA | IF_CASE_BC ? DD_TGT : IF_INCR_OUT;
 
 // 【解説】どちらのキューへ入れるか。未解決 BC の分岐先はもう一方のキューへ。
+// [Note] Which queue it goes into. The target of an unresolved BC goes into the other queue.
 assign IF_REQ_ID = IF_CASE_START ?  0 : IF_CASE_BC ? !EID  : EID;
 
 // 【解説】要求中のフェッチが無駄になったので取り消す (分岐した, 再スタート)。
+// [Note] Cancel the pending fetch because it became useless (branched, restarted).
 // 【解説】(Verilog 版で追加, EXT_BUS=1 のときだけ)
 //         未解決 BC を発行したとき、分岐先を入れる側のキュー (!EID) 宛てのフェッチが
 //         まだ届いていなければ、それも取り消す。
@@ -92,5 +110,15 @@ assign IF_REQ_ID = IF_CASE_START ?  0 : IF_CASE_BC ? !EID  : EID;
 //         残っていた古いフェッチ (IB_AD) の続きを分岐先のキューに入れてしまう。
 //         取り消せば IB が空き、次のサイクルに D_IF_AD (= 分岐先) から要求し直す。
 //         取り消したフェッチのデータは、そのキューをクリア (CLEAR_NIP) するので元々使わない。
+//
+// [Note] (added in the Verilog version, only with EXT_BUS=1)
+//        When an unresolved BC is issued and a fetch for the queue that will take the target (!EID)
+//        has not arrived yet, cancel that too.
+//        In the original design a fetch always arrives in the cycle after the request, so the
+//        request for this BC's target (IF_CASE_BC) is always accepted. On an external bus a
+//        fetch can stay pending for many cycles, so the request is not accepted and is lost,
+//        and from the next cycle the continuation of the old fetch (IB_AD) would be put into the target queue.
+//        Cancelling frees IB, and in the next cycle the request is made again from D_IF_AD (= the target).
+//        The data of the cancelled fetch is never used, because that queue is cleared (CLEAR_NIP).
 assign CANCEL_IB = IF_CASE_START | (IF_CASE_BA | IF_CASE_NULL) & (IB_ID == EID)
 		 | EXT_BUS & IF_CASE_BC & D_FWD & (IB_ID != EID);

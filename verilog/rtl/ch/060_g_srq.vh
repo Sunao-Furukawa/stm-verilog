@@ -9,6 +9,12 @@
 // A_EAB は、A サイクルの命令が使うレジスタの値がまだ出来ていない状態を表し、
 // インタロック (070_g_ilk.vh) の原因の 1 つになる。
 //
+// [Note] Valid flags of each stage, and control of the requests to the S unit
+//
+// xx_V_NOCAN = "the stage holds an instruction and it is not cancelled".
+// A_EAB means a register the A-cycle instruction uses is not ready yet;
+// it is one of the causes of interlock (070_g_ilk.vh).
+//
 // 【ネットリスト解説】
 //   入力 : A_* (150 / 140 の FF), B_* (130 の FF), E_* (110 / 100 の FF),
 //          STB_V (090), OP_B_* / OP_WAIT_* (160), CANCEL_BY_* / SU_*_RDY (050),
@@ -47,6 +53,8 @@
 
 // 【解説】有効かつ取り消されていない命令。分岐予測ミスで消えるのは
 //         SUBJECT_TO_BC (未解決分岐の後に投機的に発行された) の命令だけ。
+// [Note] Valid and not cancelled. A branch misprediction only removes instructions with
+//        SUBJECT_TO_BC (issued speculatively after an unresolved branch).
 assign E_V_NOCAN = E_V & (!CANCEL_BY_BC | !E_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT;
 assign B_V_NOCAN = B_V & (!CANCEL_BY_BC | !B_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT;
 assign A_V_NOCAN = A_V & (!CANCEL_BY_BC | !A_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT;
@@ -58,6 +66,11 @@ assign A_V_NOCAN = A_V & (!CANCEL_BY_BC | !A_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT;
 //           ・E にいる LS パイプ命令で、ALU を通す (サブワード/RM 演算) か、ロードデータ未着
 //           ・B にいる LS パイプ命令 (ロードデータは早くても B の終わり)
 //         このとき A は次へ進めない。
+//
+// [Note] A register read by the A-cycle instruction is written by an earlier instruction whose value is not out yet:
+//          - an LS-pipe instruction in E that goes through the ALU (sub-word / RM operation), or whose load data has not arrived
+//          - an LS-pipe instruction in B (load data comes at the end of B at the earliest)
+//        Then A cannot move on.
 assign A_EAB = 
      E_V & E_WE1 & ((E_LS_OPCODE != 0) | E_LS_LD_V & !E_OPCLH_LCH) & (
     	  (E_WAD1 == A_LS_RADB) & (A_WE1 | A_LS_SETCC)
@@ -90,6 +103,9 @@ assign A_EAB =
 // 【解説】A サイクルの L/ST から S ユニットへのアクセス要求
 //         (元コメント: レベル 0 用の仮の実装)。
 //         ST2 が詰まっていてどうせ進めない場合は要求を出さない。
+// [Note] Access request from the L/ST in the A cycle to the S unit
+//        (original comment: a provisional implementation for level 0).
+//        No request is made when ST2 is stuck and it could not proceed anyway.
 assign AA_LD_REQ_VAL = A_V_NOCAN & !A_EAB & (A_LS_LD_V | A_LS_ST_V)
 	 & !( STB_V & E_V_NOCAN & E_LS_ST_V & B_V_NOCAN )
 	 & !AA_IO_LD_HOLD;
@@ -103,14 +119,26 @@ assign AA_LD_REQ_VAL = A_V_NOCAN & !A_EAB & (A_LS_LD_V | A_LS_ST_V)
 //         待っているロードは先行する命令に依存しないのでデッドロックはしない。
 //         W の命令の割り込みは CANCEL_BY_INT で同じサイクルに A を取り消す。
 //         同じ組で先に発行した EX 命令のオーバーフローだけは防げない。
+//
+// [Note] (added in the Verilog version, EXT_BUS=1) A load from the I/O region is not handed to the
+//        S unit until it is certain (it waits in the A cycle). It waits while:
+//          - it is beyond an unresolved conditional branch (a misprediction may cancel it)
+//          - an earlier instruction is in B / E (it may raise an interrupt)
+//          - an earlier store has not finished (STB, or ST2 in the S unit),
+//            to keep the order of I/O reads and writes (no forwarding from the STB either)
+//        The waiting load does not depend on the earlier instructions, so there is no deadlock.
+//        An interrupt of the instruction in W cancels A in the same cycle through CANCEL_BY_INT.
+//        Only an overflow of the EX instruction issued first in the same pair cannot be prevented.
 assign AA_IO_LD_HOLD = A_LS_LD_V & is_io(AA_EAG_OUTPUT)
 	 & ( A_JB_SUBJECT_TO_BC | B_V | E_V | STB_V
 	   | OP_B_V & (OP_B_OPC == SU_OPC_ST2)
 	   | OP_WAIT_V & (OP_WAIT_OPC == SU_OPC_ST2) );
 
 // 【解説】ストアバッファ STB からの実書き込み (ST2) の要求。
+// [Note] Request for the actual write (ST2) from the store buffer STB.
 assign WW_ST_REQ_VAL = STB_V;
 
 // 【解説】要求の受け付け。A からの L/ST を優先し、空いていれば ST2 を通す。
+// [Note] Accepting requests. The L/ST from A has priority; ST2 goes through if free.
 assign AA_LD_GO = SU_OP_RDY & AA_LD_REQ_VAL;
 assign WW_ST_GO = SU_ST_RDY & WW_ST_REQ_VAL & !AA_LD_GO;

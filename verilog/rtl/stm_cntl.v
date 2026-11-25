@@ -34,6 +34,16 @@
 //   W  : 完了。GR / PC / PSW の更新, 割り込み                       (080)
 //   インタロック・取り消し・分岐予測の制御は 060, 070, 210。
 //
+// [Note] Pipeline structure
+//
+//   IF : instruction fetch. 8 bytes (2 instructions) at a time into the queues IWQ-A/B (170-200)
+//   D  : decode and issue. Up to 2 instructions sorted into LS / EX / JB         (010-040, 140, 150)
+//   A  : EX-pipe operation (EXU), LS-pipe address computation (EAG)              (120, 130)
+//   B  : operand cache access (S unit)                                           (050, 100, 110, 160)
+//   E  : LS-pipe ALU (memory-operand operations, sub-word shaping)               (090)
+//   W  : completion. Updates GR / PC / PSW, interrupts                           (080)
+//   Interlock, cancellation and branch prediction are controlled in 060, 070, 210.
+//
 // 【解説】信号名の付け方 (元の CHDL の慣習)
 //
 //   X_...  (X = A, B, E, W)  : X サイクルにいる命令のタグ。ほとんどが FF で、
@@ -49,6 +59,22 @@
 //   WAD / RAD                : レジスタの書き込み / 読み出しアドレス (番号)
 //   WDT / DT                 : データ
 //   ..1 / ..2 (WE1, WAD1 …) : 1 = LS パイプ側, 2 = EX パイプ側 (W_WE1 / W_WE2 など)
+//
+// [Note] Naming conventions (from the original CHDL)
+//
+//   X_...  (X = A, B, E, W)  : tags of the instruction in cycle X. Mostly FFs; when the
+//                              instruction moves on they are copied to the next stage's FFs
+//   XX_... (DD, AA, BB, EE, WW, GG) : combinational logic of cycle X (nets computed on the spot)
+//                              GG is global logic that belongs to no stage
+//   G_...                    : global FFs (branch resolution state etc.)
+//   I0, I1                   : first and second issue candidates
+//   ILS, IEX, IJB            : instructions sorted to the LS pipe / EX pipe / branch
+//   ..._V                    : valid bit
+//   ..._NOCAN                : valid and not cancelled
+//   ..._FWD / ..._INTLK      : moves on / stays (interlock)
+//   WAD / RAD                : register write / read address (number)
+//   WDT / DT                 : data
+//   ..1 / ..2 (WE1, WAD1 ...) : 1 = LS-pipe side, 2 = EX-pipe side (W_WE1 / W_WE2 etc.)
 //
 // 【ネットリスト解説】このモジュールが回路としてどうなるか
 //
@@ -973,6 +999,12 @@ wire [2:0]     AA_EXU_INT;
 //         同期リセット: rst=1 の間のクロックで 0 (PC は RESET_PC) にする。
 //         (PC のリセット値が定数ではなく入力 RESET_PC なので、非同期リセットに
 //          すると FPGA ではラッチで代用されてしまう。そのため同期リセットにしている)
+//
+// [Note] All FFs are updated here at once. Each X_NEW is the D input made in ch/*.vh
+//        from the CHDL 'X := expr'.
+//        Synchronous reset: on clocks while rst=1, set to 0 (PC to RESET_PC).
+//        (The PC reset value is the input RESET_PC, not a constant; with an asynchronous
+//         reset an FPGA would substitute a latch, so the reset is synchronous.)
 //
 // 【ネットリスト解説】この always ブロックから作られる回路
 //   ・各行が FF 1 本 (多ビットならビット数ぶん) になる。Xilinx 7 系では

@@ -12,6 +12,15 @@
 // 有効ビット類は上の 3 通りで決め、それ以外のタグ (番地, データなど) は
 // E がインタロックでなければ単にコピーする。
 //
+// [Note] State transition B -> E
+//
+// As the original comment says, there are 3 cases:
+//   1. INTLK : E is interlocked -> E stays (only branch resolution and data bypass are done)
+//   2. CLEAR : E becomes empty (nothing comes from B) -> clear the valid bits
+//   3. SLIDE : the instruction in B moves into E (B_FWD) -> copy the tags of B to E
+// The valid bits are decided by these 3 cases; the other tags (addresses, data, ...)
+// are simply copied when E is not interlocked.
+//
 // 【ネットリスト解説】
 //   入力 : B_* (130 の FF), B_FWD / E_INTLK / D_FWD (070), G_BC_JUST_SOLVED / _TAKEN (210),
 //          DD_ISSUEING_UNSOLVED_BC_ON_B_LS / _ON_E_LS (040)
@@ -59,12 +68,16 @@
 // occurs.  OPCLH is never made to wait by E-STB-INTLK.
 
    // 【解説】E の有効ビット: B から来れば 1, E が留まるなら保持, それ以外は 0。
+   // [Note] Valid bit of E: 1 if something comes from B, held if E stays, otherwise 0.
    assign E_V_NEW = B_FWD   ? 1 : E_INTLK ? E_V : 0;
 
 // JB-related tags need special handling; may be modified even when interlock
    // 【解説】分岐関係のタグは、インタロック中でも分岐の解決 (G_BC_JUST_SOLVED) で
    //         更新する。解決したら「未解決 BC」「投機中」のフラグを落とし、
    //         untaken と分かった分岐は無効にする。
+   // [Note] Branch tags are updated by branch resolution (G_BC_JUST_SOLVED) even during an interlock.
+   //        Once resolved, the "unresolved BC" and "speculative" flags are dropped, and a branch
+   //        found to be untaken is invalidated.
    assign E_JB_IS_BC_NEW = B_FWD   ? B_JB_IS_BC & !G_BC_JUST_SOLVED :
 			   E_INTLK ? E_JB_IS_BC & !G_BC_JUST_SOLVED : 0;
    assign E_JB_SUBJECT_TO_BC_NEW = B_FWD   ? B_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED :
@@ -74,12 +87,15 @@
       E_INTLK ? E_JB_V & !(E_JB_IS_BC & G_BC_JUST_SOLVED & !G_BC_JUST_TAKEN) : 0;
    // 【解説】この LS 命令が、未解決 BC の CC を作る命令か。D で BC を発行した
    //         サイクルに、その CC を作る命令が B/E にいた場合もここでセットする。
+   // [Note] Is this LS instruction the one that makes the CC of the unresolved BC? It is also set here
+   //        when that instruction was in B/E in the cycle the BC was issued in D.
    assign E_LS_SOLVING_BC_NEW = 
 	B_FWD   ? B_LS_SOLVING_BC | DD_ISSUEING_UNSOLVED_BC_ON_B_LS & D_FWD :
 	E_INTLK ? E_LS_SOLVING_BC | DD_ISSUEING_UNSOLVED_BC_ON_E_LS & D_FWD : 0;
 
 // These tags are just copied unmodified:
    // 【解説】以下のタグは変更せずにそのままコピーする。
+   // [Note] The tags below are copied unchanged.
    assign E_LS_LD_V_NEW = B_FWD ? B_LS_LD_V  	: E_INTLK ? E_LS_LD_V    : 0;
    assign E_LS_ST_V_NEW = B_FWD ?  B_LS_ST_V 	: E_INTLK ? E_LS_ST_V    : 0;
    assign E_WE1_NEW = B_FWD ?  B_WE1 	: E_INTLK ? E_WE1        : 0;
@@ -91,6 +107,7 @@
 
 // Tags that are not 'valid' tags can be copied with CE = !E-INTLK.
    // 【解説】有効ビット以外のタグは E がインタロックでなければコピー (CE = !E_INTLK)。
+   // [Note] Tags other than valid bits are copied when E is not interlocked (CE = !E_INTLK).
    assign E_LS_LOG_AD_NEW = !E_INTLK ?  B_LS_LOG_AD  	: E_LS_LOG_AD;
    assign E_WAD1_NEW = !E_INTLK ?  B_WAD1    	: E_WAD1;
    assign E_WAD2_NEW = !E_INTLK ?  B_WAD2    	: E_WAD2;
@@ -109,6 +126,11 @@
    //         下位 2bit で opcode に入れる (opcode が 16 以上のとき):
    //           bit1 ← アドレス bit1,  bit0 ← アドレス bit0 (バイトのときだけ)
    //         例: LDB (16) で番地の下位が 3 → 19 (LDB3)
+   //
+   // [Note] For byte/halfword L/ST, which byte to use is put into the opcode from the low 2 address bits
+   //        (when the opcode is 16 or more):
+   //          bit1 <- address bit1,  bit0 <- address bit0 (bytes only)
+   //        e.g. LDB (16) at an address ending in 3 -> 19 (LDB3)
    assign E_LS_OPCODE_NEW = !E_INTLK ?
 		(  B_LS_OPCODE
                	    | ((B_LS_OPCODE & 16) ? (B_LS_LOG_AD & 2) : 0)

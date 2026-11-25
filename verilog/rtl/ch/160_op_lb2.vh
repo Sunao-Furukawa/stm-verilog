@@ -10,6 +10,13 @@
 //   OP-WAIT : OP-B が終わらないうちに受け付けた次の要求を 1 つ待たせる
 // 要求の種類 (OPC) は LD / ST / ST2 (050_op_lb1.vh 参照)。
 //
+// [Note] Next state of the S unit
+//
+// The S unit has two slots for requests:
+//   OP-B    : the request accessing the cache (LBS_AD/LBS_DT/LBS_WE go out to memory)
+//   OP-WAIT : holds one next request accepted before OP-B has finished
+// The kinds of request (OPC) are LD / ST / ST2 (see 050_op_lb1.vh).
+//
 // 【ネットリスト解説】
 //   入力 : AA_LD_GO / WW_ST_GO (060), AA_EAG_OUTPUT (120), STB_AD / STB_DT (090),
 //          A_LS_ST_V / A_JB_SUBJECT_TO_BC (150), B_OPCLH / OP_*_V_NOCAN (050),
@@ -52,9 +59,12 @@
 
 // 【解説】OP-B の要求が終わる (ST2 は 1 サイクルで終わる, L/ST はキャッシュヒットで終わる)。
 //         EXT_BUS=1 では ST2 もバスの書き込み完了 (RANDOM_FOR_OPCLH) を待つ。
+// [Note] The OP-B request finishes (ST2 finishes in 1 cycle, L/ST on a cache hit).
+//        With EXT_BUS=1, ST2 also waits for the bus write to complete (RANDOM_FOR_OPCLH).
 assign OP_B_FORWARDING = (OP_B_OPC == SU_OPC_ST2) & (!EXT_BUS | RANDOM_FOR_OPCLH)
 		| B_OPCLH;
 // 【解説】このサイクルに受け付ける要求 (A からの L/ST か, STB からの ST2) の種類と番地。
+// [Note] Kind and address of the request accepted in this cycle (L/ST from A, or ST2 from the STB).
 assign GO_SU = AA_LD_GO|WW_ST_GO;
 
 assign ACCEPTING_OPC = (WW_ST_GO ? SU_OPC_ST2 : (A_LS_ST_V?SU_OPC_ST:SU_OPC_LD));
@@ -65,6 +75,9 @@ assign ACCEPTING_AD = (WW_ST_GO ? STB_AD : AA_EAG_OUTPUT);
 // 【解説】OP-WAIT の動き:
 //           STAYS  : OP-B がまだ終わらず, 待ち中の要求もそのまま待つ
 //           ACCEPT : OP-B が終わらないうちに新しい要求を受け付けた → OP-WAIT に入れる
+// [Note] What OP-WAIT does:
+//          STAYS  : OP-B has not finished, and the waiting request keeps waiting
+//          ACCEPT : a new request was accepted before OP-B finished -> put it in OP-WAIT
 assign OP_WAIT_STAYS = OP_B_V_NOCAN & !OP_B_FORWARDING & OP_WAIT_V_NOCAN;
 assign OP_WAIT_ACCEPT = OP_B_V_NOCAN & !OP_B_FORWARDING & GO_SU;
 
@@ -76,6 +89,7 @@ assign OP_WAIT_AD_NEW = OP_WAIT_STAYS ? OP_WAIT_AD  : ACCEPTING_AD;
 assign OP_WAIT_DT_NEW = OP_WAIT_STAYS ? OP_WAIT_DT  : STB_DT;
 
 // 【解説】投機的な (予測ミスで取り消される) 要求かどうか。
+// [Note] Is the request speculative (cancelled on a misprediction)?
 assign OP_WAIT_SUBJECT_TO_BC_NEW = OP_WAIT_STAYS ?
 				OP_WAIT_SUBJECT_TO_BC & !G_BC_JUST_SOLVED :
 	OP_WAIT_ACCEPT ?  AA_LD_GO & A_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED : 0;
@@ -85,6 +99,8 @@ assign OP_WAIT_SUBJECT_TO_BC_NEW = OP_WAIT_STAYS ?
 
 // 【解説】OP-B の動き: 終わらなければ留まる / OP-WAIT から移す /
 //         新しく受け付けた要求を入れる。
+// [Note] What OP-B does: stays if not finished / takes the one from OP-WAIT /
+//        takes the newly accepted request.
 assign OP_B_STAYS = OP_B_V_NOCAN & !OP_B_FORWARDING;
 //OP-B-ACCEPT	= GO-SU
 assign OP_B_SHIFT = OP_WAIT_V_NOCAN;
@@ -93,6 +109,7 @@ assign OP_B_SHIFT = OP_WAIT_V_NOCAN;
 assign OP_B_V_NEW = OP_B_STAYS ? OP_B_V   : OP_B_SHIFT ? 1           : GO_SU;
 assign OP_B_OPC_NEW = OP_B_STAYS ? OP_B_OPC : OP_B_SHIFT ? OP_WAIT_OPC : ACCEPTING_OPC;
 // 【解説】メモリ (キャッシュ) への書き込み許可・番地・データ。
+// [Note] Write enable, address and data to the memory (cache).
 assign LBS_WE_NEW = OP_B_STAYS ? LBS_WE   : OP_B_SHIFT ? OP_WAIT_WE  : WW_ST_GO;
 assign LBS_AD_NEW = OP_B_STAYS ? LBS_AD   : OP_B_SHIFT ? OP_WAIT_AD  :
 	    GO_SU      ? ACCEPTING_AD : 0;
@@ -105,4 +122,6 @@ assign OP_B_SUBJECT_TO_BC_NEW =
 
 // 【解説】(Verilog 版で追加) OP-B に新しい要求が入る (留まる以外で有効になる)。
 //         stm_axi_master はこれで要求の切れ目を知る。
+// [Note] (added in the Verilog version) A new request enters OP-B (becomes valid other than by staying).
+//        stm_axi_master uses this to know where one request ends and the next begins.
 assign OP_B_NEW_NEW = OP_B_V_NEW & !OP_B_STAYS;

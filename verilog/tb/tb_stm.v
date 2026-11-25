@@ -29,6 +29,18 @@
 //   ・時間の流れ: クロック周期 10 (#5 で反転)。乱数入力は立ち下がりで変え、
 //     #1 待ってから表示するので、表示する値は「次の立ち上がりで FF に入る直前」
 //     = そのサイクルの組合せ回路が落ち着いた値。
+//
+// [Note] Structure of the testbench and its nets
+//   - The nets between tb_stm and stm_sys are only the inputs clk, rst, reset_pc, rnd_opclh /
+//     rnd_ifrdy / rnd_ifclh and the output pc.
+//     For the wiring of the register file and memory inside stm_sys, see stm_sys.v.
+//   - Signals inside the circuit are looked at directly by hierarchical names (u_sys.u_cntl.D_FWD etc.).
+//     These names map one to one onto the netlist (wires / regs inside stm_cntl), so the same
+//     signals as the output of the C simulator (siml.res) can be compared cycle by cycle.
+//   - The testbench itself is not synthesized (it uses initial, $readmemh, $random, # delays).
+//   - Timing: the clock period is 10 (toggles every #5). The random inputs change on the falling
+//     edge, and values are printed after waiting #1, so what is printed is "just before it goes
+//     into the FFs on the next rising edge" = the settled value of the cycle's combinational logic.
 // =====================================================================
 module tb_stm;
   reg         clk = 1'b0;
@@ -86,6 +98,8 @@ module tb_stm;
       #1;
       // 【解説】PC は「完了した命令の次の番地」(080_w_act.vh)。その番地の命令が
       //         診断命令 (上位 4bit = 0xD) なら、テストプログラムの終わりに着いた。
+      // [Note] PC is "the address after the completed instructions" (080_w_act.vh). If the instruction at that
+      //        address is a diagnostic instruction (top 4 bits = 0xD), the test program has reached its end.
       insn = u_sys.u_mem.mem[pc[11:2]];
       if (trace)
         $display("%4d PC=%h D_FWD=%b A_FWD=%b B_FWD=%b E_FWD=%b W_COMPLETE=%b I0=%h I1=%h",

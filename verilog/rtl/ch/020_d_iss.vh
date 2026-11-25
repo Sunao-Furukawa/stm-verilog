@@ -15,6 +15,18 @@
 // どのパイプか、どのレジスタを読み書きするか、CC を変えるかを求め、
 // 030_d_sec.vh での同時発行の判定に使う。
 //
+// [Note] D cycle (3): kind of instruction and the resources it uses (pipe, registers, CC)
+//
+// STM has two execution pipes:
+//   - LS pipe: loads/stores and operations with a memory operand (RM mode of EX format)
+//              -> address in A, cache access in B, ALU in E
+//   - EX pipe: register/immediate operations (RR, RI modes of EX format)
+//              -> computed by the EXU in A
+// A branch (JB) with link uses the EX pipe.
+// Here, for the first instruction (FIRST = I0) and the second (SECOND = I1), we find
+// which pipe it uses, which registers it reads and writes, and whether it changes CC,
+// for the dual-issue decision in 030_d_sec.vh.
+//
 // 【ネットリスト解説】
 //   入力 : 015 のフィールド (I0_* / I1_*)
 //   出力 : DD_FIRST_* / DD_SECOND_*  -> 030 (同時発行の判定), 040 (分岐), 140 (バイパス),
@@ -52,6 +64,11 @@
 //           LS 形式 : 上位 3bit が 100
 //           EX 形式 : 最上位ビットが 0 で, OP2MODE が 0 以外
 //           JB 形式 : 上位 4bit が 1011
+//
+// [Note] Format decision:
+//          LS format : top 3 bits are 100
+//          EX format : top bit is 0 and OP2MODE is not 0
+//          JB format : top 4 bits are 1011
 assign DD_I0_LS_FMT = (I0_LS_OPC_H == 4);
 assign DD_I0_EX_FMT = (I0_EX_OPC_H == 0) & (I0_EX_OP2MODE != 0);
 assign DD_I0_JB_FMT = (I0_INSN_OPC == 11);
@@ -63,6 +80,8 @@ assign DD_I1_JB_FMT = (I1_INSN_OPC == 11);
 
 // 【解説】どのパイプへ流すか。EX 形式でも RM モード (メモリオペランド) は
 //         LS パイプを使う (元コメントの「EX-RM は形式では EX、パイプでは LS」)。
+// [Note] Which pipe to use. Even in EX format, RM mode (memory operand) uses the LS pipe
+//        (the original comment: "EX-RM is 'EX' in format but 'LS' in pipe").
 assign DD_FIRST_IS_LS = DD_I0_LS_FMT | DD_I0_EX_FMT & (I0_EX_OP2MODE == EXMOD_RM);
 assign DD_SECOND_IS_LS = DD_I1_LS_FMT | DD_I1_EX_FMT & (I1_EX_OP2MODE == EXMOD_RM);
 
@@ -74,6 +93,8 @@ assign DD_SECOND_IS_JB = DD_I1_JB_FMT;
 
 // 【解説】1 命令目が特権命令 (上位 4bit = 1100) ならその種類 (RFE/RSR/WSR)。
 //         特権命令は 1 命令目としてしか扱わない (2 命令目なら同時発行しない)。
+// [Note] If the first instruction is privileged (top 4 bits = 1100), its kind (RFE/RSR/WSR).
+//        Privileged instructions are only handled as the first instruction (as the second, no dual issue).
 assign DD_PRIVCODE = ((I0_INSN_OPC == 12) ? I0_PRIV_OPC : 0);
 assign DD_SECOND_PRIV_V = (I1_INSN_OPC == 12);
 
@@ -87,9 +108,12 @@ assign DD_SECOND_PRIV_V = (I1_INSN_OPC == 12);
 //  reading CC or RS is never an obstacle for  second insn issue
 
 // 【解説】1 命令目が CC (条件コード) を変えるか。
+// [Note] Does the first instruction change CC (the condition code)?
 assign DD_FIRST_SETCC = DD_I0_EX_FMT & I0_EX_SETCC;
 // 【解説】1 命令目が書き込むレジスタ番号 (RD は全形式で同じ位置 [23:20])
 //         と、実際に GR へ書くかどうか (ロード / C,CU 以外の演算 / リンク付き分岐)。
+// [Note] Register number written by the first instruction (RD is at the same place [23:20] in every format)
+//        and whether it really writes GR (load / operation other than C,CU / branch with link).
 assign DD_FIRST_WAD = I0_EX_RD;
 assign DD_FIRST_WAD_V = DD_I0_LS_FMT & !I0_LS_STORE
 	        | DD_I0_EX_FMT & we_on(I0_EX_EXU_OPC)
@@ -98,6 +122,11 @@ assign DD_FIRST_WAD_V = DD_I0_LS_FMT & !I0_LS_STORE
 //           RADB : ベースレジスタ (LS パイプ, レジスタ間接分岐)
 //           RAD2 : 第 2 オペランド (RR モード, 比較分岐, WSR)
 //           RAD1 : 第 1 オペランド (RI / RR モード, 比較分岐)
+//
+// [Note] Which registers are read:
+//          RADB : base register (LS pipe, register-indirect branch)
+//          RAD2 : second operand (RR mode, compare branch, WSR)
+//          RAD1 : first operand (RI / RR mode, compare branch)
 assign DD_FIRST_RADB_V = DD_FIRST_IS_LS | DD_I0_JB_FMT & I0_JB_REG;
 assign DD_FIRST_RAD2_V = DD_I0_EX_FMT & (I0_EX_OP2MODE == EXMOD_RR)
                 | DD_I0_JB_FMT & I0_JB_CMP | (DD_PRIVCODE == PRIVCODE_WSR);
@@ -106,6 +135,7 @@ assign DD_FIRST_RADB1 = I0_EX_RB1;
 assign DD_FIRST_RAD2 = I0_EX_RS2;
 
 // 【解説】以下 2 命令目 (I1) について同じ。
+// [Note] The same for the second instruction (I1) below.
 assign DD_SECOND_SETCC = DD_I1_EX_FMT & I1_EX_SETCC;
 assign DD_SECOND_WAD = I1_EX_RD;
 assign DD_SECOND_WAD_V = DD_I1_LS_FMT & !I1_LS_STORE

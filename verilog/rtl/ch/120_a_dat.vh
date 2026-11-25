@@ -10,6 +10,13 @@
 // ・LS パイプのアドレス (ベース + 変位) を EAG で計算する
 // ・RSR (システムレジスタ読み出し) の値を選ぶ
 //
+// [Note] A cycle: EX-pipe operation and LS-pipe address computation
+//
+// - the EXU (stm_exu) of the EX pipe computes. The operands were already bypassed on the
+//   way from D to A (140_d_dat.vh), so they are used as they are here
+// - the EAG computes the LS-pipe address (base + displacement)
+// - selects the value for RSR (system register read)
+//
 // 【ネットリスト解説】
 //   入力 : A_LS_OPB_DT / A_EX_OP1_DT / A_EX_OP2_DT / A_DISP / A_EX_RAD2 (140 の FF),
 //          A_EX_OPCODE / A_PRIVCODE (150 の FF), システムレジスタと PSW (080 の FF)
@@ -82,6 +89,8 @@
 // ---- #else (有効) ----
 // 【解説】A で使うオペランド。旧版 (#if 0) はここでバイパスしていたが、
 //         現行版は 1 サイクル前の D → A の時点でバイパス済み。
+// [Note] Operands used in A. The old version (#if 0) bypassed here; the current version
+//        has already bypassed them one cycle earlier, on the way from D to A.
 assign AA_OPB = A_LS_OPB_DT;
 assign AA_OP1 = A_EX_OP1_DT;
 assign AA_OP2 = A_EX_OP2_DT;
@@ -94,6 +103,8 @@ assign AA_OP2 = A_EX_OP2_DT;
 //      VHDL 版の FOUR2FIVE と同様に先頭に 0 を付けて 5bit にする。
 // 【解説】EX パイプの EXU。分岐の比較 (C)、リンクアドレスの計算 (AU)、
 //         WSR の値の素通し (LDW) にも使う (150_d_act.vh の A_EX_OPCODE)。
+// [Note] The EXU of the EX pipe. Also used for branch compares (C), the link address (AU)
+//        and passing the WSR value through (LDW) (A_EX_OPCODE in 150_d_act.vh).
 stm_exu u_a_exu (
   .opc  ({1'b0, A_EX_OPCODE}),
   .x    (AA_OP1),
@@ -105,12 +116,15 @@ stm_exu u_a_exu (
 
 // 【解説】EAG (実効アドレス生成): ベースレジスタ + 符号拡張した 16bit 変位。
 //         レジスタ間接分岐の分岐先もここで計算する。
+// [Note] EAG (effective address generation): base register + sign-extended 16-bit displacement.
+//        The target of a register-indirect branch is computed here too.
 assign AA_EAG_OUTPUT = add_32_16(AA_OPB,A_DISP);
 // ---- #endif ----
 
 // Read SR data
 
 // 【解説】RSR で読むシステムレジスタの値 (番号は R2 フィールド)。
+// [Note] Value of the system register read by RSR (the number is in the R2 field).
 assign A_SR_READ_DATA = 
         (A_EX_RAD2 == SYSREG_PSW)   ? build_psw(PSW_CC,PSW_USER,PSW_TYPE) :
         (A_EX_RAD2 == SYSREG_TBR)   ? TBR :
@@ -122,4 +136,5 @@ assign A_SR_READ_DATA =
         (A_EX_RAD2 == SYSREG_SVR1)  ? SVR1 : 0;
 
 // 【解説】EX パイプの結果: RSR ならシステムレジスタの値, それ以外は EXU の出力。
+// [Note] Result of the EX pipe: the system register value for RSR, otherwise the EXU output.
 assign AA_EX_RES = (A_PRIVCODE==PRIVCODE_RSR) ? A_SR_READ_DATA : AA_EXU_OUTPUT;

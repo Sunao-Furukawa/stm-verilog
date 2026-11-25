@@ -13,6 +13,16 @@
 // JUST_SOLVED の次のサイクルで、予測と結果が違えば CANCEL_BY_BC (050) で
 // 投機的に発行した命令を取り消し、EID (010) でもう一方のキューへ切り替える。
 //
+// [Note] Global state of conditional branches (BC)
+//
+// G_BC_PENDING       : there is an unresolved BC (at most one at a time)
+// G_BC_MASK          : the condition mask of that BC
+// G_BC_TKN_PREDICTED : whether it was predicted taken
+// G_BC_JUST_SOLVED   : it was resolved in the previous cycle (1 for one cycle only)
+// G_BC_JUST_TAKEN    : the outcome of the resolution was taken
+// In the cycle after JUST_SOLVED, if prediction and outcome differ, CANCEL_BY_BC (050)
+// cancels the speculatively issued instructions and EID (010) switches to the other queue.
+//
 // 【ネットリスト解説】
 //   入力 : E_FWD / A_FWD / D_FWD (070), E_LS_SOLVING_BC (110), A_EX_SOLVING_BC (150),
 //          DD_ISSUEING_UNSOLVED_BC / _ON_E_LS / _ON_A_EX / DD_PREDICTING_TAKEN (040),
@@ -67,6 +77,9 @@
 // 【解説】このサイクルに BC が解決するか: CC を作る命令が E (LS パイプ) か
 //         A (EX パイプ) から進むとき。D で BC を発行したのと同じサイクルに
 //         その命令が A/E にいる場合も含む。
+// [Note] Is a BC resolved in this cycle: when the instruction making the CC moves on from E (LS pipe)
+//        or A (EX pipe). This includes the case where that instruction is in A/E in the same cycle
+//        the BC is issued in D.
 assign GG_SOLVING_CASE_ON_E = 
      E_FWD & (E_LS_SOLVING_BC | D_FWD & DD_ISSUEING_UNSOLVED_BC_ON_E_LS);
 assign GG_SOLVING_CASE_ON_A = 
@@ -74,24 +87,29 @@ assign GG_SOLVING_CASE_ON_A =
 assign GG_SOLVING_CASE = GG_SOLVING_CASE_ON_E | GG_SOLVING_CASE_ON_A;
 
 // 【解説】解決に使うマスクと CC (同じサイクルに発行した BC なら IJB のマスク)。
+// [Note] Mask and CC used for the resolution (the mask of IJB for a BC issued in the same cycle).
 assign GG_MASK_FOR_BC = (E_LS_SOLVING_BC | A_EX_SOLVING_BC) ? G_BC_MASK : IJB_RD_MASK;
 assign GG_CC_FOR_BC = (GG_SOLVING_CASE_ON_E ? EE_ALU_CC : AA_EXU_CC );
 
 // 【解説】D で未解決の BC を発行した。
+// [Note] An unresolved BC was issued in D.
 assign GG_ISSUEING_CASE = D_FWD & DD_ISSUEING_UNSOLVED_BC;
 
 
 
 // 【解説】未解決 BC の有無: 発行で 1, 解決か割り込みで 0。
+// [Note] Is there an unresolved BC: 1 on issue, 0 on resolution or interrupt.
 assign G_BC_PENDING_NEW = WW_INTERRUPTION | GG_SOLVING_CASE ? 0 : GG_ISSUEING_CASE ? 1 :
 							G_BC_PENDING;
 // 【解説】解決したサイクルの次に 1 サイクルだけ 1。taken かどうかも記録。
+// [Note] 1 for one cycle only, the cycle after resolution. Whether it was taken is recorded too.
 assign G_BC_JUST_SOLVED_NEW = WW_INTERRUPTION ? 0 : GG_SOLVING_CASE ? 1 : 0;
 
 assign G_BC_JUST_TAKEN_NEW = WW_INTERRUPTION ? 0 :
 		GG_SOLVING_CASE ? cc_match(GG_CC_FOR_BC , GG_MASK_FOR_BC) : 0;
 
 // 【解説】発行時の予測とマスクを覚えておく。
+// [Note] Remember the prediction and the mask at issue.
 assign G_BC_TKN_PREDICTED_NEW = 
 		GG_ISSUEING_CASE ? DD_PREDICTING_TAKEN : G_BC_TKN_PREDICTED;
 

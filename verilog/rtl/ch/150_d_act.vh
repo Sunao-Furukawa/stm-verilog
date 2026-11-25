@@ -8,6 +8,11 @@
 // D で発行を決めた ILS / IEX / IJB から、A サイクルの FF (タグ) を作る。
 // A がインタロック中なら保持、D から来なければ有効ビットを 0。
 //
+// [Note] State transition D -> A (issuing instructions)
+//
+// The A-cycle FFs (tags) are made from ILS / IEX / IJB that D decided to issue.
+// Held if A is interlocked; the valid bits become 0 if nothing comes from D.
+//
 // 【ネットリスト解説】
 //   入力 : ILS_* / IEX_* / IJB_* (035), IEX_V / IJB_V / DD_INTCODE / DD_ISSUE_SECOND_INSN (030),
 //          DD_* (020, 040), I0_EX_RD (015), D_FWD / A_INTLK (070), G_BC_* (210)
@@ -43,48 +48,62 @@
 // With A-INTLK, BC is never issued in D-cyc, hence not set SOLVING-BC
 
 // 【解説】A の有効ビット。
+// [Note] Valid bit of A.
 assign A_V_NEW = D_FWD | A_INTLK;
 
 // 【解説】A の命令が未解決の条件分岐か。
+// [Note] Is the instruction in A an unresolved conditional branch?
 assign A_JB_IS_BC_NEW = D_FWD   ? DD_ISSUEING_UNSOLVED_BC :
 			   A_INTLK ? A_JB_IS_BC & !G_BC_JUST_SOLVED : 0;
 // 【解説】未解決の BC があるときに発行された命令 = 投機的に実行中で、
 //         予測ミスなら取り消される。
+// [Note] An instruction issued while there is an unresolved BC = running speculatively,
+//        cancelled on a misprediction.
 assign A_JB_SUBJECT_TO_BC_NEW = D_FWD   ? G_BC_PENDING :
 			   A_INTLK ? A_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED : 0;
 // 【解説】分岐を実行するか (untaken と分かった BC は 0)。
+// [Note] Is the branch executed (0 for a BC found to be untaken)?
 assign A_JB_V_NEW = D_FWD   ? IJB_V & !DD_ISSUEING_UNTAKEN_BC :
      A_INTLK ? A_JB_V & !(A_JB_IS_BC & G_BC_JUST_SOLVED & !G_BC_JUST_TAKEN) : 0;
 
 // 【解説】この命令が、同時発行した BC の CC を作る (A/E で BC を解決する)。
+// [Note] This instruction makes the CC of the BC issued with it (the BC is resolved in A/E).
 assign A_LS_SOLVING_BC_NEW = A_INTLK ? A_LS_SOLVING_BC :
 			D_FWD   ? DD_ISSUEING_UNSOLVED_BC_ON_D_LS : 0;
 assign A_EX_SOLVING_BC_NEW = A_INTLK ? A_EX_SOLVING_BC      :
 			D_FWD ?  DD_ISSUEING_UNSOLVED_BC_ON_D_EX : 0;
 // 【解説】割り込みコード (不正命令) と特権命令の種類。
+// [Note] Interrupt code (illegal instruction) and kind of privileged instruction.
 assign A_INTCODE_NEW = A_INTLK ? A_INTCODE	: D_FWD ?  DD_INTCODE : 0;
 assign A_PRIVCODE_NEW = A_INTLK ? A_PRIVCODE	: D_FWD ?  DD_PRIVCODE : 0;
 
 // Subword store loads data
 // 【解説】LS パイプでメモリを読むか: ロード, サブワードのストア (読んで
 //         一部を書き換える), メモリオペランド演算。
+// [Note] Does the LS pipe read memory: loads, sub-word stores (read, then rewrite part),
+//        and operations with a memory operand.
 assign A_LS_LD_V_NEW = A_INTLK ? A_LS_LD_V	:
 	D_FWD ? ILS_LS_FMT & !(ILS_STORE & (ILS_LENG == 0)) | ILS_EXRM_FMT : 0;
 // 【解説】LS パイプが GR に書くか (ロード, GR に書く EX-RM 演算)。
+// [Note] Does the LS pipe write GR (loads, EX-RM operations that write GR)?
 assign A_WE1_NEW = A_INTLK ? A_WE1  	   	:
 		D_FWD ? ILS_LS_FMT & !ILS_STORE
 		  | ILS_EXRM_FMT & we_on(ILS_EXU_OPC) : 0;
 // 【解説】ストアか。
+// [Note] Is it a store?
 assign A_LS_ST_V_NEW = A_INTLK ? A_LS_ST_V	: D_FWD ?  ILS_LS_FMT &  ILS_STORE : 0;
 
 // 【解説】LS パイプでレジスタオペランド (ストアデータ / EX-RM の第 1 オペランド) を使うか。
+// [Note] Does the LS pipe use a register operand (store data / first operand of EX-RM)?
 assign A_LS_OPS_IS_GR_NEW = A_INTLK ? A_LS_OPS_IS_GR	:
 		D_FWD ?  ILS_LS_FMT &  ILS_STORE |  ILS_EXRM_FMT : 0;
 // 【解説】CC を変えるか (LS パイプは EX-RM, EX パイプは EX 命令)。
+// [Note] Does it change CC (EX-RM in the LS pipe, EX instructions in the EX pipe)?
 assign A_LS_SETCC_NEW = A_INTLK ? A_LS_SETCC	: D_FWD ?  ILS_EXRM_FMT &  ILS_SETCC : 0;
 
 assign A_EX_SETCC_NEW = A_INTLK ? A_EX_SETCC	: D_FWD ?  IEX_SETCC : 0;
 // 【解説】EX パイプが GR に書くか (EX 演算, リンク付き分岐, RSR)。
+// [Note] Does the EX pipe write GR (EX operations, branches with link, RSR)?
 assign A_WE2_NEW = A_INTLK ? A_WE2	  	:
 		D_FWD ?  we_on(IEX_EXU_OPC) | IJB_V & IJB_LINK
 			| (DD_PRIVCODE == PRIVCODE_RSR) : 0;
@@ -95,6 +114,11 @@ assign A_WE2_NEW = A_INTLK ? A_WE2	  	:
 //           WAD1 : LS パイプ (RD)
 //           WAD2 : EX パイプ (RD / 特権命令の RD / リンク付き分岐の RD)
 //           LS_RADS : LS パイプのレジスタオペランド (ストアデータ等) の番号
+//
+// [Note] Register numbers written:
+//          WAD1 : LS pipe (RD)
+//          WAD2 : EX pipe (RD / RD of a privileged instruction / RD of a branch with link)
+//          LS_RADS : number of the LS-pipe register operand (store data etc.)
 assign A_WAD1_NEW = A_INTLK ? A_WAD1	:  ILS_RD_RS;
 assign A_LS_RADS_NEW = A_INTLK ? A_LS_RADS	:  (ILS_LS_FMT ?  ILS_RD_RS : ILS_RS2);
 assign A_WAD2_NEW = A_INTLK ? A_WAD2    :
@@ -109,6 +133,11 @@ assign A_WAD2_NEW = A_INTLK ? A_WAD2    :
 //           EX-RM        : EX の opcode (0〜15)
 //           サブワード L/ST : 1 S H 0 0  (S=ストア, H=ハーフワード; 下位 2bit は後でアドレスから)
 //           語 L/ST      : LDW (0) / STW (4)
+//
+// [Note] 5-bit opcode for the ALU of the E cycle:
+//          EX-RM         : the EX opcode (0-15)
+//          sub-word L/ST : 1 S H 0 0  (S=store, H=halfword; the low 2 bits come later from the address)
+//          word L/ST     : LDW (0) / STW (4)
 assign A_LS_OPCODE_NEW = A_INTLK ? 	A_LS_OPCODE :
 		ILS_EXRM_FMT ? ILS_EXU_OPC  :
 		ILS_LS_FMT & (ILS_LENG!=0)  ?
@@ -123,6 +152,7 @@ assign A_LS_OPCODE_NEW = A_INTLK ? 	A_LS_OPCODE :
 // ---- #endif ----
 
 // 【解説】2 命令同時発行したか, 1 命令目が EX か, 2 命令目が分岐か (W での PC 計算や割り込み処理に使う)。
+// [Note] Dual-issued?, is the first EX?, is the second a branch? (used for the PC and interrupts in W)
 assign A_IS_SUPERSCALAR_NEW = A_INTLK ? A_IS_SUPERSCALAR :  DD_ISSUE_SECOND_INSN;
 assign A_FIRST_IS_EX_NEW = A_INTLK ? A_FIRST_IS_EX    :  DD_FIRST_IS_EX;
 assign A_LATTER_IS_JB_NEW = A_INTLK ? A_LATTER_IS_JB   :  DD_SECOND_IS_JB;
@@ -132,9 +162,13 @@ assign A_TGT_NEW = A_INTLK ? A_TGT 		 :  DD_TGT;
 // 【解説】EX パイプの EXU の opcode:
 //           EX 命令はその opcode, 比較分岐は C, WSR は LDW (値をそのまま通す),
 //           それ以外 (リンク付き分岐の戻り番地計算) は AU (加算)。
+// [Note] Opcode for the EX-pipe EXU:
+//          an EX instruction uses its opcode, a compare branch C, WSR LDW (passes the value through),
+//          anything else (return address of a branch with link) AU (add).
 assign A_EX_OPCODE_NEW = A_INTLK ? A_EX_OPCODE :
 		IEX_V  ? IEX_EXU_OPC :
 		IJB_V & IJB_CMP 	? OPC_C :
 		(DD_PRIVCODE == PRIVCODE_WSR) ? OPC_LDW : OPC_AU;
 // 【解説】レジスタ間接分岐: 分岐先を A の EAG で計算する。
+// [Note] Register-indirect branch: the target is computed by the EAG in A.
 assign A_SET_EAG_TO_TGT_NEW = A_INTLK ? A_SET_EAG_TO_TGT :  IJB_REG;
