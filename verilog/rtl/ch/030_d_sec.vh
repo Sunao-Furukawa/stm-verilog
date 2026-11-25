@@ -12,6 +12,24 @@
 //   IEX : EX パイプへ流す命令
 //   IJB : 分岐命令
 // にまとめ直し、以降のステージはこの 3 つを見る。
+//
+// 【ネットリスト解説】
+//   入力 : 020 の DD_FIRST_* / DD_SECOND_*, 015 のレジスタ番号と I0/I1_IS_LEGAL,
+//          010 の I0 / I1 / I0_V / I1_V, 210 の G_BC_PENDING (FF)
+//   出力 : DD_ISSUE_SECOND_INSN       -> 140, 150, 190 (2 命令目も発行するか)
+//          ILS / IEX / IJB と ILS_V / IEX_V / IJB_V -> 035, 040, 140, 150, 190
+//          DD_RAD1 / DD_RAD2 / DD_RADB -> stm_cntl の出力ポート (レジスタファイル),
+//                                         140 (バイパスの番号比較), 070 (DD_RAD2)
+//          DD_INTCODE                 -> 150
+//   回路の形:
+//     ・DD_ISSUE_SECOND_INSN は 4bit 比較器 4 個 (レジスタ依存) と多数の条件の AND。
+//       D サイクルで最も段数の多い論理の 1 つ。
+//     ・ILS / IEX / IJB は「I0 か I1 か 0 か」の 32bit 3:1 MUX が 3 組。
+//       ILS → 035 → 040 の DD_DISP, IJB → 040 の DD_TGT (加算) と続くので、
+//       IWQ → I0/I1 → DD_ISSUE_SECOND_INSN → IJB → DD_TGT → A_TGT の FF が
+//       D サイクルの長い経路になる。
+//     ・DD_RAD* は 4bit の 2:1 MUX。そのまま stm_cntl の外 (stm_regfile) へ出て
+//       読み出しデータが戻ってくる (stm_cntl.v のポートの解説参照)。
 // ---------------------------------------------------------------------
 
 // d-sec : issue second insn

@@ -8,6 +8,14 @@
 // SU_IF_RDY : フェッチ要求を受け付けた
 // SU_IF_CLH : 要求していた 8 バイトが届いた (キャッシュヒット)
 // キャッシュミス模擬が無効 (RANDOM_* = 1) なら、要求の次のサイクルに必ず届く。
+//
+// 【ネットリスト解説】
+//   入力 : IB_V (190 の FF), IF_REQ_V (170), START_TRIGGER (080),
+//          ポート RANDOM_FOR_IFCLH / RANDOM_FOR_IFRDY / MEM_DT_IF_H / MEM_DT_IF_L
+//   出力 : SU_IF_CLH / SU_IF_RDY -> 190 ;  I_LBS_H / I_LBS_L -> 200 (IWQ の 4,5 番)
+//   回路の形: 1bit の AND 2 つと、32bit x 2 の 2:1 MUX (届いていなければダミー値)。
+//     メモリ (または stm_icache) の出力 MEM_DT_IF_H/L が、この MUX と 200 の MUX を
+//     通ってそのまま IWQ の FF に入る。命令フェッチのデータ側の経路は短い。
 // ---------------------------------------------------------------------
 
 // if-lbs

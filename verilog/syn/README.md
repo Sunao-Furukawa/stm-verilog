@@ -10,6 +10,8 @@ the complete CPU with an AXI4 master port, `stm_axi_top` (see the last section).
 | `quartus/` | Intel/Altera Quartus II (tested with 13.0sp1) | projects (`stm_cntl.qpf` / `.qsf`, `stm_axi_top.qpf` / `.qsf`) and timing constraints (`stm_cntl.sdc`, `stm_axi_top.sdc`) |
 | `vivado/` | AMD/Xilinx Vivado (tested with 2022.2) | batch synthesis scripts (`synth.tcl`, `synth_axi.tcl`) and constraints (`stm_cntl.xdc`, `stm_axi_top.xdc`), a script that builds an IP Integrator block design (`create_bd.tcl`, last section) |
 
+How to read the netlists produced by synthesis (`*_sim_netlist.v` and others) is explained in [`NETLIST.md`](NETLIST.md).
+
 ## What is synthesized
 
 Only `stm_cntl` is synthesized, as the original author also did for the VHDL version.

@@ -10,6 +10,28 @@
 // ・PSW (CC, ユーザーモード, 割り込み種別) の更新
 // ・割り込み時は XPSW / XPC / XLA に状態を退避して、TBR の番地へ飛ぶ
 // GR への書き込みはレジスタファイル (stm_regfile) が W_WE1/2 を見て行う。
+//
+// 【ネットリスト解説】
+//   入力 : W_* (090 で作る W サイクルの FF), WW_* (050 で W の FF から作る組合せ)
+//   出力 (すべて FF): PC          -> 170 (再スタートのフェッチ番地), stm_cntl の出力ポート
+//                     PSW_CC      -> 040 (解決済み BC の CC), 120 (RSR)
+//                     PSW_USER    -> 015 (特権命令の合法性), 120
+//                     TBR / CMPR / XPSW / XPC / XLA / SVR0 / SVR1 / PSW_TYPE -> 120 (RSR)
+//                     CMPR        -> 050 (アドレス比較)
+//                     START_TRIGGER (START_TRIGGER_BAR の反転) -> 170, 180, 190
+//   回路の形:
+//     ・システムレジスタ (TBR, CMPR, SVR0/1, XPSW, XPC, XLA) は 32bit の FF で、
+//       D 入力は「WSR で自分の番号なら W_WDT2, それ以外は保持」。保持の分岐は
+//       FF の CE 端子になり、W_WAD2 の 4bit 比較が CE を作る。
+//     ・PC の次の値は 4:1 の優先 MUX (TBR / XPC / MODIFIED_PC / PC)。
+//       MODIFIED_PC は W_TGT と INCREMENTED_PC (32bit 加算器 add_32_4) の 2:1 MUX。
+//       W の FF → 加算 → MUX → PC の FF で 1 サイクル。
+//     ・PC は「完了した命令の番地」を表す FF で、命令フェッチの番地ではない
+//       (フェッチは 170 の IF_REQ_AD が先へ先へと進めている)。PC がフェッチに
+//       使われるのは割り込み・RFE・状態変更の次のサイクル (START_TRIGGER) だけ。
+//     ・XPSW_NEW の build_psw は配線だけなので、MODIFIED_CC (W の命令の CC を反映した
+//       値) と PSW_USER / PSW_TYPE の FF がそのまま XPSW の該当ビットの MUX に入る。
+//       XPSW の他のビット (CC/USER/TYPE 以外) は割り込みで 0 になる。
 // ---------------------------------------------------------------------
 
 // w-act : w-cycle activity

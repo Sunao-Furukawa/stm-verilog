@@ -50,6 +50,29 @@
 //
 //  I/O 領域 ((番地 & IO_MASK) == IO_BASE, IO_EN=1 のとき) へのアクセスは
 //  AxCACHE=4'b0000 (Device, non-bufferable) で出す。それ以外は 4'b0011。
+//
+// 【ネットリスト解説】
+//   ・状態を持つのは IF 側と OP 側の 2 つの小さな状態機械 (if_st, op_st 各 2bit) と、
+//     要求の保持用レジスタ (if_ad_q, op_ad_q, op_wdt_q など) だけ。
+//     Vivado の結果では FDRE 136 個 + FDSE 3 個, LUT 約 130 個の小さな回路
+//     (FDSE はリセット値 1 の FF)。Vivado は if_st / op_st を 2bit の符号のままにせず
+//     ワンホット (状態ごとに FF 1 本, FSM_onehot_if_st_reg[0..2]) に置き換えている。
+//     リセットで S_IDLE の FF だけ 1 になるので、それと if_burst_q[0] (リセット値 1)
+//     が FDSE になる。
+//   ・AXI の出力はほとんどが組合せ出力。例えば
+//       m_axi_araddr = gnt_op ? op_addr : if_araddr
+//       op_addr      = (op_st == S_IDLE) ? {op_ad[31:2], 2'b00} : op_ad_q
+//     なので、要求を受けた最初のサイクル (S_IDLE) は stm_cntl の LBS_AD の FF が
+//     そのまま ARADDR に出る (1 サイクル早く出せる)。受け付けられなかったら
+//     op_ad_q の FF に保持した値を出し続ける (AXI の「VALID 中は内容を変えない」)。
+//   ・AR の調停 (gnt_op / gnt_if) は ar_lock / ar_own_op の 2 つの FF と
+//     op_arv / if_arv の組合せ。m_axi_arready は ar_lock の FF の D 入力、
+//     if_st / op_st の次状態、ifr_ack (→ stm_icache の状態機械) にしか入らない
+//     (AXI 入力 → FF の短い経路で、stm_cntl までは届かない)。
+//   ・R チャネルは m_axi_rid の比較 (r_if / r_op) で IF 側と OP 側に振り分ける。
+//     IF 側は組合せのまま stm_icache へ (ifr_valid / ifr_data), OP 側は op_dt /
+//     op_err の FF に受けてから stm_cntl へ返す。
+//   ・BYTE_SWAP はパラメータなので lane() はバイトの並べ替え (配線) か素通し。
 // =====================================================================
 module stm_axi_master #(
   parameter ID_W      = 4,
@@ -181,6 +204,9 @@ module stm_axi_master #(
   reg         op_done;
   reg         op_stale;
 
+  // 【解説】OP の要求をバスに出し始める条件: 何も出しておらず (S_IDLE), バスが要り,
+  //         今の要求の結果をまだ持っていない (op_done=0) か新しい要求が来た (op_new)。
+  //         op_done は「この要求は済んだ」の FF で、同じ要求を 2 度出さないためのもの。
   wire        op_launch = (op_st == S_IDLE) & op_busreq & (!op_done | op_new);
   wire        op_wr     = (op_st == S_IDLE) ? op_we : op_wr_q;
   wire [31:0] op_addr   = (op_st == S_IDLE) ? {op_ad[31:2], 2'b00} : op_ad_q;
@@ -193,6 +219,8 @@ module stm_axi_master #(
   wire        op_awv    = op_in_addr &  op_wr & !aw_ok;
   wire        op_wv     = op_in_addr &  op_wr & !w_ok;
 
+  // 【解説】op_rdy (→ stm_cntl の RANDOM_FOR_OPCLH): 結果が揃っていて, かつ同じサイクルに
+  //         新しい要求が入っていない。op_new のサイクルは古い要求の結果なので返さない。
   assign op_rdy = op_done & !op_new;
   wire   op_io  = IO_EN && ((op_addr & IO_MASK) == IO_BASE);
 
@@ -285,6 +313,8 @@ module stm_axi_master #(
       endcase
 
       // ---------------- OP ----------------
+      // 【解説】新しい要求が来たら前の結果は無効。バスに出している途中なら、
+      //         その応答は受け取ってから捨てる (op_stale)。
       if (op_new) op_done <= 1'b0;
       if (op_new && op_st != S_IDLE) op_stale <= 1'b1;
 

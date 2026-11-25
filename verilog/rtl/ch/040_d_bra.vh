@@ -11,6 +11,29 @@
 //   決める (「解決済み」)。まだ先行命令が CC を計算中なら「未解決」として
 //   予測で先に進み、CC が出た所 (A または E サイクル) で答え合わせをする
 //   (210_g_bc.vh)。予測は「後方分岐なら taken」という静的予測。
+//
+// 【ネットリスト解説】
+//   入力 : IJB_* / ILS_* (035), IJB_V (030), DD_FIRST_* / DD_SECOND_IS_JB (020),
+//          EID / NIP / V45 (010), D_IF_AD_A/B (190 の FF),
+//          A/B/E の *_SETCC と B/E の *_EX_CC (130, 110, 150 の FF),
+//          W_SETCC / W_CC (090 の FF), PSW_CC (080 の FF)
+//   出力 : DD_TGT                         -> 150 (A_TGT), 170 (フェッチ番地)
+//          DD_ISSUEING_TAKEN_BRANCH        -> 170
+//          DD_ISSUEING_UNSOLVED_BC         -> 070, 150, 170, 190, 210
+//          DD_ISSUEING_UNTAKEN_BC          -> 150, 190
+//          DD_ISSUEING_UNSOLVED_BC_ON_*    -> 110, 130, 150, 210 (どこで解決するか)
+//          DD_PREDICTING_TAKEN             -> 190, 210
+//          DD_DISP                         -> 140 (A_DISP)
+//          DD_JB_INSN_AD_PART1 / PART2     -> 140 (リンクの戻り番地)
+//          IJB_IS_JA / IJB_IS_JL           -> 170
+//   回路の形:
+//     ・DD_TGT は 32bit の 3 入力加算器 (add_32_5_20)。このファイルで唯一の
+//       キャリー連鎖。入力の PART2 は NIP / V45 から LUT で作る 6bit 値。
+//     ・DD_CC_FOR_SOLVED_BC は B → E → W → PSW の 4 段の優先 MUX (2bit 幅) で、
+//       これが cc_match (4:1 MUX) を通って DD_SOLVED_BC_TAKEN になる。
+//       「CC のフォワーディング」をする回路そのもの。
+//     ・DD_ISSUEING_* は AND/OR の論理だが、170 のフェッチ要求 (IF_REQ_*) と
+//       190 の NIP / キュー切り替えに直接入るので、命令フェッチ側の長い経路になる。
 // ---------------------------------------------------------------------
 
 // d-bra: D-cycle, issueing branch insn

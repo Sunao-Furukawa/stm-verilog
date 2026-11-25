@@ -8,6 +8,25 @@
 // xx_INTLK : そのステージの命令が次のサイクルも留まる
 // xx_FWD   : そのステージの命令が次のステージへ進む
 // 後段が止まれば前段も止まる (E → B → A → D の順に伝わる)。
+//
+// 【ネットリスト解説】
+//   入力 : 060 の *_V_NOCAN / A_EAB / AA_LD_GO / WW_ST_GO, 050 の CANCEL_BY_INT,
+//          各ステージの FF (E_LS_LD_V, E_OPCLH_LCH, STB_V, A/B/E/W_PRIVCODE ...),
+//          D サイクルの組合せ信号 (I0_V, DD_FIRST_IS_JB, DD_ISSUEING_UNSOLVED_BC,
+//          DD_PRIVCODE, DD_RAD2)
+//   出力 : D_FWD   -> 110, 130, 140, 150, 170, 190, 210 (いちばん多く使われる)
+//          A_FWD   -> 130, 170, 210 ;  A_INTLK -> 140, 150
+//          B_FWD   -> 110          ;  B_INTLK -> 130
+//          E_FWD   -> 090, 210     ;  E_INTLK -> 100, 110 ;  E_STB_INTLK -> 100
+//   回路の形:
+//     ・どれも 1bit の AND/OR だが、E_INTLK → B_INTLK → A_INTLK → D_FWD と
+//       後段から前段へ鎖のようにつながっている (ストール信号の連鎖)。
+//       E_OPCLH_LCH などの FF から始まり、D_FWD で終わる。
+//     ・xx_FWD / xx_INTLK は次のステージの FF すべての「更新 / 保持 / クリア」を
+//       選ぶ MUX の選択信号になる (例えば A_INTLK は A_* の FF 約 200 本の保持を選ぶ)。
+//       そのためネットリスト上で最もファンアウトの大きいネット群で、FPGA では
+//       FF の CE 端子 (クロックイネーブル) につながることが多い。
+//     ・E_STAT などの *_STAT はどこからも使われないので消える。
 // ---------------------------------------------------------------------
 
 // g-ilk : interlock conditions

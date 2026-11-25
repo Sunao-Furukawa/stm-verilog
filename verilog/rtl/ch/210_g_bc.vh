@@ -12,6 +12,25 @@
 // G_BC_JUST_TAKEN    : 解決した結果 taken だった
 // JUST_SOLVED の次のサイクルで、予測と結果が違えば CANCEL_BY_BC (050) で
 // 投機的に発行した命令を取り消し、EID (010) でもう一方のキューへ切り替える。
+//
+// 【ネットリスト解説】
+//   入力 : E_FWD / A_FWD / D_FWD (070), E_LS_SOLVING_BC (110), A_EX_SOLVING_BC (150),
+//          DD_ISSUEING_UNSOLVED_BC / _ON_E_LS / _ON_A_EX / DD_PREDICTING_TAKEN (040),
+//          EE_ALU_CC (090 の ALU), AA_EXU_CC (120 の EXU), IJB_RD_MASK (035),
+//          WW_INTERRUPTION (050)
+//   出力 (FF, 合計 8 本): G_BC_JUST_SOLVED -> 010, 050, 110, 130, 150, 160
+//                         G_BC_JUST_TAKEN  -> 010, 050, 090, 110, 130, 150
+//                         G_BC_TKN_PREDICTED -> 010, 050 ;  G_BC_PENDING -> 030, 070, 150
+//                         G_BC_MASK (4bit) -> 090
+//   回路の形:
+//     ・FF はわずか 8 本だが、G_BC_JUST_SOLVED / _TAKEN は全ステージの分岐タグと
+//       S ユニットの SUBJECT_TO_BC の更新に入るので、ファンアウトの大きい FF。
+//     ・G_BC_JUST_TAKEN_NEW は「ALU / EXU の CC → cc_match (4:1 MUX)」で、
+//       E の FF → ALU (加減算) → CC → この FF、という経路が E サイクルにできる。
+//     ・解決結果を 1 度 FF (JUST_SOLVED / JUST_TAKEN) に受けてから次のサイクルに
+//       取り消し (CANCEL_BY_BC) とキュー切り替え (EID) を行う設計なので、
+//       ALU の CC が全ステージの取り消しへ同じサイクルで伝わる長い経路は無い
+//       (その代わり、取り消しは解決の 1 サイクル後になる。元ソースに意図の説明は無い)。
 // ---------------------------------------------------------------------
 
 // g-bc :

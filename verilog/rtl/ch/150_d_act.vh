@@ -7,6 +7,21 @@
 //
 // D で発行を決めた ILS / IEX / IJB から、A サイクルの FF (タグ) を作る。
 // A がインタロック中なら保持、D から来なければ有効ビットを 0。
+//
+// 【ネットリスト解説】
+//   入力 : ILS_* / IEX_* / IJB_* (035), IEX_V / IJB_V / DD_INTCODE / DD_ISSUE_SECOND_INSN (030),
+//          DD_* (020, 040), I0_EX_RD (015), D_FWD / A_INTLK (070), G_BC_* (210)
+//   出力 (すべて FF): A_* -> 130 (B へのコピー), 120 (A_EX_OPCODE, A_PRIVCODE),
+//                     060 / 070 (A_V, A_LS_LD_V/ST_V, A_WE1/2, A_*_SETCC, A_JB_SUBJECT_TO_BC),
+//                     040 (A_*_SETCC), 140 (A_WAD2 / A_WE2 のバイパス),
+//                     160 (A_LS_ST_V, A_JB_SUBJECT_TO_BC), 170 / 190 (A_SET_EAG_TO_TGT, A_JB_V),
+//                     210 (A_EX_SOLVING_BC)
+//   回路の形: D → A のパイプラインレジスタ。命令語のデコード結果を
+//     「この命令は何をするか」のフラグ (A_LS_LD_V, A_WE1, A_LS_SETCC ...) と
+//     番号 (A_WAD1, A_WAD2, A_LS_RADS) と opcode (A_LS_OPCODE 5bit, A_EX_OPCODE 4bit) に
+//     分けて FF に入れる。以降のステージは命令語そのものを持たず、これらのタグだけで動く。
+//     D_FWD が「発行」、A_INTLK が「保持」の選択信号 (070)。
+//     A_TGT は 040 の加算器 DD_TGT の出力をそのまま受ける FF。
 // ---------------------------------------------------------------------
 
 //  d-act

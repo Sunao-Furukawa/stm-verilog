@@ -12,6 +12,32 @@
 //   ST  : B サイクルでのアクセス (キャッシュラインを確保し、サブワードなら元データを読む)
 //   ST2 : W サイクルの後、ストアバッファ STB から実際に書き込む
 // このファイルでは、全体で使う取り消し信号 (割り込み / 分岐予測ミス) も作っている。
+//
+// 【ネットリスト解説】
+//   入力 : W_PRIVCODE / W_WAD2 / W_LS_INTCODE / W_EX_INTCODE (090 の FF),
+//          G_BC_JUST_SOLVED / _TAKEN / _TKN_PREDICTED (210 の FF),
+//          OP_B_* / OP_WAIT_* / LBS_AD (160 の FF), CMPR (080 の FF),
+//          STB_V / STB_AD / STB_DT (090 の FF), E_LS_ST_V / E_LS_LOG_AD (110 の FF),
+//          E_OPCLH_LCH (100 の FF), EE_ALU_OUTPUT (090 の ALU, 組合せ),
+//          ポート MEM_DT_OP / MEM_OP_ERR / RANDOM_FOR_OPCLH
+//   出力 : CANCEL_BY_INT  -> 060, 070, 190 (全ステージの取り消し)
+//          CANCEL_BY_BC   -> 060          (投機中の命令の取り消し)
+//          WW_*           -> 080 (W サイクルの処理), 190 / 210 (WW_INTERRUPTION)
+//          B_OPCLH        -> 100, 160 (キャッシュの応答)
+//          OP_LBS_DATA    -> 100 (ロードデータ)
+//          OP_B_INTCODE   -> 100 (S ユニットの例外)
+//          OP_B_V_NOCAN / OP_WAIT_V_NOCAN -> 160
+//          SU_OP_RDY / SU_ST_RDY -> 060
+//          OP_B_BUSREQ    -> stm_cntl の出力ポート (stm_axi_master)
+//   回路の形:
+//     ・CANCEL_BY_INT / CANCEL_BY_BC はどちらも W / G の FF から 1〜2 段の浅い論理だが、
+//       各ステージの xx_V_NOCAN → xx_FWD → ほぼ全 FF の更新 MUX と配られるので、
+//       ネットリスト上はファンアウトが非常に大きい (合成ツールが複製することもある)。
+//     ・OP_B_CMP_INT は LBS_AD と CMPR の 32bit 一致比較器。
+//       OP_FWD_E / OP_FWD_STB も 32bit 一致比較器で、EXT_BUS=0 では OP_LBS_DATA の
+//       選択に使われないが B_OPCLH には入るので残る。
+//     ・OP_LBS_DATA は 32bit の 5:1 優先 MUX。EXT_BUS=0 なら定数の伝搬で
+//       「!B_OPCLH ? 0xdead0a0a : MEM_DT_OP」の 2:1 MUX まで縮む。
 // ---------------------------------------------------------------------
 
 // op-lb1 : OP-LBS in S-Unit :  generate output for other units

@@ -7,6 +7,24 @@
 //
 // 110_b_act.vh と同じ考え方で、A の命令が進めば (A_FWD) タグを B へ移し、
 // B がインタロック中なら保持し、それ以外は有効ビットを 0 にする。
+//
+// 【ネットリスト解説】
+//   入力 : A_* (150 / 140 の FF), AA_* (120 の EXU / EAG の出力, 組合せ),
+//          A_FWD / B_INTLK / D_FWD (070), G_BC_* (210), DD_ISSUEING_UNSOLVED_BC_ON_A_LS / _B_LS (040)
+//   出力 (すべて FF): B_* -> 110 (E へのコピー), 100 (B サイクルのデータ選択),
+//                     060 / 070 (B_V, B_WAD1, B_WE1, B_PRIVCODE), 040 (B_*_SETCC, B_EX_CC),
+//                     140 (B_EX_RES / B_WAD / B_WE のバイパス)
+//   回路の形: A → B のパイプラインレジスタ。110_b_act.vh と同じく
+//     有効ビット類 = 3:1 MUX + FF, データ類 = CE (!B_INTLK) 付きの FF。
+//     ただし B_LS_LOG_AD / B_EX_RES / B_EX_CC / B_TGT の D 入力は A の FF ではなく
+//     120 の演算器の出力 (AA_EAG_OUTPUT, AA_EX_RES, AA_EXU_CC) なので、
+//     ここが A サイクルの演算の終点 (FF) になる。B_TGT は AA_EAG_OUTPUT と A_TGT の
+//     2:1 MUX (選択 = A_SET_EAG_TO_TGT)。
+//     B_EX_RAD2 はどこからも使われないので消える。
+//     B_INTCODE_NEW に入るのは DD_INTCODE (0 か INTCODE_OP=1) か AA_EXU_INT (0 か
+//     INTCODE_OVF=4) だけなので、bit1 は常に 0。合成ツールはこれを見抜き、
+//     B_INTCODE → E_EX_INTCODE → W_EX_INTCODE の bit1 の FF を消す
+//     (合成結果には W_EX_INTCODE_reg[1] が無い)。
 // ---------------------------------------------------------------------
 
 // a-act

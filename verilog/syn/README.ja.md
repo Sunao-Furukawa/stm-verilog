@@ -10,6 +10,8 @@ CPU 本体 `stm_cntl` (中の EXU 2 個を含む) と、AXI4 マスタ・ポー�
 | `quartus/` | Intel/Altera Quartus II (13.0sp1 で確認) | プロジェクト (`stm_cntl.qpf` / `.qsf`, `stm_axi_top.qpf` / `.qsf`) とタイミング制約 (`stm_cntl.sdc`, `stm_axi_top.sdc`) |
 | `vivado/` | AMD/Xilinx Vivado (2022.2 で確認) | バッチ合成スクリプト (`synth.tcl`, `synth_axi.tcl`) と制約 (`stm_cntl.xdc`, `stm_axi_top.xdc`), IP Integrator のブロックデザインを作るスクリプト (`create_bd.tcl`, 最後の節) |
 
+合成でできるネットリスト (`*_sim_netlist.v` など) の読み方は [`NETLIST.ja.md`](NETLIST.ja.md) にまとめました。
+
 ## 合成の対象
 
 合成するのは `stm_cntl` だけです (元の VHDL 版の作者も制御部だけを合成対象にしていました)。

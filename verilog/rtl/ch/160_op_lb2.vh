@@ -9,6 +9,23 @@
 //   OP-B    : キャッシュにアクセス中の要求 (LBS_AD/LBS_DT/LBS_WE がメモリへ出る)
 //   OP-WAIT : OP-B が終わらないうちに受け付けた次の要求を 1 つ待たせる
 // 要求の種類 (OPC) は LD / ST / ST2 (050_op_lb1.vh 参照)。
+//
+// 【ネットリスト解説】
+//   入力 : AA_LD_GO / WW_ST_GO (060), AA_EAG_OUTPUT (120), STB_AD / STB_DT (090),
+//          A_LS_ST_V / A_JB_SUBJECT_TO_BC (150), B_OPCLH / OP_*_V_NOCAN (050),
+//          G_BC_JUST_SOLVED (210), ポート RANDOM_FOR_OPCLH
+//   出力 (FF): LBS_WE / LBS_AD / LBS_DT -> stm_cntl の出力ポート (メモリ / stm_axi_master),
+//                                         LBS_AD は 050 (アドレス比較・フォワーディング) にも
+//              OP_B_V / OP_B_OPC / OP_B_SUBJECT_TO_BC -> 050, 060
+//              OP_WAIT_*                               -> 050, 060
+//              OP_B_NEW                                -> stm_cntl の出力ポート (stm_axi_master)
+//   回路の形: 深さ 2 の小さな FIFO (OP-WAIT → OP-B)。
+//     ・OP-B の FF の D 入力は「留まる / OP-WAIT から移す / 新しく受け付ける」の 3:1 MUX。
+//       LBS_AD は 32bit, LBS_DT は 32bit なので、ここで 64 本ぶんの 3:1 MUX になる。
+//     ・新しく受け付ける番地 ACCEPTING_AD は AA_EAG_OUTPUT と STB_AD の 2:1 MUX。
+//       A の EAG の加算結果がそのまま LBS_AD の FF に入るので、メモリへの番地は
+//       A サイクルの終わりに確定し、次のサイクル (B サイクル) にメモリへ出る。
+//       これが「B サイクルでキャッシュを引く」の回路上の意味。
 // ---------------------------------------------------------------------
 
 // OP-LBS in S-Unit : determine next state

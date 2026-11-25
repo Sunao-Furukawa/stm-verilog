@@ -11,6 +11,27 @@
 //   ・キューを 2 語シフトしたら 2 戻る
 //   ・分岐でキューを切り替える/やり直すときはクリアして 6 か 7 (空) にする
 // 元コメントの「'+' が使えれば…」の通り、加算を使わずビット操作で書かれている。
+//
+// 【ネットリスト解説】
+//   入力 : IF_REQ_V / IF_REQ_AD / IF_REQ_ID / CANCEL_IB / IWQ_FULL (170),
+//          SU_IF_CLH / SU_IF_RDY (180), EID / NIP_A (010), D_FWD (070),
+//          DD_ISSUE_SECOND_INSN / IJB_V (030), DD_ISSUEING_* / DD_PREDICTING_TAKEN (040),
+//          A_JB_V / A_SET_EAG_TO_TGT (150), START_TRIGGER (080), CANCEL_BY_INT /
+//          WW_INTERRUPTION (050), IWQ_A_V45 / IWQ_B_V45 (200)
+//   出力 (FF): IB_V / IB_AD / IB_ID -> 170, 180, 200, ポート IB_AD (メモリ)
+//              NIP_A_REG / NIP_B / CUR_IWQ_ID -> 010
+//              D_IF_AD_A / D_IF_AD_B -> 040 (分岐命令の番地), 170 (続きのフェッチ番地)
+//   出力 (組合せ): SFTUP_A / SFTUP_B / SU_IF_CLH_NOCAN -> 200 (IWQ のシフトと取り込み)
+//                  IB_VALID / IB_AD_NXT -> stm_cntl の出力ポート (stm_icache)
+//   回路の形:
+//     ・NIP は 3bit なので、NIP_A_TMP / NIP_B_NEW はどれも 10 入力程度の小さな論理。
+//       ここは加算器を使わない書き方なので CARRY4 は出てこない
+//       (add_3_2 も 3bit + 2bit なので LUT だけになる)。
+//     ・SFTUP_A / SFTUP_B はそれぞれ 200 の IWQ 6 語 (32bit x 6 = 192 本) の MUX の
+//       選択信号になるのでファンアウトが大きい。これは D_FWD → EMIT → NIP_AFTER_EMIT
+//       → SFTUP → IWQ の FF とつながるので、インタロックの連鎖 (070) の終点の 1 つ。
+//     ・IB_AD の FF の D 入力 IB_AD_NEW (= IF_REQ_AD か保持) が IB_AD_NXT として
+//       外へ出る。
 // ---------------------------------------------------------------------
 
 // if-stm

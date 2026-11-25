@@ -24,3 +24,15 @@
 //  注意: C 版では GR[..] := / Mem[..] := は「_NEW を介さず即座に」書き込まれ、
 //        同じサイクルの後続の読み出しは書き込んだ値を見る (write-through)。
 //        stm_regfile.v / stm_memory.v はこの動作を読み出しバイパスで再現している。
+//
+// 【ネットリスト解説】このファイルには回路が無い (assign が 1 つも無い)。
+//   上の配列アクセスは、stm_cntl のポートを通して次のネットとして実現されている
+//   (つなぐのは stm_sys.v / stm_axi_top.v):
+//     GR の書き込み : W_WE1/2, W_WAD1/2, W_WDT1/2 (090 の FF)  -> stm_regfile
+//     GR の読み出し : DD_RAD1/2/B (030, 組合せ), B_LS_RADS (130 の FF) -> stm_regfile
+//                     -> GR_DT_1/2/B (140 へ), GR_DT_S (100 へ)
+//     Mem の読み書き: LBS_WE/AD/DT (160 の FF) -> stm_memory -> MEM_DT_OP (050 へ)
+//     命令フェッチ  : IB_AD (190 の FF) -> stm_memory -> MEM_DT_IF_H/L (180 へ)
+//   AXI4 版 (stm_axi_top) では Mem の代わりに stm_axi_master / stm_icache がつながり、
+//   応答が遅れてもよいように RANDOM_FOR_OPCLH / RANDOM_FOR_IFCLH が「データが揃った」
+//   合図になる。

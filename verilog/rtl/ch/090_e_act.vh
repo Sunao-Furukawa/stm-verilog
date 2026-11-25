@@ -11,6 +11,27 @@
 //   出たら後の命令の結果は捨てる (HIDE)
 // ・結果を W サイクルの FF (W_*) へ渡す
 // ・ストアのデータはストアバッファ STB (1 エントリ) に入れる
+//
+// 【ネットリスト解説】
+//   入力 : E_* (110 / 100 の FF), E_FWD (070), WW_ST_GO (060),
+//          G_BC_MASK / G_BC_JUST_TAKEN (210 の FF)
+//   出力 : EE_ALU_OUTPUT -> 050 (OP_LBS_DATA), 100 (バイパス), 140 (バイパス), W_WDT1, STB_DT
+//          EE_ALU_CC     -> 210 (LS パイプで BC を解決する), W_CC
+//          W_* (FF)      -> 080 (W サイクル), 050 (WW_*), 040 (W_CC / W_SETCC),
+//                           100 / 140 (W_WE/WAD/WDT のバイパス), stm_regfile (書き込み)
+//          STB_* (FF)    -> 050, 060, 070, 100, 160
+//   回路の形:
+//     ・u_e_alu (stm_exu) が 1 個。入力は E の FF (E_LS_OPCODE, E_LS_OPS_DT, E_LS_LD_DT)
+//       だけなので、ALU の入口は FF の直後でタイミングに余裕がある。
+//       一方で出力 EE_ALU_OUTPUT は同じサイクルのうちに 050 / 100 / 140 のバイパス
+//       MUX へ入り、A_*_DT や E_LS_LD_DT の FF で終わる。ALU + バイパス MUX が
+//       E サイクルの長い経路。
+//     ・W_JB_V_NEW は EE_ALU_CC → cc_match → W_JB_V の FF。ALU の CC を同じサイクルで
+//       使う唯一の場所 (元コメントの通り)。
+//     ・W_WE1/2_NEW, W_SETCC_NEW などは「E_FWD ? 値 : 0」なので、E_FWD を
+//       AND するだけの回路 (1bit の AND)。
+//     ・STB は 1 エントリ = STB_V (1bit) + STB_AD (32bit) + STB_DT (32bit) の FF。
+//       STB_AD / STB_DT は「E のストアが進むときだけ更新」なので CE 付きの FF になる。
 // ---------------------------------------------------------------------
 
 // e-act : e-cyc activity

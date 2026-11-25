@@ -32,6 +32,28 @@
 //    ・バスがエラー応答を返した 8 バイト: そのラインはキャッシュに残さない
 //  その命令を実際に実行すると不正命令例外 (INTCODE_OP) になり、XPC にその番地が
 //  残る。予測ミス側の先読みなら取り消されるだけで何も起きない。
+//
+// 【ネットリスト解説】
+//   ・ポートのつながり (stm_axi_top.v):
+//       ib_valid / ib_ad / ib_ad_nxt <- stm_cntl の IB_VALID / IB_AD / IB_AD_NXT (190)
+//       if_rdy / if_dt_h / if_dt_l   -> stm_cntl の RANDOM_FOR_IFCLH / MEM_DT_IF_H / MEM_DT_IF_L (180)
+//       fr_*                         <-> stm_axi_master の ifr_*
+//   ・既定 (LINE_W=5, SET_W=7) の大きさ:
+//       データ RAM dram : 64bit x 512 エントリ (= 4KB)   -> RAMB36E1 1 個 (幅 72bit の SDP モード)
+//       タグ RAM  tram  : 20bit x 128 エントリ           -> RAMB18E1 1 個 (幅 36bit の SDP モード)
+//       有効ビット vbits: 128 本の FF (リセットで一斉に 0 にするため RAM にはできない)
+//     Vivado の結果 (g_cache.dram_reg / g_cache.tram_reg) もこの通りで、
+//     FDRE 284 個, FDSE 6 個, LUT 約 330 個, CARRY4 5 個。
+//   ・RAM の読み出し番地は ib_ad ではなく ib_ad_nxt。stm_cntl の IB_AD の FF と
+//     RAM の出力レジスタ (d_q, t_q) が同じクロックで更新されるので、次のサイクルには
+//     ib_ad とその番地の d_q / t_q が揃う。stm_cntl の 170 → 190 の番地計算が
+//     そのまま RAM の番地入力まで伸びるので、ここは CPU 側の長い経路の続きになる。
+//   ・ヒット判定 hit は t_q (RAM の出力) と ib_tag (FF) の 20bit 一致比較 + vbits の選択。
+//     if_rdy / if_dt_h / if_dt_l はこれで選ぶ組合せ出力で、stm_cntl の 180 → 200 を通って
+//     IWQ の FF に入る。
+//   ・byp_h / byp_l の上位 3bit (ILL_INSN = 0xE000_0000 の 1 のビット) は、Vivado が
+//     「エラーなら 1 にする」を FF のセット端子で作るので FDSE になる
+//     (byp_h[31:29] と byp_l[31:29] の 6 個が上の FDSE 6 個)。
 // =====================================================================
 module stm_icache #(
   parameter ENABLE = 1,
@@ -103,12 +125,19 @@ if (ENABLE) begin : g_cache
   // このビートのライン内の語番号 (WRAP なので要求した語から回る)
   wire [LINE_W-3:0] f_word   = {f_ad[LINE_W-4:0], 1'b0} + f_beat;
 
+  // 【解説】番地の分け方 (既定値の場合):
+  //           [31:12] タグ (20bit) | [11:5] ライン番号 (7bit) | [4:3] ライン内の 8 バイト単位 | [2:0]
+  //         データ RAM の番地は {ライン番号, ライン内の 8 バイト単位} の 9bit。
   // ---- RAM (読み出しは IB_AD_NXT で 1 サイクル先に)
   wire [DEP_W-1:0] rd_a = {ib_ad_nxt[LINE_W+SET_W-1:LINE_W], ib_ad_nxt[LINE_W-1:3]};
   wire             d_we = (fst == F_DATA) & fr_valid & f_word[0];
   wire [DEP_W-1:0] d_wa = {f_idx, f_word[LINE_W-3:1]};
   wire             t_we = (fst == F_DATA) & fr_valid & fr_last;
 
+  // 【解説】この 2 つの always が「書き 1 ポート + 同期読み 1 ポート」のブロック RAM の
+  //         定型。d_q / t_q は RAM の内部の出力レジスタになり、別の FF にはならない。
+  //         1 ビートは 32bit なので、前半 (H) を f_hw に貯めておき、後半 (L) が来た
+  //         サイクルに 64bit まとめて書く (d_we は f_word[0] = 後半のときだけ)。
   always @(posedge clk) begin
     if (d_we) dram[d_wa] <= {f_hw, fr_data};
     d_q <= dram[rd_a];
@@ -185,6 +214,10 @@ if (ENABLE) begin : g_cache
   end
 end else begin : g_nocache
   // ---- キャッシュ無し: 毎回 8 バイトを読み, CPU が受け取ったら捨てる
+  // 【ネットリスト解説】generate の else 側なので、ENABLE=0 のときだけこちらの回路が
+  //   作られ (RAM は 0 個)、ENABLE=1 のときは丸ごと存在しない。byp_* の FF
+  //   (8 バイトのバッファ 1 つ) と 3 状態の状態機械だけの回路になる。
+  //   ib_ad_nxt はここでは使わないので、stm_cntl の IB_AD_NXT はどこにもつながらない。
   localparam [1:0] N_IDLE = 2'd0, N_REQ = 2'd1, N_DATA = 2'd2;
   reg  [1:0]  nst;
   reg  [28:0] n_ad;
