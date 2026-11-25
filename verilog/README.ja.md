@@ -46,6 +46,8 @@ verilog/
 ├── tb/
 │   ├── tb_stm.v          テストベンチ
 │   ├── tb_stm_axi.v      stm_axi_top のテストベンチ
+│   ├── tb_exp.v          tb_stm.v の実験版: オペランドのキャッシュミスだけを乱数で起こす (7 章)
+│   ├── tb_noio.v         tb_stm_axi.v の実験版: stm_axi_top を IO_EN=0 で作る (8 章)
 │   └── axi4_mem_slave.v  AXI4 スレーブ (メモリ) モデル (乱数ウェイト・順序入れ替え, 規則違反の検査)
 ├── bench/loop.s          ループのベンチマーク (命令キャッシュの効果を見る)
 ├── tests/                AXI4 版のテスト (I/O 領域, バスエラー例外。8 章)
@@ -183,6 +185,18 @@ vvp sim.vvp +HEX=mem.hex +PC=300 +CYCLES=200 +TRACE
 * アセンブラの出力は `-o` でファイルに書いてください。PowerShell 5 の `>` は UTF-16 で
   保存されます (`mem2hex.py` は UTF-16 も読めるようにしてありますが、`-o` が確実です)。
 * `+RANDOM` (+`SEED=n`) でキャッシュミス模擬、`+CTRACE` で C 版の `siml.res` と同じ形式で出力します。
+
+### 実験用テストベンチ `tb_exp.v`
+
+`tb/tb_exp.v` はロード / ストア側だけを強く揺さぶる `tb_stm.v` の変形です。`+RANDOM` のとき
+乱すのは `RANDOM_FOR_OPCLH` だけで、オペランドのアクセスは 4 回に 3 回ミスします
+(`tb_stm.v` は 2 回に 1 回)。命令フェッチはいつもヒットします。コンソールはありません。
+モジュール名も `tb_stm` なので、`tb/tb_stm.v` の**代わりに**指定します:
+
+```powershell
+iverilog -g2001 -I rtl -o exp.vvp tb/tb_exp.v rtl/stm_sys.v rtl/stm_cntl.v rtl/stm_exu.v rtl/stm_regfile.v rtl/stm_memory.v
+vvp exp.vvp +HEX=mem.hex +PC=300 +CYCLES=4000 +RANDOM +SEED=5
+```
 
 ### コンソール出力 (Hello World)
 
@@ -409,3 +423,12 @@ vvp axi.vvp +HEX=mem.hex +PC=300 +CYCLES=20000 +RANDOM +SEED=5
 `+RANDOM` でスレーブの乱数ウェイト・順序入れ替え、`+TRACE` で毎サイクルの表示、`+VCD` で
 `tb_stm_axi.vcd` に波形を出力します。パラメータは `iverilog` に `-P tb_stm_axi.ICACHE=0`,
 `-P tb_stm_axi.IC_SET_W=4`, `-P tb_stm_axi.BYTE_SWAP=1` のように付けます。
+
+`tb/tb_noio.v` は `tb_stm_axi.v` と同じで、`stm_axi_top` を `IO_EN=0` で作る点だけが違います。
+CPU は `0xF000_0000`〜 を普通のメモリとして扱い (ロードは投機的に出て、ストアの前に B サイクルの
+読み出しが出て、命令フェッチもする)、スレーブのテスト用デバイスはそのまま残ります。これで I/O の
+テストを動かすと I/O 領域の扱いが要る理由が分かります: `tests/io_order.s` は DEAD で終わり
+(投機的なロードやストアの B サイクルの
+読み出しで DEV_A が読まれ、回数が合わなくなる)、`tests/fetch_io.s` は通るもののデバイスが 8 回読まれます
+(`DEV: reads=8`。`tb_stm_axi.v` では 0)。モジュール名も
+`tb_stm_axi` なので、`tb/tb_stm_axi.v` の**代わりに**指定します (ほかのファイルと plusargs は同じ)。

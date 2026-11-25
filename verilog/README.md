@@ -47,6 +47,8 @@ verilog/
 ├── tb/
 │   ├── tb_stm.v          testbench
 │   ├── tb_stm_axi.v      testbench for stm_axi_top
+│   ├── tb_exp.v          experimental tb_stm.v: only operand cache misses are randomised (section 7)
+│   ├── tb_noio.v         experimental tb_stm_axi.v: stm_axi_top built with IO_EN=0 (section 8)
 │   └── axi4_mem_slave.v  AXI4 slave memory model (random waits / reordering, protocol checks)
 ├── bench/loop.s          loop benchmark (shows the effect of the instruction cache)
 ├── tests/                tests for the AXI4 version (I/O region, bus-error exceptions; section 8)
@@ -202,6 +204,18 @@ vvp sim.vvp +HEX=mem.hex +PC=300 +CYCLES=200 +TRACE
   (`mem2hex.py` can read UTF-16 too, but `-o` is the reliable way).
 * `+RANDOM` (+`SEED=n`) enables cache-miss emulation; `+CTRACE` prints in the same format as the
   C version's `siml.res`.
+
+### Experimental testbench `tb_exp.v`
+
+`tb/tb_exp.v` is a variant of `tb_stm.v` that stresses only the load / store side. With `+RANDOM`
+it randomises only `RANDOM_FOR_OPCLH`, and an operand access misses 3 times in 4 (instead of
+1 in 2); instruction fetches always hit. It has no console. Its module is also named `tb_stm`, so
+give it *instead of* `tb/tb_stm.v`:
+
+```powershell
+iverilog -g2001 -I rtl -o exp.vvp tb/tb_exp.v rtl/stm_sys.v rtl/stm_cntl.v rtl/stm_exu.v rtl/stm_regfile.v rtl/stm_memory.v
+vvp exp.vvp +HEX=mem.hex +PC=300 +CYCLES=4000 +RANDOM +SEED=5
+```
 
 ### Console output (Hello World)
 
@@ -431,3 +445,12 @@ vvp axi.vvp +HEX=mem.hex +PC=300 +CYCLES=20000 +RANDOM +SEED=5
 `+RANDOM` turns on random waits and reordering in the slave, `+TRACE` prints every cycle, and
 `+VCD` writes `tb_stm_axi.vcd`. Parameters are set on the `iverilog` line, e.g.
 `-P tb_stm_axi.ICACHE=0`, `-P tb_stm_axi.IC_SET_W=4`, `-P tb_stm_axi.BYTE_SWAP=1`.
+
+`tb/tb_noio.v` is the same as `tb_stm_axi.v` except that it builds `stm_axi_top` with `IO_EN=0`,
+so the CPU treats `0xF000_0000`- as ordinary memory (speculative loads, a B-cycle read before
+stores, fetches allowed) while the slave's test devices stay. Running the I/O tests with it shows
+why the I/O region handling is needed: `tests/io_order.s` ends at DEAD (DEV_A is read by a
+speculative load or a store's B-cycle read, so its count goes wrong), and `tests/fetch_io.s`
+still passes but the device is read 8 times (`DEV: reads=8`, against 0 with `tb_stm_axi.v`).
+Its module is also named `tb_stm_axi`, so give it *instead of* `tb/tb_stm_axi.v` (the other
+files and plusargs are the same).
