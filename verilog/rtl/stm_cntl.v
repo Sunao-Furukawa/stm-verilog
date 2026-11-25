@@ -22,6 +22,30 @@
 //  リセット: rst=1 の間のクロックで全 FF を 0 にし, PC だけ RESET_PC にする (同期リセット)。
 //            (C 版で PC に開始番地を入れ, 他を 0 から始めたのと同じ。
 //             START-TRIGGER-BAR=0 なので最初のサイクルで命令フェッチが始まる)
+//
+//  stm_cntl.v  -  the core of STM (2-way superscalar 32-bit RISC)
+//
+//  hard/*.ch (CHDL) converted to Verilog HDL 2001.
+//  One CHDL file = one include file under ch/.
+//
+//  CHDL -> Verilog
+//    NAME  = expr    (net)              ->  assign NAME = expr;
+//    NAME := expr    (assignment to FF) ->  assign NAME_NEW = expr;   and
+//                                           always @(posedge clk) NAME <= NAME_NEW;
+//      (the same structure as the C simulator, which computed NAME_NEW and copied it
+//       to NAME at the end of the cycle)
+//    '-' in names                       ->  '_'   (e.g. DD-RAD1 -> DD_RAD1)
+//    macros (bit_ext, cc_match ...)     ->  functions (stm_defs.vh, stm_fmt_*.vh)
+//    the exu() function                 ->  the stm_exu module (2 of them)
+//    GR[] / Mem[]  (045-g-ram.ch)       ->  the external stm_regfile / stm_memory
+//
+//  In CHDL each net is evaluated in source order, but the original source is ordered
+//  "define before use" (checked), so replacing it with order-independent Verilog
+//  continuous assignments gives the same behaviour.
+//
+//  Reset: on clocks while rst=1, every FF becomes 0 and only PC becomes RESET_PC (synchronous reset).
+//         (The same as the C version, which put the start address in PC and started everything
+//          else from 0. START-TRIGGER-BAR=0, so instruction fetch starts in the first cycle.)
 // =====================================================================
 //
 // 【解説】パイプラインの構成
@@ -166,10 +190,17 @@ module stm_cntl #(
   // 1: 外部バス (AXI4) 用。メモリの応答が何サイクル遅れてもよいように、
   //    RANDOM_FOR_OPCLH / RANDOM_FOR_IFCLH を「バスのデータが揃った」合図として
   //    使い、ST2 の書き込みも完了 (RANDOM_FOR_OPCLH) を待つ。stm_axi_top 用。
+  // 0: original behaviour (memory answers in the same cycle; for stm_sys / stm_memory)
+  // 1: for an external bus (AXI4). So that memory responses may be any number of cycles late,
+  //    RANDOM_FOR_OPCLH / RANDOM_FOR_IFCLH are used as "the bus data is ready" signals,
+  //    and the ST2 write also waits for completion (RANDOM_FOR_OPCLH). For stm_axi_top.
   parameter EXT_BUS = 0,
   // I/O 領域 (EXT_BUS=1 のときだけ使う): (番地 & IO_MASK) == IO_BASE の番地。
   // ここへのロードは投機的に実行せず, 先行するストアがすべて終わってから出す。
   // ストアの B サイクルの読み出しもしない (050_op_lb1.vh, 060_g_srq.vh)。
+  // I/O region (used only with EXT_BUS=1): addresses with (address & IO_MASK) == IO_BASE.
+  // Loads from it are not executed speculatively; they go out after all earlier stores finish.
+  // Stores to it do not do the B-cycle read either (050_op_lb1.vh, 060_g_srq.vh).
   parameter        IO_EN   = 1,
   parameter [31:0] IO_BASE = 32'hF000_0000,
   parameter [31:0] IO_MASK = 32'hF000_0000
@@ -183,11 +214,17 @@ module stm_cntl #(
   //   RANDOM_FOR_OPCLH = OP-B の要求 (LD/ST の読み出し, ST2 の書き込み) が完了
   //   RANDOM_FOR_IFCLH = IB の命令フェッチ (8 バイト) が届いた (stm_icache から)
   //   RANDOM_FOR_IFRDY = 1 に固定
+  // Cache-miss simulation (random_clh of the C version). Always 1 means no misses.
+  // With EXT_BUS=1 these are responses from stm_axi_master:
+  //   RANDOM_FOR_OPCLH = the OP-B request (LD/ST read, ST2 write) has completed
+  //   RANDOM_FOR_IFCLH = the instruction fetch of IB (8 bytes) has arrived (from stm_icache)
+  //   RANDOM_FOR_IFRDY = tied to 1
   input              RANDOM_FOR_OPCLH,
   input              RANDOM_FOR_IFRDY,
   input              RANDOM_FOR_IFCLH,
 
   // レジスタファイル (stm_regfile) とのインタフェース
+  // interface to the register file (stm_regfile)
   // 【ネットリスト解説】ポートの種類とタイミング
   //   DD_RAD1/2/B   : 組合せ出力 (D サイクルの命令語から作る読み出し番号, 030)。
   //                   stm_regfile の読み出しも組合せなので、同じサイクルのうちに
@@ -223,6 +260,7 @@ module stm_cntl #(
   output reg [31:0]  W_WDT2,
 
   // メモリ (stm_memory) とのインタフェース
+  // interface to the memory (stm_memory)
   // 【ネットリスト解説】LBS_WE/AD/DT と IB_AD はすべて FF 出力 (160, 190)。
   //   メモリへ出る要求は 1 サイクル前に FF に確定しているので、外側の回路
   //   (stm_memory / stm_axi_master / stm_icache) から見てグリッチの無いきれいな信号。
@@ -239,11 +277,13 @@ module stm_cntl #(
   output reg [31:0]  LBS_DT,
   input      [31:0]  MEM_DT_OP,
   input              MEM_OP_ERR,     // EXT_BUS=1: OP-B の読み出しがエラー応答 (RANDOM_FOR_OPCLH と同時)
+                                     // EXT_BUS=1: the OP-B read got an error response (together with RANDOM_FOR_OPCLH)
   output reg [31:0]  IB_AD,
   input      [31:0]  MEM_DT_IF_H,
   input      [31:0]  MEM_DT_IF_L,
 
   // 外部バス (EXT_BUS=1) 用の要求信号 (stm_axi_master へ)。EXT_BUS=0 では未使用。
+  // request signals for the external bus (EXT_BUS=1, to stm_axi_master). Unused with EXT_BUS=0.
   // 【ネットリスト解説】IB_VALID と OP_B_NEW は FF 出力 (IB_V, OP_B_NEW の FF)。
   //   IB_AD_NXT は IB_AD の FF の D 入力 (IB_AD_NEW) をそのまま外へ出した組合せ出力で、
   //   stm_icache はこれをブロック RAM の読み出し番地に使う (RAM の出力レジスタと
@@ -258,11 +298,16 @@ module stm_cntl #(
   //   OP_B_BUSREQ is a combinational output made from the OP-B FFs and address compares (050).
   //   When nothing is connected, as in stm_sys, the logic making these disappears in synthesis.
   output             IB_VALID,      // IB の命令フェッチ要求が有効 (= IB_V)
+                                    // the instruction fetch request of IB is valid (= IB_V)
   output     [31:0]  IB_AD_NXT,     // 次のサイクルの IB_AD (命令キャッシュの先読み用)
+                                    // IB_AD of the next cycle (for read-ahead in the instruction cache)
   output reg         OP_B_NEW,      // OP-B に新しい要求が入った最初のサイクル
+                                    // the first cycle a new request is in OP-B
   output             OP_B_BUSREQ,   // OP-B の要求にバスアクセスが要る
+                                    // the OP-B request needs a bus access
 
   // 観測用
+  // for observation
   output reg [31:0]  PC
 );
 
@@ -272,6 +317,7 @@ module stm_cntl #(
 `include "stm_fmt_jb.vh"
 
 // (Verilog 版で追加) 番地が I/O 領域か。EXT_BUS=0 では常に 0。
+// (added in the Verilog version) Is the address in the I/O region? Always 0 with EXT_BUS=0.
 // 【ネットリスト解説】EXT_BUS / IO_EN / IO_MASK / IO_BASE はすべてパラメータ (定数)
 //         なので、合成時に「マスクで 1 のビットだけを比べる」比較器に縮む
 //         (既定値なら a[31:28] == 4'hF の 4 入力 AND 1 段)。EXT_BUS=0 では
@@ -289,6 +335,9 @@ endfunction
 //  宣言 (元の .ch ファイルごと)。ビット幅は vh/prop.tab, vh/assi.tab による。
 //    wire      : CHDL の '='  (組合せ回路のネット)
 //    reg       : CHDL の ':=' (FF)。 *_NEW がその D 入力
+//  Declarations (grouped by the original .ch file). Bit widths come from vh/prop.tab, vh/assi.tab.
+//    wire      : CHDL '='  (a net of combinational logic)
+//    reg       : CHDL ':=' (an FF); *_NEW is its D input
 //
 // 【ネットリスト解説】宣言の読み方
 //    ・reg X と wire X_NEW の組が 1 本の FF (多ビットならそのビット数ぶん)。
@@ -944,6 +993,7 @@ wire           G_BC_TKN_PREDICTED_NEW;
 reg  [3:0]     G_BC_MASK;
 wire [3:0]     G_BC_MASK_NEW;
 // ---- EXU の出力 (090-e-act.ch / 120-a-dat.ch の exu() 呼び出し)
+//      (outputs of the EXUs: the exu() calls of 090-e-act.ch / 120-a-dat.ch)
 // 【ネットリスト解説】stm_exu のインスタンスは 2 個 (u_e_alu, u_a_exu)。
 //   EE_* は E サイクルの LS パイプ ALU の出力, AA_* は A サイクルの EX パイプ EXU の
 //   出力で、どちらも FF を通らない組合せ出力。AA_EXU_OUTPUT → (130) → B_EX_RES,
@@ -965,6 +1015,7 @@ wire [2:0]     AA_EXU_INT;
 
 // ---------------------------------------------------------------------
 //  回路本体 (hard/*.ch を 1 対 1 に変換したもの)
+//  The circuit itself (hard/*.ch converted one to one)
 // ---------------------------------------------------------------------
 `include "ch/010_d_pre.vh"
 `include "ch/015_d_i01.vh"
@@ -993,6 +1044,7 @@ wire [2:0]     AA_EXU_INT;
 
 // ---------------------------------------------------------------------
 //  FF の更新 (C 版の「サイクルの最後に X = X_NEW」に相当)
+//  FF update (equivalent of "X = X_NEW at the end of the cycle" in the C version)
 // ---------------------------------------------------------------------
 // 【解説】すべての FF をここで一斉に更新する。各 X_NEW は ch/*.vh で
 //         CHDL の 'X := 式' から作った D 入力。

@@ -1,6 +1,7 @@
 // =====================================================================
 //  070_g_ilk.vh  <-  hard/070-g-ilk.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】インタロック (パイプラインの停止) 条件と、各ステージの前進信号
@@ -107,6 +108,7 @@ assign D_FWD = D_V_NOCAN & ! D_INTLK & !A_INTLK;
 
 
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
 // 【解説】シミュレーション観測用 (bit3=FWD, bit0=V)。
 // [Note] For observation in simulation (bit3=FWD, bit0=V).
 assign E_STAT = (E_FWD << 3) | E_V;

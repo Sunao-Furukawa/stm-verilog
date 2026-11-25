@@ -1,6 +1,7 @@
 // =====================================================================
 //  150_d_act.vh  <-  hard/150-d-act.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】D → A の状態遷移 (命令の発行)
@@ -129,6 +130,7 @@ assign A_WAD2_NEW = A_INTLK ? A_WAD2    :
 // where ** are the last bits of address.
 // In EXRM case, opcode is extended from 4 to 5 bits.
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
 // 【解説】E サイクルの ALU に使う 5bit opcode:
 //           EX-RM        : EX の opcode (0〜15)
 //           サブワード L/ST : 1 S H 0 0  (S=ストア, H=ハーフワード; 下位 2bit は後でアドレスから)
@@ -144,6 +146,7 @@ assign A_LS_OPCODE_NEW = A_INTLK ? 	A_LS_OPCODE :
 		    16 | (ILS_STORE ? 8 : 0)|((ILS_LENG & 2) ? 4 : 0) :
 		(ILS_STORE ? OPC_STW : OPC_LDW);
 // ---- #else (VHDL 版: 参考) ----
+//      (#else: the VHDL version, for reference)
 // A-LS-OPCODE := A-INTLK ? 	A-LS-OPCODE :  
 // 		ILS-EXRM-FMT ? B"0" . ILS-EXU-OPC  :
 // 		ILS-LS-FMT & (ILS-LENG!=0)  ? 

@@ -21,6 +21,15 @@
 //  クロックは aclk 1 本, リセットは AXI の慣習どおり aresetn (0 でリセット,
 //  aclk に同期して扱う)。リセット解除後, RESET_PC から実行を始める。
 //
+//  stm_axi_top.v  -  the STM CPU with an AXI4 master interface
+//  (in the figure: 命令 = instructions, オペランド = operands, 32bit データ = 32-bit data)
+//
+//  stm_sys.v with stm_memory removed and an instruction cache and an AXI4 master added
+//  in its place. There is no cache on the data side.
+//  Instructions and data are both accessed through the same AXI4 port (instruction fetches have ARPROT[2]=1).
+//  One clock, aclk; the reset is aresetn as usual for AXI (0 = reset,
+//  handled synchronously to aclk). After reset is released, execution starts at RESET_PC.
+//
 // 【ネットリスト解説】このモジュールも配線だけ (rst = !aresetn の NOT 1 個を除く)。
 //   stm_sys.v との違いは、メモリの代わりに 2 つのモジュールが入り、
 //   stm_cntl の「乱数入力」が本物のハンドシェイクになること:
@@ -94,15 +103,25 @@ module stm_axi_top #(
   parameter IF_ID     = 0,
   parameter OP_ID     = 1,
   parameter BYTE_SWAP = 0,          // stm_axi_master.v を参照
+                                    // see stm_axi_master.v
   parameter ICACHE    = 1,          // 0 にすると命令キャッシュ無し (stm_icache.v を参照)
+                                    // 0 = no instruction cache (see stm_icache.v)
   parameter IC_LINE_W = 5,          // 命令キャッシュのライン = 2^IC_LINE_W バイト
+                                    // instruction cache line = 2^IC_LINE_W bytes
   parameter IC_SET_W  = 7,          // 命令キャッシュのライン数 = 2^IC_SET_W (既定 4KB)
+                                    // number of instruction cache lines = 2^IC_SET_W (4 KB by default)
   // I/O 領域: (番地 & IO_MASK) == IO_BASE。既定は上位 256MB (0xF000_0000〜)。
   //   ・ロードは確定してから (投機的にではなく), 先行するストアが終わってから出す
   //   ・ストアの B サイクルの読み出しはしない (ワード単位でストアすること)
   //   ・命令はフェッチしない (不正命令として扱う)
   //   ・AxCACHE=4'b0000 (Device)
   // IO_EN=0 で I/O 領域を無くす。
+  // I/O region: (address & IO_MASK) == IO_BASE. The default is the top 256 MB (0xF000_0000-).
+  //   - loads go out only once certain (not speculatively), after earlier stores finish
+  //   - stores do not do the B-cycle read (store whole words)
+  //   - instructions are not fetched from it (treated as illegal instructions)
+  //   - AxCACHE=4'b0000 (Device)
+  // IO_EN=0 removes the I/O region.
   parameter        IO_EN   = 1,
   parameter [31:0] IO_BASE = 32'hF000_0000,
   parameter [31:0] IO_MASK = 32'hF000_0000
@@ -111,8 +130,11 @@ module stm_axi_top #(
   input                 aresetn,
   input      [31:0]     RESET_PC,
   output     [31:0]     PC,         // 観測用
+                                    // for observation
   output                bus_error,  // SLVERR/DECERR 応答があった (sticky)。
                                     // ロードのエラーは CPU の例外にもなる
+                                    // a SLVERR/DECERR response was seen (sticky).
+                                    // An error on a load also becomes a CPU exception
 
   output     [ID_W-1:0] m_axi_awid,
   output     [31:0]     m_axi_awaddr,
@@ -154,6 +176,8 @@ module stm_axi_top #(
 );
   // stm_cntl / stm_axi_master とも同期リセット。aresetn は aclk に同期して
   // 解除されるもの (AXI の約束) とし、ここでは同期化しない。
+  // stm_cntl and stm_axi_master both use synchronous reset. aresetn is assumed to be released
+  // synchronously to aclk (an AXI rule), so it is not synchronised here.
   wire rst = !aresetn;
 
   wire [3:0]  dd_rad1, dd_rad2, dd_radb, b_ls_rads;
@@ -177,8 +201,10 @@ module stm_axi_top #(
     .rst              (rst),
     .RESET_PC         (RESET_PC),
     .RANDOM_FOR_OPCLH (op_rdy),       // OP-B の要求が完了
+                                      // the OP-B request completed
     .RANDOM_FOR_IFRDY (1'b1),
     .RANDOM_FOR_IFCLH (if_rdy),       // 命令フェッチのデータが届いた
+                                      // the instruction fetch data arrived
     .DD_RAD1          (dd_rad1),
     .DD_RAD2          (dd_rad2),
     .DD_RADB          (dd_radb),

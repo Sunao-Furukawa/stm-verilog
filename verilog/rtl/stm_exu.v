@@ -9,6 +9,14 @@
 //   * シフト量 (y & 0x3f) が 32 以上のとき C では未定義動作だったが、
 //     ここでは SL/SRL は 0, SRA は符号ビットで埋める (数学的な定義)。
 //
+//  The execution unit (EXU): the C function exu(opc,x,y,&cc,&z,&intr) made into a
+//  combinational module. One is used in the A cycle (EX pipe) and one in the E cycle (LS pipe).
+//
+//  Differences from the C version (only in how undefined behaviour / uninitialised values are handled):
+//   * cases where the C version sets no value (undefined opcode, cc of byte operations) output 0.
+//   * a shift amount (y & 0x3f) of 32 or more was undefined behaviour in C;
+//     here SL/SRL give 0 and SRA fills with the sign bit (the mathematical definition).
+//
 // 【解説】条件コード CC (2bit) の意味
 //   符号付き演算 A / S / C :  0 = 結果が 0,  1 = 負,  2 = 正,  3 = オーバーフロー
 //                            (C は比較なのでオーバーフローでも割り込まない)
@@ -78,6 +86,8 @@ module stm_exu (
 
   // 加減算: 下位 31bit と最上位ビットを分けて, bit31 へのキャリー(cry1)と
   //         bit31 からのキャリー(cry0)を求める (exu.h と同じ構成)
+  // Add/subtract: the low 31 bits and the top bit are handled separately to get the carry
+  //               into bit31 (cry1) and the carry out of bit31 (cry0) (same structure as exu.h)
   wire        is_sub = (opc == OPC_S) || (opc == OPC_SU) ||
                        (opc == OPC_C) || (opc == OPC_CU);
   wire [31:0] yy     = is_sub ? ~y : y;
@@ -136,6 +146,7 @@ module stm_exu (
       OPC_SETHI:begin z = {y[15:0], 16'h0000};         cc = (z == 0) ? 2'd0 : 2'd1; end
 
       // バイト/ハーフワード・ロード (ビッグエンディアン: バイト0 が最上位)
+      // byte/halfword loads (big-endian: byte 0 is the most significant)
       OPC_LDB0: z = {24'd0, y[31:24]};
       OPC_LDB1: z = {24'd0, y[23:16]};
       OPC_LDB2: z = {24'd0, y[15:8]};
@@ -144,6 +155,7 @@ module stm_exu (
       OPC_LDH2: z = {16'd0, y[15:0]};
 
       // バイト/ハーフワード・ストア (メモリ語 y の一部を x で置き換える)
+      // byte/halfword stores (replace part of the memory word y with x)
       OPC_STB0: z = {x[7:0],  y[23:0]};
       OPC_STB1: z = {y[31:24], x[7:0], y[15:0]};
       OPC_STB2: z = {y[31:16], x[7:0], y[7:0]};

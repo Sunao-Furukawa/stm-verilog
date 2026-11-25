@@ -24,6 +24,31 @@
 //  コンソール: 番地 F000_0008 (I/O 領域) に語をストアすると, その下位 8bit を
 //  1 文字として表示する (axi4_mem_slave の CONSOLE)。
 //
+//  tb_stm_axi.v  -  testbench for stm_axi_top (the AXI4 master version)
+//    Runs the same way as tb_stm.v. The memory is an AXI4 slave model
+//    (axi4_mem_slave), connected to the CPU only through AXI4.
+//      * initialise the memory and run from PC = start address
+//      * stop when the top 4 bits of Mem[PC>>2] are 0xD (diagnostic instructions DD/DF...) in a cycle
+//      * the bup0/bup1 tests pass if they end at SUCCESS (0x3F0); DEAD (0x3D0) is a failure
+//      * AXIERR if the slave found AXI rule violations
+//
+//  plusargs:
+//    +HEX=<file>      memory image in $readmemh format (made by tools/mem2hex.py)
+//    +PC=<hex>        start address
+//    +CYCLES=<dec>    maximum number of cycles
+//    +RANDOM          randomise the slave's waits and response order
+//    +SEED=<dec>      random seed
+//    +TRACE           print PC etc. every cycle
+//    +VCD             write waveforms to tb_stm_axi.vcd
+//
+//  Parameters (iverilog -P tb_stm_axi.<name>=<value>):
+//    BYTE_SWAP  byte-lane order of stm_axi_master. When 1,
+//               the memory image is byte-reversed word by word before it is put in the slave
+//    ICACHE, IC_LINE_W, IC_SET_W   presence and size of the instruction cache (stm_icache.v)
+//
+//  Console: storing a word to address F000_0008 (I/O region) prints its low 8 bits
+//  as a character (CONSOLE of axi4_mem_slave).
+//
 // 【解説】テストベンチの構成とネット
 //
 //     +-------------+   aw*/w*  (マスタ → スレーブ)    +----------------+
@@ -77,6 +102,7 @@ module tb_stm_axi;
   wire        bus_error;
 
   reg  [8*1024-1:0] hexfile;     // +HEX= のファイル名 (最大 1024 文字)
+                                 // file name from +HEX= (up to 1024 characters)
   integer       cycles, maxcyc, seed, k;
   reg           trace;
   reg  [31:0]   insn, w;
@@ -130,6 +156,7 @@ module tb_stm_axi;
   always #5 clk = ~clk;
 
   // 命令フェッチの AR を数える (キャッシュのミス回数)
+  // count the ARs of instruction fetches (the number of cache misses)
   integer n_if = 0;
   always @(posedge clk) if (arvalid && arready && arid == 0) n_if = n_if + 1;
 
@@ -167,6 +194,7 @@ module tb_stm_axi;
     end
 
     #1;   // スレーブの initial (メモリのクリア) の後で読み込む
+          // load after the slave's initial block (memory clear)
     // 【解説】BYTE_SWAP=1 のときはバスの語のバイト順が逆になるので、スレーブの
     //         メモリにも反転した語を入れておく (CPU から見える内容は同じになる)。
     // [Note] With BYTE_SWAP=1 the byte order of the words on the bus is reversed, so reversed words

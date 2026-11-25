@@ -1,6 +1,7 @@
 // =====================================================================
 //  080_w_act.vh  <-  hard/080-w-act.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】W サイクル: 命令の完了処理
@@ -89,6 +90,7 @@ assign PC_INCR_AMOUNT = ( W_IS_SUPERSCALAR & !W_JB_V & !WW_INTERRUPTION) ? 8 :
 	       |  WW_EX_INT_V & (!W_IS_SUPERSCALAR |  W_FIRST_IS_EX) ) ? 0 : 4;
 
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
 assign INCREMENTED_PC = add_32_4(PC,PC_INCR_AMOUNT);
 // ---- #endif ----
 

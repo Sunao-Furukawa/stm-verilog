@@ -2,6 +2,8 @@
 //  stm_fmt_ls_ex.vh  <-  hard/fmt-ls-ex.h
 //  LS (ロード/ストア) 形式・EX (演算) 形式のフィールド抽出関数と
 //  命令の合法性チェック is_legal_opc
+//  Field extraction functions for the LS (load/store) and EX (arithmetic) formats,
+//  and the instruction legality check is_legal_opc
 //
 // 【ネットリスト解説】フィールド抽出の function は stm_fmt_jb.vh と同じく配線だけ。
 //   回路 (LUT) になるのは is_legal_opc だけで、入力は命令語の上位 8bit と
@@ -80,6 +82,14 @@ function [3:0]  insn_opc   (input [31:0] i); insn_opc    = i[31:28]; endfunction
 //      PRIV : i0 = 12    かつ i1 = 1..3 かつ ユーザーモードでない
 //   注) 元の #ifdef VHDL 版の論理式は user を見ない・範囲も少し異なる
 //       簡略版だったため、動作確認に使われていた C 版に合わせている。
+// Is the instruction legal (a straight port of is_legal_opc of the C simulator)
+//   i0 = top 4 bits, i1 = next 4 bits
+//      LS   : i0 = 8..9  and i1 = 0..3
+//      EX   : i0 = 2..7  and i1 = 1..14
+//      JB   : i0 = 11
+//      PRIV : i0 = 12    and i1 = 1..3 and not in user mode
+//   Note) the logic of the original #ifdef VHDL version ignores user and its ranges differ
+//         slightly; it was a simplified version, so this follows the C version used for testing.
 function is_legal_opc(input [31:0] i, input user);
   reg [3:0] i0, i1;
   begin

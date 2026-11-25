@@ -4,6 +4,9 @@
 //
 //  ビット番号: 図は CHDL 流 (MSB=0)。Verilog では [31:0] (MSB=31) に変換済み。
 //
+//  Field extraction functions for the JB (jump/branch) format and the privileged format.
+//  Bit numbers: the figures use CHDL numbering (MSB=0); in Verilog they are converted to [31:0] (MSB=31).
+//
 // 【ネットリスト解説】ここの function はすべて「命令語のビットの一部を取り出す」
 //   だけなので、回路としては配線 (LUT 0 個) にしかならない。例えば
 //   jb_rd_mask(IJB) は IJB[23:20] の 4 本のネットにそのまま名前を付けたもの。

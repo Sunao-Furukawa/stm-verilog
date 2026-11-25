@@ -7,6 +7,14 @@
 //  同じアドレスに 2 ポート同時に書くことは無い (制御側が保証)。
 //  万一重なった場合は C 版と同じく WE2 側が勝つ。
 //
+//  The GR part of hard/045-g-ram.ch.
+//  General registers GR[0..15] : 2 write ports / 4 read ports
+//
+//  In the C simulator a write in the W cycle is visible to reads in the same cycle
+//  (write-through), so a bypass of the write data is put on the read side.
+//  Two ports never write the same address at once (guaranteed by the control).
+//  If they ever did, WE2 wins, as in the C version.
+//
 // 【ネットリスト解説】
 //   ・ポートのつながり (stm_sys.v / stm_axi_top.v):
 //       we1/wad1/wdt1 <- W_WE1/W_WAD1/W_WDT1 (LS パイプの結果)
@@ -62,6 +70,7 @@ module stm_regfile (
   always @(posedge clk) begin
     if (we1) gr[wad1] <= wdt1;
     if (we2) gr[wad2] <= wdt2;   // 後に書いた方が優先 (C 版と同じ順序)
+                                 // the later write wins (same order as the C version)
   end
 
   assign rdt1 = (we2 && wad2 == rad1) ? wdt2 : (we1 && wad1 == rad1) ? wdt1 : gr[rad1];

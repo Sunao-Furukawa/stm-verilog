@@ -25,6 +25,22 @@
 //        同じサイクルの後続の読み出しは書き込んだ値を見る (write-through)。
 //        stm_regfile.v / stm_memory.v はこの動作を読み出しバイパスで再現している。
 //
+//  The whole original source is surrounded by #ifndef VHDL; it is code for the C simulator only
+//  (shown above).
+//  In the Verilog version the register file and the memory are moved out of the control
+//  circuit into separate modules,
+//    stm_regfile.v (GR[0..15])  /  stm_memory.v (Mem)
+//  (the same split as regfile.vbe / memory.vbe of the VHDL version).
+//  The ports of stm_cntl
+//    outputs: DD_RAD1, DD_RAD2, DD_RADB, B_LS_RADS, W_WE1/2, W_WAD1/2, W_WDT1/2,
+//             LBS_WE, LBS_AD, LBS_DT, IB_AD
+//    inputs : GR_DT_1, GR_DT_2, GR_DT_B, GR_DT_S, MEM_DT_OP, MEM_DT_IF_H, MEM_DT_IF_L
+//  correspond to the array accesses above.
+//
+//  Note: in the C version GR[..] := / Mem[..] := are written "at once, not through _NEW",
+//        and later reads in the same cycle see the written value (write-through).
+//        stm_regfile.v / stm_memory.v reproduce this with read bypasses.
+//
 // 【ネットリスト解説】このファイルには回路が無い (assign が 1 つも無い)。
 //   上の配列アクセスは、stm_cntl のポートを通して次のネットとして実現されている
 //   (つなぐのは stm_sys.v / stm_axi_top.v):

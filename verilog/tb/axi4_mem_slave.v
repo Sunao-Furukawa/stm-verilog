@@ -22,6 +22,29 @@
 //  SWAP=1 なら I/O デバイスの値はバイトを入れ替えて扱う (マスタの BYTE_SWAP=1 用)。
 //  シミュレーション専用 (合成不可)。
 //
+//  axi4_mem_slave.v  -  AXI4 slave (memory) model for testing
+//
+//  - INCR / FIXED / WRAP bursts, WSTRB, several outstanding transactions with IDs
+//  - with rnd=1, at random:
+//      drops READY (AR/AW/W), delays responses (R/B),
+//      reorders the responses of reads with different IDs and interleaves them beat by beat
+//    with rnd=0 READY is always 1 and it answers as fast as possible (the cycle after the address).
+//  - checks the master for AXI rule violations and counts them in errors:
+//      VALID dropped before READY / contents changed while VALID /
+//      WLAST does not match the burst length / a burst crossing a 4 KB boundary, etc.
+//  The memory is an array of words (32 bits), mem[]. Addresses wrap at 2^AW words,
+//  except for the following 2 regions (decided by the top 4 bits):
+//    0xF000_0000- : test I/O devices
+//        +0 (DEV_A) each read returns "the number of reads so far" and then counts up
+//                   (a speculative read would make the count wrong). Writes are ignored
+//        +4 (DEV_B) returns the bit inverse of the value written
+//                   (reading store data by forwarding would give it uninverted)
+//        +8 (CONSOLE) prints the low 8 bits of the written word as a character ($write)
+//        others     read as 0, writes are ignored
+//    0xE000_0000- : error region. Returns SLVERR for both reads and writes (nothing is written)
+//  With SWAP=1 the I/O device values are byte-swapped (for a master with BYTE_SWAP=1).
+//  Simulation only (not synthesizable).
+//
 // 【解説】このモデルの書き方について
 //   ・実際の回路ではなく「振る舞い」のモデル。always ブロックの中でブロッキング
 //     代入 (=) と integer, for ループを自由に使い、キュー (rq_*, wq_*, wd, bq_*) を
@@ -48,13 +71,17 @@
 // =====================================================================
 module axi4_mem_slave #(
   parameter AW   = 10,              // 語アドレス幅 (2^AW 語)
+                                    // word address width (2^AW words)
   parameter ID_W = 4,
   parameter QD   = 4,               // 読み出し / 書き込みアドレスの受付数
+                                    // number of read / write addresses accepted
   parameter SWAP = 0                // I/O デバイスの値のバイト入れ替え
+                                    // byte swap of the I/O device values
 ) (
   input                 aclk,
   input                 aresetn,
   input                 rnd,        // 1: 乱数でウェイト・順序入れ替え
+                                    // 1: random waits and reordering
 
   input      [ID_W-1:0] s_axi_awid,
   input      [31:0]     s_axi_awaddr,
@@ -88,14 +115,22 @@ module axi4_mem_slave #(
 );
   reg [31:0] mem [0:(1<<AW)-1];
   integer    seed;                  // テストベンチから設定してよい
+                                    // may be set by the testbench
   integer    errors;                // 規則違反の数
+                                    // number of rule violations
   integer    n_rd, n_wr;            // 受け付けたトランザクション数
+                                    // number of transactions accepted
   integer    dev_rd;                // I/O デバイスが読まれた回数 (ビート数)
+                                    // number of reads of the I/O devices (beats)
   integer    dev_a;                 // DEV_A の値 (= DEV_A が読まれた回数)
+                                    // value of DEV_A (= number of times DEV_A was read)
   reg [31:0] dev_b;                 // DEV_B に書かれた値
+                                    // value written to DEV_B
   integer    n_rd_err, n_wr_err;    // エラーを返した数
+                                    // number of error responses returned
 
   function [31:0] dsw;              // I/O デバイスの値 <-> バスの語
+                                    // I/O device value <-> bus word
     input [31:0] d;
     dsw = SWAP ? {d[7:0], d[15:8], d[23:16], d[31:24]} : d;
   endfunction
@@ -110,11 +145,13 @@ module axi4_mem_slave #(
   end
 
   function chance;                  // rnd のとき確率 1/2 で 0
+                                    // 0 with probability 1/2 when rnd
     input dummy;
     chance = !rnd || ($random(seed) & 1);
   endfunction
 
   // バーストの次の番地
+  // next address of a burst
   function [31:0] next_addr;
     input [31:0] a; input [7:0] len; input [2:0] size; input [1:0] burst;
     reg [31:0] bytes, wmask;
@@ -132,6 +169,7 @@ module axi4_mem_slave #(
   endfunction
 
   // ---- 規則違反の検査
+  //      (protocol checks)
   task check_addr;
     input [8*2-1:0] ch; input [31:0] a; input [7:0] len; input [2:0] size;
     input [1:0] burst;
@@ -184,6 +222,7 @@ module axi4_mem_slave #(
 
   // =================================================================
   //  読み出し
+  //  Reads
   // =================================================================
   // 【解説】受け付けた読み出しアドレスの表 (最大 QD 個)。1 つの AR = 1 行で、
   //         ビートを返すたびに rq_addr / rq_len を進め, 最後のビートで rq_v を落とす。
@@ -198,11 +237,15 @@ module axi4_mem_slave #(
   reg [ID_W-1:0] rq_id   [0:QD-1];
   reg [31:0]     rq_addr [0:QD-1];
   reg [7:0]      rq_len  [0:QD-1];    // 残りビート数 - 1
+                                      // remaining beats - 1
   reg [7:0]      rq_olen [0:QD-1];    // 元の ARLEN (WRAP 用)
+                                      // original ARLEN (for WRAP)
   reg [2:0]      rq_size [0:QD-1];
   reg [1:0]      rq_burst[0:QD-1];
   reg [3:0]      rq_wait [0:QD-1];    // 応答を始めるまでのサイクル数
+                                      // cycles before the response starts
   integer        rq_seq  [0:QD-1];    // 受付順 (同じ ID の順序を守る)
+                                      // acceptance order (keeps the order within one ID)
   integer        rseq, r_cur;
   integer        i, j, cnt, start, pick;
   reg            older;
@@ -216,6 +259,7 @@ module axi4_mem_slave #(
       rseq = 0; r_cur = -1;
     end else begin
       // ---- 出していたビートが受け取られた
+      //      (the beat being driven was taken)
       if (s_axi_rvalid && s_axi_rready) begin
         if (rq_len[r_cur] == 0) rq_v[r_cur] = 0;
         else begin
@@ -229,6 +273,7 @@ module axi4_mem_slave #(
         if (rq_v[i] && rq_wait[i] != 0) rq_wait[i] = rq_wait[i] - 1;
 
       // ---- 次のビートを選ぶ (RVALID を出していない時だけ: 出したら保持)
+      //      (choose the next beat; only while not driving RVALID: once driven it is held)
       if (!(s_axi_rvalid && !s_axi_rready)) begin
         pick = -1;
         if (chance(0)) begin
@@ -237,6 +282,7 @@ module axi4_mem_slave #(
             i = (start + j) % QD;
             if (pick < 0 && rq_v[i] && rq_wait[i] == 0) begin
               // 同じ ID でもっと古いものがあれば, そちらが先
+              // if there is an older one with the same ID, it goes first
               older = 0;
               for (cnt = 0; cnt < QD; cnt = cnt + 1)
                 if (rq_v[cnt] && rq_id[cnt] == rq_id[i] && rq_seq[cnt] < rq_seq[i])
@@ -245,6 +291,7 @@ module axi4_mem_slave #(
             end
           end
           // rnd=0 では一番古いものから
+          // with rnd=0, the oldest one first
           if (!rnd) begin
             pick = -1;
             for (i = 0; i < QD; i = i + 1)
@@ -278,6 +325,7 @@ module axi4_mem_slave #(
       end
 
       // ---- アドレスの受け付け
+      //      (accepting an address)
       if (s_axi_arvalid && s_axi_arready) begin
         check_addr("AR", s_axi_araddr, s_axi_arlen, s_axi_arsize, s_axi_arburst);
         pick = -1;
@@ -302,6 +350,7 @@ module axi4_mem_slave #(
 
   // =================================================================
   //  書き込み
+  //  Writes
   // =================================================================
   // 【解説】書き込み側は AW / W / B の 3 本の FIFO。AXI では W が AW より先に来てもよいので
   //         別々に貯め, 両方の先頭が揃ったら 1 ビートずつメモリに書き,
@@ -310,6 +359,7 @@ module axi4_mem_slave #(
   //        separately; when both heads are present one beat at a time is written to memory,
   //        and the last beat of a burst pushes a B response onto its FIFO.
   reg [ID_W-1:0] wq_id   [0:QD-1];    // AW の FIFO
+                                      // FIFO of AW
   reg [31:0]     wq_addr [0:QD-1];
   reg [7:0]      wq_len  [0:QD-1];
   reg [7:0]      wq_olen [0:QD-1];
@@ -317,10 +367,13 @@ module axi4_mem_slave #(
   reg [1:0]      wq_burst[0:QD-1];
   integer        wq_n;
   reg [36:0]     wd      [0:7];       // W の FIFO {data, strb, last}
+                                      // FIFO of W {data, strb, last}
   integer        wd_n;
   reg [ID_W-1:0] bq_id   [0:QD-1];    // B 応答の FIFO
+                                      // FIFO of B responses
   reg [1:0]      bq_resp [0:QD-1];
   reg            w_err;               // 書いているバーストにエラー領域のビートがあった
+                                      // the burst being written had a beat in the error region
   integer        bq_n, b_wait;
   reg [31:0]     wa, wv;
   reg [36:0]     wbeat;
@@ -333,6 +386,7 @@ module axi4_mem_slave #(
       s_axi_bvalid  <= 0;
     end else begin
       // ---- B 応答が受け取られた
+      //      (the B response was taken)
       if (s_axi_bvalid && s_axi_bready) begin
         for (i = 0; i < QD - 1; i = i + 1) begin
           bq_id[i] = bq_id[i+1]; bq_resp[i] = bq_resp[i+1];
@@ -342,6 +396,7 @@ module axi4_mem_slave #(
       end
 
       // ---- 受け付け
+      //      (accepting)
       if (s_axi_awvalid && s_axi_awready) begin
         check_addr("AW", s_axi_awaddr, s_axi_awlen, s_axi_awsize, s_axi_awburst);
         wq_id[wq_n]    = s_axi_awid;
@@ -359,6 +414,7 @@ module axi4_mem_slave #(
       end
 
       // ---- アドレスとデータが揃ったら 1 ビート書く
+      //      (once the address and data are both there, write 1 beat)
       if (wq_n > 0 && wd_n > 0 && bq_n < QD) begin
         wbeat = wd[0];
         for (i = 0; i < 7; i = i + 1) wd[i] = wd[i+1];
@@ -401,6 +457,7 @@ module axi4_mem_slave #(
       end
 
       // ---- B 応答 (出したら BREADY まで保持)
+      //      (B response; once driven it is held until BREADY)
       if (!(s_axi_bvalid && !s_axi_bready)) begin
         if (b_wait > 0) b_wait = b_wait - 1;
         if (bq_n > 0 && b_wait == 0 && chance(0)) begin

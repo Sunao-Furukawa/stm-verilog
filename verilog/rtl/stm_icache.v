@@ -33,6 +33,40 @@
 //  その命令を実際に実行すると不正命令例外 (INTCODE_OP) になり、XPC にその番地が
 //  残る。予測ミス側の先読みなら取り消されるだけで何も起きない。
 //
+//  stm_icache.v  -  instruction cache (instruction fetch of stm_cntl <-> stm_axi_master)
+//
+//  Direct mapped, lines of 2^LINE_W bytes, 2^SET_W lines
+//  (32 bytes x 128 = 4 KB by default). Read-only; it is not kept coherent with stores
+//  (self-modifying code is not supported).
+//
+//  - The CPU fetches in 8-byte (2-instruction) units (IB_AD, IB_V).
+//    The data RAM is 64 bits wide; 1 entry = 8 bytes.
+//  - Hit: the RAM is read one cycle ahead with the CPU's "IB_AD of the next cycle" (IB_AD_NXT),
+//    so if_rdy can be returned in the cycle after the request. This is the same timing as the
+//    original stm_memory (which answers in the same cycle), so as long as it hits the CPU runs
+//    in the same number of cycles as the original design.
+//  - Miss: the line is filled with an AXI4 WRAP burst. Reading starts at the requested 8 bytes,
+//    and they are returned to the CPU as soon as those 2 beats arrive (early restart).
+//    The following 8-byte units are also passed to the CPU as they arrive (for code that runs
+//    straight on, the next instructions arrive without waiting for the line fill to finish).
+//    Other hits are returned after the line fill is done.
+//  - If the CPU cancels a request, a line fill already started is carried out to the end (not wasted).
+//    Requests are matched by address, so the CPU does not need to say where requests start.
+//
+//  With ENABLE=0 there is no cache, and 8 bytes (an INCR of 2 beats) are read every time
+//  (the same behaviour as before the cache was added).
+//
+//  Both RAMs are written in the "1 write port + 1 read port, synchronous read" form,
+//  so they become FPGA block RAMs. Only the valid bits are FFs.
+//
+//  Addresses that cannot be fetched: in the following cases the illegal instruction ILL_INSN
+//  (0xE0000000; no instruction has 14 in its top 4 bits) is returned to the CPU instead.
+//    - the I/O region ((address & IO_MASK) == IO_BASE, IO_EN=1): not put on the bus
+//      (so instruction prefetch never reads I/O)
+//    - 8 bytes for which the bus returned an error response: that line is not kept in the cache
+//  Actually executing that instruction raises an illegal instruction exception (INTCODE_OP), and
+//  XPC holds its address. A prefetch on the mispredicted path is just cancelled and nothing happens.
+//
 // 【ネットリスト解説】
 //   ・ポートのつながり (stm_axi_top.v):
 //       ib_valid / ib_ad / ib_ad_nxt <- stm_cntl の IB_VALID / IB_AD / IB_AD_NXT (190)
@@ -80,7 +114,9 @@
 module stm_icache #(
   parameter ENABLE = 1,
   parameter LINE_W = 5,             // ライン長 = 2^LINE_W バイト (4〜6: 16〜64 バイト)
+                                    // line length = 2^LINE_W bytes (4-6: 16-64 bytes)
   parameter SET_W  = 7,             // ライン数 = 2^SET_W (1 以上)
+                                    // number of lines = 2^SET_W (1 or more)
   parameter        IO_EN   = 1,
   parameter [31:0] IO_BASE = 32'hF000_0000,
   parameter [31:0] IO_MASK = 32'hF000_0000
@@ -89,14 +125,19 @@ module stm_icache #(
   input             rst,
 
   // ---- stm_cntl 側
+  //      (stm_cntl side)
   input             ib_valid,       // IB_VALID
   input      [31:0] ib_ad,          // IB_AD
   input      [31:0] ib_ad_nxt,      // IB_AD_NXT (次のサイクルの IB_AD)
+                                    // IB_AD_NXT (IB_AD of the next cycle)
   output            if_rdy,         // -> RANDOM_FOR_IFCLH
   output     [31:0] if_dt_h,        // -> MEM_DT_IF_H (先の命令, 番地 8n)
+                                    // -> MEM_DT_IF_H (the earlier instruction, address 8n)
   output     [31:0] if_dt_l,        // -> MEM_DT_IF_L (後の命令, 番地 8n+4)
+                                    // -> MEM_DT_IF_L (the later instruction, address 8n+4)
 
   // ---- stm_axi_master 側 (バースト読み出し)
+  //      (stm_axi_master side: burst reads)
   output            fr_req,
   output     [31:0] fr_addr,
   output     [7:0]  fr_len,
@@ -106,22 +147,28 @@ module stm_icache #(
   input      [31:0] fr_data,
   input             fr_last,
   input             fr_err          // このビートはエラー応答
+                                    // this beat is an error response
 );
   localparam [31:0] ILL_INSN = 32'hE000_0000;
 
   // I/O 領域からはフェッチしない (すぐに不正命令を返す)
+  // no fetches from the I/O region (return an illegal instruction at once)
   wire       io_hit  = ib_valid & IO_EN & ((ib_ad & IO_MASK) == IO_BASE);
 
   // 直前に届いた 8 バイト (early restart / キャッシュ無しのときのデータ)
+  // the 8 bytes that arrived last (data for early restart / without the cache)
   reg        byp_v;
   reg [28:0] byp_ad;                // 番地 [31:3]
+                                    // address [31:3]
   reg [31:0] byp_h, byp_l;
   wire       byp_hit = ib_valid & byp_v & (byp_ad == ib_ad[31:3]);
 
 generate
 if (ENABLE) begin : g_cache
   localparam WORDS  = 1 << (LINE_W - 2);       // ラインの語数 (= ビート数)
+                                               // words per line (= number of beats)
   localparam UNIT_W = LINE_W - 3;              // ライン内の 8 バイト単位の番号の幅
+                                               // width of the 8-byte unit number within a line
   localparam TAG_W  = 32 - LINE_W - SET_W;
   localparam DEP_W  = SET_W + UNIT_W;
 
@@ -135,16 +182,22 @@ if (ENABLE) begin : g_cache
 
   reg  [1:0]        fst;
   reg  [28:0]       f_ad;                       // 埋めているラインの要求番地 [31:3]
+                                                // requested address of the line being filled [31:3]
   reg  [LINE_W-3:0] f_beat;                     // 何ビート目か
+                                                // which beat
   reg  [31:0]       f_hw;                       // 8 バイトの前半 (H) を待たせる
+                                                // holds the first half (H) of the 8 bytes
   reg               f_herr;                     // 前半がエラー応答だった
+                                                // the first half was an error response
   reg               f_err;                      // このライン埋めでエラー応答があった
+                                                // this line fill had an error response
 
   wire [SET_W-1:0]  ib_idx   = ib_ad[LINE_W+SET_W-1:LINE_W];
   wire [TAG_W-1:0]  ib_tag   = ib_ad[31:LINE_W+SET_W];
   wire [SET_W-1:0]  f_idx    = f_ad[LINE_W+SET_W-4:LINE_W-3];
   wire [TAG_W-1:0]  f_tag    = f_ad[28:LINE_W+SET_W-3];
   // このビートのライン内の語番号 (WRAP なので要求した語から回る)
+  // word number within the line of this beat (WRAP, so it wraps around from the requested word)
   wire [LINE_W-3:0] f_word   = {f_ad[LINE_W-4:0], 1'b0} + f_beat;
 
   // 【解説】番地の分け方 (既定値の場合):
@@ -154,6 +207,7 @@ if (ENABLE) begin : g_cache
   //          [31:12] tag (20 bits) | [11:5] line number (7 bits) | [4:3] 8-byte unit in the line | [2:0]
   //        The data RAM address is the 9 bits {line number, 8-byte unit in the line}.
   // ---- RAM (読み出しは IB_AD_NXT で 1 サイクル先に)
+  //      (RAM: read one cycle ahead with IB_AD_NXT)
   wire [DEP_W-1:0] rd_a = {ib_ad_nxt[LINE_W+SET_W-1:LINE_W], ib_ad_nxt[LINE_W-1:3]};
   wire             d_we = (fst == F_DATA) & fr_valid & f_word[0];
   wire [DEP_W-1:0] d_wa = {f_idx, f_word[LINE_W-3:1]};
@@ -179,9 +233,12 @@ if (ENABLE) begin : g_cache
 
   // ---- ヒット判定。ライン埋めの間と直後の 1 サイクル (RAM の読み出しが
   //      書き込みと重なって古い値かもしれない) はヒットにしない。
+  // ---- hit test. Not a hit during a line fill or in the cycle right after it (the RAM read
+  //      may overlap the write and return an old value).
   wire hit        = ib_valid & (fst == F_IDLE) & vbits[ib_idx] & (t_q == ib_tag);
   wire miss_start = ib_valid & (fst == F_IDLE) & !hit & !byp_hit & !io_hit;
   wire pair_err   = f_herr | fr_err;            // この 8 バイトのどちらかがエラー
+                                                // either half of these 8 bytes is an error
 
   assign if_rdy   = hit | byp_hit | io_hit;
   assign if_dt_h  = io_hit ? ILL_INSN : byp_hit ? byp_h : d_q[63:32];
@@ -225,6 +282,8 @@ if (ENABLE) begin : g_cache
             end
             // 8 バイト揃うごとに CPU へ流す (最初は要求したもの)。
             // エラー応答なら不正命令に置き換える。
+            // Every time 8 bytes are complete, pass them to the CPU (the requested ones first).
+            // Replace them with illegal instructions on an error response.
             if (f_word[0]) begin
               byp_v  <= 1'b1;
               byp_ad <= {f_ad[28:LINE_W-3], f_word[LINE_W-3:1]};
@@ -233,6 +292,7 @@ if (ENABLE) begin : g_cache
             end
             if (fr_last) begin
               // エラー応答のあったラインは有効にしない (次も読み直す)
+              // a line with an error response is not made valid (it is read again next time)
               vbits[f_idx] <= !(f_err | fr_err);
               fst          <= F_DONE;
             end
@@ -244,6 +304,7 @@ if (ENABLE) begin : g_cache
   end
 end else begin : g_nocache
   // ---- キャッシュ無し: 毎回 8 バイトを読み, CPU が受け取ったら捨てる
+  //      (no cache: read 8 bytes every time, drop them once the CPU has taken them)
   // 【ネットリスト解説】generate の else 側なので、ENABLE=0 のときだけこちらの回路が
   //   作られ (RAM は 0 個)、ENABLE=1 のときは丸ごと存在しない。byp_* の FF
   //   (8 バイトのバッファ 1 つ) と 3 状態の状態機械だけの回路になる。
@@ -268,6 +329,7 @@ end else begin : g_nocache
   assign fr_req   = start | (nst == N_REQ);
   assign fr_addr  = (nst == N_REQ) ? {n_ad, 3'b000} : {ib_ad[31:3], 3'b000};
   assign fr_len   = 8'd1;                       // 2 ビート
+                                                // 2 beats
   assign fr_burst = 2'b01;                      // INCR
 
   always @(posedge clk) begin
@@ -279,6 +341,7 @@ end else begin : g_nocache
       n_err  <= 1'b0;
     end else begin
       if (byp_hit) byp_v <= 1'b0;               // CPU が受け取った (SU_IF_CLH)
+                                                // the CPU took it (SU_IF_CLH)
       case (nst)
         N_IDLE:
           if (start) begin
@@ -298,6 +361,7 @@ end else begin : g_nocache
               byp_l <= fr_data;
             if (fr_last) begin
               // エラー応答なら 8 バイトとも不正命令にする
+              // on an error response, make all 8 bytes illegal instructions
               if (n_err | fr_err) begin
                 byp_h <= ILL_INSN;
                 byp_l <= ILL_INSN;

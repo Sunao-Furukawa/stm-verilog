@@ -1,6 +1,7 @@
 // =====================================================================
 //  040_d_bra.vh  <-  hard/040-d-bra.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】D サイクル(6): 分岐命令の処理
@@ -176,6 +177,7 @@ assign DD_PREDICTING_TAKEN = DD_ISSUEING_UNSOLVED_BC & IJB_BACKWARD;
 assign DD_DISP = ILS_LS_FMT   ? ILS_DISP16 :
 		ILS_EXRM_FMT ? sign_ext_12(ILS_DISP12) : IJB_IMM16;
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
 // 【解説】PC 相対分岐の分岐先 = 分岐命令のアドレス (PART1+PART2) + IMM20 (符号拡張)。
 // [Note] Target of a PC-relative branch = address of the branch (PART1+PART2) + IMM20 (sign-extended).
 assign DD_TGT = add_32_5_20(DD_JB_INSN_AD_PART1,DD_JB_INSN_AD_PART2,IJB_IMM20);

@@ -9,6 +9,15 @@
 //    defs.h の bit_ext(i,s,n) (左から s ビット目から n ビット) は
 //    Verilog では  i[31-s -: n]  に相当する。
 //
+//  Macros shared by the source, replaced by Verilog-2001 functions.
+//  `include this inside a module body.
+//
+//  Note on bit numbers:
+//    The CHDL/VHDL versions use "MSB is bit 0" (big-endian numbering), but
+//    this Verilog version always uses the usual [N-1:0] (LSB is bit 0).
+//    bit_ext(i,s,n) of defs.h (n bits starting at bit s from the left) is
+//    i[31-s -: n] in Verilog.
+//
 // 【ネットリスト解説】function は「呼んだ場所にその式を展開する」だけで、
 //   それ自身は回路の部品 (インスタンス) にならない。合成結果の中に
 //   sign_ext_16 という名前のセルは無く、呼び出し側のネットの一部になる
@@ -59,6 +68,8 @@ endfunction
 // cc matches condition-mask
 //   C 版: ((8 >> cc) & mask) != 0
 //   MASK の最上位ビット(8)が cc=0, 最下位ビット(1)が cc=3 に対応する。
+//   (C version: ((8 >> cc) & mask) != 0
+//    The top bit of MASK (8) is cc=0, the bottom bit (1) is cc=3.)
 //   【解説】回路としては「cc を選択信号, mask の 4 本をデータとする 4:1 MUX」。
 //         例: BNE (mask=6=0110) は cc=1 (負) と cc=2 (正) で成立する。
 //   [Note] As a circuit this is "a 4:1 MUX with cc as the select and the 4 bits of mask as data".
@@ -69,6 +80,7 @@ endfunction
 
 // means that insn with this EX_opcode will write GR
 //   C / CU (比較) と 0 (LDW 扱い) は GR に書かない。
+//   (C / CU (compares) and 0 (treated as LDW) do not write GR.)
 function we_on(input [3:0] opc);
   we_on = !((opc == OPC_C) || (opc == OPC_CU) || (opc == 4'd0));
 endfunction
@@ -80,6 +92,8 @@ endfunction
 //      |  |cc|   |u| inttype|                |  u: user
 //	+--+--+---+-+--------+----------------+
 //   Verilog の番号では cc=[29:28], user=[24], inttype=[23:16]
+//   (bit numbers in the figure are CHDL ones: MSB=0)
+//   In Verilog numbering cc=[29:28], user=[24], inttype=[23:16]
 
 // Function to build PSW from CC, USER and INTTYPE
 //   【解説】PSW は 1 本の 32bit レジスタとしては存在しない。実体は stm_cntl の
@@ -108,6 +122,7 @@ endfunction
 
 // ---------------------------------------------------------------------
 // 加算器類 (C 版では単なる '+', VHDL 版では個別の加算器エンティティ)
+// Adders (just '+' in the C version, separate adder entities in the VHDL version)
 
 // Function to add 3 bits and 2 bits.  Used in computing NIP)
 function [2:0] add_3_2(input [2:0] x, input [1:0] y);
@@ -122,6 +137,7 @@ endfunction
 
 // Function to add 32 bits and 4 bits.  Used in PC-increment of W-cycle
 // and in IF-REQ-AD.  (y は 0/4/8 なので 5 bit)
+//   (y is 0/4/8, so 5 bits)
 function [31:0] add_32_4(input [31:0] x, input [4:0] y);
   add_32_4 = x + {27'd0, y};
 endfunction
@@ -129,6 +145,8 @@ endfunction
 // Function to add 4, 5 and 3 bits with coefficients.  Used in JB-INSN-AD.
 //   C 版: (-1)*(x ? 16 : 8) + 4 * y + (z ? 0 : 4)
 //   結果は -16 .. +24 の範囲なので 6 bit の 2 の補数で表す。
+//   C version: (-1)*(x ? 16 : 8) + 4 * y + (z ? 0 : 4)
+//   The result is in -16 .. +24, so it is a 6-bit two's complement number.
 //   【解説】入力は 1+3+1 = 5bit しか無いので、合成ツールはこれを加算器ではなく
 //         5 入力の真理値表 (出力 6bit それぞれ LUT5 1 個) にしてしまえる。
 //         例: x=1 (V45), y=4 (NIP), z=1 (1 命令目が分岐)  →  -16 + 16 + 0 = 0。
@@ -142,12 +160,14 @@ endfunction
 //          8 bytes put in (D_IF_AD)".
 function [5:0] add_4_5_3(input x, input [2:0] y, input z);
   add_4_5_3 = (x ? 6'd48 : 6'd56)          // -16 / -8 (6bit 2の補数)
+                                           // -16 / -8 (6-bit two's complement)
             + {1'b0, y, 2'b00}              // 4 * y
             + (z ? 6'd0 : 6'd4);
 endfunction
 
 // Function to add 32, 5 and 20 bits with coefficients.  Used in DD-TGT.
 //   x + (6bit 符号付き y) + sign_ext(20, z)
+//   x + (6-bit signed y) + sign_ext(20, z)
 //   【解説】3 入力の加算 (x + y + z)。合成ではキャリー連鎖 (CARRY4) を使った加算器に
 //         なる (Vivado の合成結果では A_TGT_reg[..]_i_1 という名前の CARRY4 が並び、
 //         その出力ネットが add_32_5_20_return[..])。

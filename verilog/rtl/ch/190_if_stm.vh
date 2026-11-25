@@ -1,6 +1,7 @@
 // =====================================================================
 //  190_if_stm.vh  <-  hard/190-if-stm.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】命令フェッチの状態機械と NIP の更新
@@ -114,6 +115,7 @@ assign NIP_AFTER_EMIT_A = add_3_2(NIP_A,EMIT_FOR_A);
 assign EMIT_FOR_B = ( EID ? EMIT : 0);
 assign NIP_AFTER_EMIT_B = add_3_2(NIP_B,EMIT_FOR_B);
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
 // 【解説】キューを 2 語前へシフトするか: 4,5 番が埋まっていて, 発行後の NIP が
 //         2 以上 (0,1 番がもう不要) のとき。
 // [Note] Shift the queue forward by 2 words: when entries 4,5 are filled and NIP after the issue
@@ -121,6 +123,7 @@ assign NIP_AFTER_EMIT_B = add_3_2(NIP_B,EMIT_FOR_B);
 assign SFTUP_A = IWQ_A_V45 & ((NIP_AFTER_EMIT_A & 6) != 0);
 assign SFTUP_B = IWQ_B_V45 & ((NIP_AFTER_EMIT_B & 6) != 0);
 // ---- #else (VHDL 版: 参考) ----
+//      (#else: the VHDL version, for reference)
 // SFTUP-A   = IWQ-A-V45 & (NIP-AFTER-EMIT-A[0] | NIP-AFTER-EMIT-A[1])
 // SFTUP-B   = IWQ-B-V45 & (NIP-AFTER-EMIT-B[0] | NIP-AFTER-EMIT-B[1])
 // ---- #endif ----
@@ -152,6 +155,7 @@ assign CLEAR_NIP_B = IJB_V & D_FWD & (!EID&DD_ISSUEING_UNSOLVED_BC | EID & DD_JB
 // 		NIP-B + ( EID ? EMIT : 0) + MINUS2 * SFTUP-B   ))
 
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
 // 【解説】次の NIP:
 //           クリア         : 6 + (分岐先が 8 バイトの後半なら 1)
 //           NIP が 6/7 (空) : 命令が届いたら 4/5 に (6→4, 7→5)
@@ -175,6 +179,7 @@ assign NIP_B_NEW = CLEAR_NIP_B        ? 6 | ((IF_REQ_AD & 4) ? 1 : 0)           
 	  					   2 | (NIP_AFTER_EMIT_B & 1) ):
 	 NIP_AFTER_EMIT_B;
 // ---- #else (VHDL 版: 参考) ----
+//      (#else: the VHDL version, for reference)
 // NIP-A-TMP = CLEAR-NIP-A        ? B"11" . IF-REQ-AD[29] :
 //          (NIP-A[0]&NIP-A[1]) ? B"1" . !(SU-IF-CLH-NOCAN & ! IB-ID) . NIP-A[2] : 
 // 	 SFTUP-A ? B"0" . NIP-AFTER-EMIT-A[0] . NIP-AFTER-EMIT-A[2] :

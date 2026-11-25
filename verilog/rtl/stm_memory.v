@@ -6,6 +6,13 @@
 //  C 版と同じく、書き込みは同じサイクルの読み出しに見える (write-through)。
 //  サイズは C 版と同じ 1024 語 (4KB) が既定。
 //
+//  The Mem part of hard/045-g-ram.ch.
+//  A simple memory model shared by instructions and data (for simulation).
+//    * operand side: read/write of 1 word (LBS-AD)
+//    * fetch side: reads the 2 words at an 8-byte boundary (IB-AD) at once
+//  As in the C version, a write is visible to reads in the same cycle (write-through).
+//  The default size is 1024 words (4 KB), the same as the C version.
+//
 // 【ネットリスト解説】
 //   ・ポートのつながり (stm_sys.v):
 //       we / opad / stdt <- LBS_WE / LBS_AD / LBS_DT (S ユニット OP-B の FF, 160)
@@ -36,7 +43,9 @@
 // =====================================================================
 module stm_memory #(
   parameter AW       = 10,          // 語アドレス幅 (2^AW 語)
+                                    // word address width (2^AW words)
   parameter INIT_HEX = ""           // $readmemh で読む初期化ファイル
+                                    // init file read with $readmemh
 ) (
   input             clk,
   input             we,
