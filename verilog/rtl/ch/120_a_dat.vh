@@ -26,6 +26,23 @@
 //       MUX にも入るので、「加算 → 別の機能ブロックの MUX → FF」が A サイクルの長い経路。
 //     ・A_SR_READ_DATA は 32bit の 9:1 MUX (選択 = A_EX_RAD2 の 4bit)。
 //       AA_EX_RES はその出力と EXU の出力の 2:1 MUX。
+//
+// [Netlist notes]
+//   Inputs : A_LS_OPB_DT / A_EX_OP1_DT / A_EX_OP2_DT / A_DISP / A_EX_RAD2 (FFs in 140),
+//            A_EX_OPCODE / A_PRIVCODE (FFs in 150), system registers and PSW (FFs in 080)
+//   Outputs: AA_EAG_OUTPUT -> 060 (I/O check), 130 (B_LS_LOG_AD, B_TGT),
+//                            160 (address to the S unit), 170 (fetch address of a register-indirect branch)
+//            AA_EX_RES     -> 130 (B_EX_RES), 140 (bypass from A to D)
+//            AA_EXU_CC     -> 130 (B_EX_CC), 210 (BC resolved in the EX pipe)
+//            AA_EXU_INT    -> 130 (overflow interrupt)
+//   Circuit:
+//     - One u_a_exu (stm_exu) and one 32-bit EAG adder (add_32_16).
+//       Both take only A FFs as inputs, so the A cycle starts at these two units.
+//     - AA_EAG_OUTPUT has a particularly large fan-out. Besides the B_LS_LOG_AD FFs it goes into
+//       the muxes of the S unit's LBS_AD / OP_WAIT_AD (160) and of the fetch address IB_AD
+//       (170 -> 190), so "add -> a mux in another functional block -> FF" is the long A-cycle path.
+//     - A_SR_READ_DATA is a 32-bit 9:1 mux (select = the 4 bits of A_EX_RAD2).
+//       AA_EX_RES is a 2:1 mux of its output and the EXU output.
 // ---------------------------------------------------------------------
 
 // a-dat

@@ -28,6 +28,24 @@
 //       OP_LBS_DATA そのもの (配線) になり、比較器は消える。
 //     ・E_OPCLH_LCH / E_LS_INTCODE / E_LS_LD_DT は「!E_STB_INTLK のときだけ更新」
 //       なので CE 付きの FF。
+//
+// [Netlist notes]
+//   Inputs : B_* (FFs in 130), E_* (FFs in 110), W_* (FFs in 090), STB_* (FFs in 090),
+//            EE_ALU_OUTPUT (ALU in 090, combinational), B_OPCLH / OP_B_INTCODE / OP_LBS_DATA (050),
+//            E_INTLK / E_STB_INTLK (070), port GR_DT_S (stm_regfile)
+//   Outputs (FFs): E_LS_OPS_DT, E_LS_LD_DT, E_LS_INTCODE -> 090 (ALU inputs and interrupt)
+//                  E_OPCLH_LCH -> 050, 060, 070, 140 ("the data for E is ready")
+//   Outputs (combinational): BB_MEM_DATA -> 140 (load-data bypass to A)
+//   Circuit:
+//     - E_LS_OPS_DT_NEW is a 32-bit 7:1 priority mux. Its selects come from five 4-bit
+//       equality comparators (B_LS_RADS against B_WAD2 / E_WAD1 / E_WAD2 / W_WAD1 / W_WAD2).
+//       One data input, EE_ALU_OUTPUT, is the ALU output of the same cycle, so
+//       E FFs -> ALU -> this mux -> E_LS_OPS_DT FFs is a one-cycle path.
+//     - BB_MEM_DATA is two 32-bit equality comparators (load address in B against the store
+//       address in E / the STB address) and a 32-bit 3:1 mux. With EXT_BUS=1, constant
+//       propagation turns it into OP_LBS_DATA itself (a wire) and the comparators disappear.
+//     - E_OPCLH_LCH / E_LS_INTCODE / E_LS_LD_DT are "updated only when !E_STB_INTLK",
+//       so they are FFs with CE.
 // ---------------------------------------------------------------------
 
 // b-dat

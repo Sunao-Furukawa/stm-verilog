@@ -10,6 +10,12 @@
 //   同じビットが jb_rd_mask (マスク) にも ex_rd (書き込み先) にもなるのは、
 //   命令形式によってフィールドの意味が変わるからで、どの意味で使うかは
 //   使う側の式 (020, 040, 150 など) が形式判定の結果で選ぶ。
+//
+// [Netlist notes] Every function here only takes out some bits of the instruction word,
+//   so as a circuit they are only wiring (0 LUTs). For example jb_rd_mask(IJB) simply names
+//   the 4 nets IJB[23:20]. The same bits become both jb_rd_mask (the mask) and ex_rd (the
+//   destination) because the meaning of a field depends on the instruction format; which
+//   meaning is used is chosen by the using expressions (020, 040, 150, ...) from the format decode.
 // =====================================================================
 /*JB :
 # COND -- conditional branch

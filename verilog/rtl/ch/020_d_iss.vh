@@ -27,6 +27,18 @@
 //   どこからも使われないので消える。
 //   ここは IWQ の FF から数えて 2 段目くらいの浅い論理だが、次の 030 の
 //   DD_ISSUE_SECOND_INSN がこれらをすべて集めるので、D サイクルの経路の入口になる。
+//
+// [Netlist notes]
+//   Inputs : fields from 015 (I0_* / I1_*)
+//   Outputs: DD_FIRST_* / DD_SECOND_*  -> 030 (dual-issue decision), 040 (branch), 140 (bypass),
+//                                        150 (A-stage tags), 070 (DD_FIRST_IS_JB)
+//            DD_PRIVCODE              -> 030, 070, 150
+//   Circuit: one small decoder (combinational logic on roughly the top 8 bits of the
+//   instruction word) for I0 and one for I1. Each output is 1 bit, and most fit in 1 LUT.
+//   Register numbers such as DD_FIRST_WAD / DD_FIRST_RADB1 / DD_FIRST_RAD2 are just bits of
+//   the instruction word (wires); DD_FIRST_RADB1 / DD_FIRST_RAD2 are unused and disappear.
+//   This is shallow logic, about 2 levels from the IWQ FFs, but DD_ISSUE_SECOND_INSN in 030
+//   gathers all of it, so it is where the long D-cycle paths begin.
 // ---------------------------------------------------------------------
 
 

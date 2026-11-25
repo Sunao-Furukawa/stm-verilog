@@ -27,6 +27,25 @@
 //       そのためネットリスト上で最もファンアウトの大きいネット群で、FPGA では
 //       FF の CE 端子 (クロックイネーブル) につながることが多い。
 //     ・E_STAT などの *_STAT はどこからも使われないので消える。
+//
+// [Netlist notes]
+//   Inputs : *_V_NOCAN / A_EAB / AA_LD_GO / WW_ST_GO (060), CANCEL_BY_INT (050),
+//            FFs of each stage (E_LS_LD_V, E_OPCLH_LCH, STB_V, A/B/E/W_PRIVCODE ...),
+//            combinational D-cycle signals (I0_V, DD_FIRST_IS_JB, DD_ISSUEING_UNSOLVED_BC,
+//            DD_PRIVCODE, DD_RAD2)
+//   Outputs: D_FWD   -> 110, 130, 140, 150, 170, 190, 210 (the most widely used)
+//            A_FWD   -> 130, 170, 210 ;  A_INTLK -> 140, 150
+//            B_FWD   -> 110          ;  B_INTLK -> 130
+//            E_FWD   -> 090, 210     ;  E_INTLK -> 100, 110 ;  E_STB_INTLK -> 100
+//   Circuit:
+//     - All are 1-bit AND/OR, but they are chained from the back of the pipe to the front:
+//       E_INTLK -> B_INTLK -> A_INTLK -> D_FWD (a chain of stall signals).
+//       It starts at FFs such as E_OPCLH_LCH and ends at D_FWD.
+//     - xx_FWD / xx_INTLK are the selects of the "update / hold / clear" muxes of every FF of
+//       the next stage (A_INTLK, for example, selects hold for about 200 A_* FFs).
+//       So these are the nets with the largest fan-out in the netlist, and on an FPGA they
+//       often drive the CE (clock enable) pins of the FFs.
+//     - E_STAT and the other *_STAT are unused and disappear.
 // ---------------------------------------------------------------------
 
 // g-ilk : interlock conditions

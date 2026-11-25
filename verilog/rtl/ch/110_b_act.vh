@@ -26,6 +26,21 @@
 //       32bit の値はこの形なので、ステージ間の転送はほとんど配線と CE で済む。
 //     ・E_LS_OPCODE_NEW だけはアドレス下位 2bit を opcode に埋め込む小さな論理が入る。
 //     ・E_LS_OPS_IS_GR, E_LS_RADS は (元の #if 0 の式でしか使われないので) 合成で消える。
+//
+// [Netlist notes]
+//   Inputs : B_* (FFs in 130), B_FWD / E_INTLK / D_FWD (070), G_BC_JUST_SOLVED / _TAKEN (210),
+//            DD_ISSUEING_UNSOLVED_BC_ON_B_LS / _ON_E_LS (040)
+//   Outputs (all FFs): E_* -> 090 (E-cycle work), 060 / 070 (interlock),
+//                      040 (E_*_SETCC, E_EX_CC), 100 / 140 (bypass of E_WAD/WE/EX_RES),
+//                      050 (E_LS_ST_V, E_LS_LOG_AD)
+//   Circuit: this is the B -> E pipeline register itself. The D inputs of the FFs have two shapes:
+//     - valid bits (E_V, E_WE1 ...) : a 3:1 mux "B_FWD ? value from B : E_INTLK ? hold : 0".
+//       One LUT per FF (inputs = value from B, own Q, B_FWD, E_INTLK).
+//     - data (E_LS_LOG_AD, E_EX_RES ...) : "!E_INTLK ? value from B : hold", so no LUT is
+//       needed: the Q of the B FF goes straight to the D of the E FF, with !E_INTLK on CE.
+//       32-bit values all have this shape, so moving data between stages is mostly wires and CE.
+//     - Only E_LS_OPCODE_NEW has a little logic that puts the low 2 address bits into the opcode.
+//     - E_LS_OPS_IS_GR and E_LS_RADS disappear in synthesis (they are only used in the old #if 0 code).
 // ---------------------------------------------------------------------
 
 // b-act

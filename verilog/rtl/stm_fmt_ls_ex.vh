@@ -7,6 +7,11 @@
 //   回路 (LUT) になるのは is_legal_opc だけで、入力は命令語の上位 8bit と
 //   PSW_USER の 9 本、出力 1 本の組合せ回路 (LUT 2〜3 個程度)。
 //   I0 用と I1 用に 015_d_i01.vh で 2 回呼ばれるので 2 組できる。
+//
+// [Netlist notes] As in stm_fmt_jb.vh, the field functions are wiring only.
+//   Only is_legal_opc becomes logic (LUTs): a combinational circuit with 9 inputs (the top
+//   8 bits of the instruction word and PSW_USER) and 1 output (about 2-3 LUTs).
+//   It is called twice in 015_d_i01.vh, for I0 and I1, so there are 2 copies.
 // =====================================================================
 /*LS :
 # +--------+----+----+-----------------+

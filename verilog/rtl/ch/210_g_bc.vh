@@ -31,6 +31,26 @@
 //       取り消し (CANCEL_BY_BC) とキュー切り替え (EID) を行う設計なので、
 //       ALU の CC が全ステージの取り消しへ同じサイクルで伝わる長い経路は無い
 //       (その代わり、取り消しは解決の 1 サイクル後になる。元ソースに意図の説明は無い)。
+//
+// [Netlist notes]
+//   Inputs : E_FWD / A_FWD / D_FWD (070), E_LS_SOLVING_BC (110), A_EX_SOLVING_BC (150),
+//            DD_ISSUEING_UNSOLVED_BC / _ON_E_LS / _ON_A_EX / DD_PREDICTING_TAKEN (040),
+//            EE_ALU_CC (ALU in 090), AA_EXU_CC (EXU in 120), IJB_RD_MASK (035),
+//            WW_INTERRUPTION (050)
+//   Outputs (FFs, 8 in total): G_BC_JUST_SOLVED -> 010, 050, 110, 130, 150, 160
+//                              G_BC_JUST_TAKEN  -> 010, 050, 090, 110, 130, 150
+//                              G_BC_TKN_PREDICTED -> 010, 050 ;  G_BC_PENDING -> 030, 070, 150
+//                              G_BC_MASK (4 bits) -> 090
+//   Circuit:
+//     - Only 8 FFs, but G_BC_JUST_SOLVED / _TAKEN feed the updates of the branch tags of every
+//       stage and of SUBJECT_TO_BC in the S unit, so they are FFs with large fan-out.
+//     - G_BC_JUST_TAKEN_NEW is "CC of the ALU / EXU -> cc_match (4:1 mux)", which makes the
+//       path E FFs -> ALU (add/sub) -> CC -> this FF in the E cycle.
+//     - The resolution is first latched in FFs (JUST_SOLVED / JUST_TAKEN), and cancellation
+//       (CANCEL_BY_BC) and queue switching (EID) happen in the next cycle. So there is no long
+//       path carrying the ALU's CC to the cancellation of every stage in the same cycle
+//       (in exchange, cancellation happens 1 cycle after resolution; the original source does
+//       not explain the intent).
 // ---------------------------------------------------------------------
 
 // g-bc :

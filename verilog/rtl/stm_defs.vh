@@ -21,6 +21,18 @@
 //     ・add_*                                          : 加算器。FPGA では CARRY4 の連鎖
 //         (4bit ごと) + 各ビットの LUT になる。add_3_2 / add4_5 のように短いものは
 //         LUT だけで済むこともある。
+//
+// [Netlist notes] A function only expands its expression where it is called; it does not
+//   become a part (instance) of the circuit by itself. There is no cell called sign_ext_16 in
+//   the synthesis result; it becomes part of the caller's nets (Vivado sometimes keeps a net
+//   name like add_32_5_20_return, "function name_return"). By content:
+//     - sign_ext_* / zero_ext_5 / build_psw / pickup_*  : wiring only (0 LUTs).
+//         Sign extension just fans the top bit's net out to several bits.
+//     - cc_match                                       : one 4:1 multiplexer (1 LUT).
+//     - we_on                                          : a compare of a 4-bit input (1 LUT).
+//     - add_*                                          : adders. On an FPGA they become chained
+//         CARRY4s (4 bits each) plus a LUT per bit. Short ones such as add_3_2 / add4_5
+//         may be done with LUTs only.
 // =====================================================================
 
 // ---------------------------------------------------------------------

@@ -19,6 +19,16 @@
 //   付けているだけで、ゲートは 1 つも無い。I0_JB_IMM12, I0_LS_DISP16 などどこからも
 //   使われないフィールドは、合成で何も残らない (D サイクルの変位は 035 で
 //   振り分け後の ILS / IJB から取り直している)。
+//
+// [Netlist notes]
+//   Inputs : I0, I1 (010), PSW_USER (FF in 080)
+//   Outputs: upper bits for format decode (I0_LS_OPC_H etc.) -> 020
+//            register numbers (I0_EX_RB1 / I0_EX_RS2 / I0_LS_RB) -> 020, 030
+//            I0_IS_LEGAL / I1_IS_LEGAL -> 030
+//   Circuit: apart from the two copies of is_legal_opc (a few LUTs), these only give
+//   new names to the nets of I0 / I1; there is not a single gate. Fields nothing uses,
+//   such as I0_JB_IMM12 and I0_LS_DISP16, leave nothing after synthesis (the displacements
+//   of the D cycle are taken again from ILS / IJB in 035, after the instructions are sorted).
 // ---------------------------------------------------------------------
 
 // d-i01 : decoding I0 and I1

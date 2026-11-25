@@ -10,6 +10,15 @@
 //   回路の規模はほとんど変わらない。
 //   モジュールごとに `include するので、stm_cntl と stm_exu はそれぞれ
 //   自分の localparam のコピーを持つ (Verilog-2001 には package が無いため)。
+//
+// [Netlist notes]
+//   A localparam makes no circuit. When it is used in an expression, synthesis embeds the
+//   value as a constant: a compare (e.g. OP_B_OPC == SU_OPC_ST2) becomes an AND/NOT of
+//   specific bits, and a constant assignment (e.g. cc = 2'd3) becomes a connection to
+//   power/ground. So changing a code value only changes the shape of a comparator (the truth
+//   table of a LUT) and hardly changes the size of the circuit.
+//   This file is `include'd in each module, so stm_cntl and stm_exu each have their own copy
+//   of the localparams (Verilog-2001 has no packages).
 // =====================================================================
 
 // Operand type of EX_insn : 2nd operand is immediate/register/memory

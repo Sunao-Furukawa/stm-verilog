@@ -38,6 +38,32 @@
 //       選択に使われないが B_OPCLH には入るので残る。
 //     ・OP_LBS_DATA は 32bit の 5:1 優先 MUX。EXT_BUS=0 なら定数の伝搬で
 //       「!B_OPCLH ? 0xdead0a0a : MEM_DT_OP」の 2:1 MUX まで縮む。
+//
+// [Netlist notes]
+//   Inputs : W_PRIVCODE / W_WAD2 / W_LS_INTCODE / W_EX_INTCODE (FFs in 090),
+//            G_BC_JUST_SOLVED / _TAKEN / _TKN_PREDICTED (FFs in 210),
+//            OP_B_* / OP_WAIT_* / LBS_AD (FFs in 160), CMPR (FF in 080),
+//            STB_V / STB_AD / STB_DT (FFs in 090), E_LS_ST_V / E_LS_LOG_AD (FFs in 110),
+//            E_OPCLH_LCH (FF in 100), EE_ALU_OUTPUT (ALU in 090, combinational),
+//            ports MEM_DT_OP / MEM_OP_ERR / RANDOM_FOR_OPCLH
+//   Outputs: CANCEL_BY_INT  -> 060, 070, 190 (cancels every stage)
+//            CANCEL_BY_BC   -> 060          (cancels speculative instructions)
+//            WW_*           -> 080 (W-cycle work), 190 / 210 (WW_INTERRUPTION)
+//            B_OPCLH        -> 100, 160 (cache response)
+//            OP_LBS_DATA    -> 100 (load data)
+//            OP_B_INTCODE   -> 100 (S-unit exception)
+//            OP_B_V_NOCAN / OP_WAIT_V_NOCAN -> 160
+//            SU_OP_RDY / SU_ST_RDY -> 060
+//            OP_B_BUSREQ    -> output port of stm_cntl (stm_axi_master)
+//   Circuit:
+//     - CANCEL_BY_INT / CANCEL_BY_BC are both shallow (1-2 levels from the W / G FFs), but they
+//       reach xx_V_NOCAN of every stage -> xx_FWD -> the update muxes of almost every FF, so their
+//       fan-out in the netlist is very large (synthesis may duplicate them).
+//     - OP_B_CMP_INT is a 32-bit equality comparator of LBS_AD and CMPR.
+//       OP_FWD_E / OP_FWD_STB are 32-bit equality comparators too. With EXT_BUS=0 they do not
+//       select OP_LBS_DATA, but they still feed B_OPCLH, so they stay.
+//     - OP_LBS_DATA is a 32-bit 5-input priority mux. With EXT_BUS=0, constant propagation
+//       shrinks it to the 2:1 mux "!B_OPCLH ? 0xdead0a0a : MEM_DT_OP".
 // ---------------------------------------------------------------------
 
 // op-lb1 : OP-LBS in S-Unit :  generate output for other units

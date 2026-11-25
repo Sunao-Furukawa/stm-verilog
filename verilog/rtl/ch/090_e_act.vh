@@ -32,6 +32,27 @@
 //       AND するだけの回路 (1bit の AND)。
 //     ・STB は 1 エントリ = STB_V (1bit) + STB_AD (32bit) + STB_DT (32bit) の FF。
 //       STB_AD / STB_DT は「E のストアが進むときだけ更新」なので CE 付きの FF になる。
+//
+// [Netlist notes]
+//   Inputs : E_* (FFs in 110 / 100), E_FWD (070), WW_ST_GO (060),
+//            G_BC_MASK / G_BC_JUST_TAKEN (FFs in 210)
+//   Outputs: EE_ALU_OUTPUT -> 050 (OP_LBS_DATA), 100 (bypass), 140 (bypass), W_WDT1, STB_DT
+//            EE_ALU_CC     -> 210 (BC resolved in the LS pipe), W_CC
+//            W_* (FFs)     -> 080 (W cycle), 050 (WW_*), 040 (W_CC / W_SETCC),
+//                             100 / 140 (bypass of W_WE/WAD/WDT), stm_regfile (write)
+//            STB_* (FFs)   -> 050, 060, 070, 100, 160
+//   Circuit:
+//     - One u_e_alu (stm_exu). Its inputs are only E FFs (E_LS_OPCODE, E_LS_OPS_DT,
+//       E_LS_LD_DT), so the ALU starts right after FFs and has timing slack at its input.
+//       Its output EE_ALU_OUTPUT, however, goes in the same cycle into the bypass muxes of
+//       050 / 100 / 140 and ends at the A_*_DT and E_LS_LD_DT FFs. ALU + bypass mux is the
+//       long path of the E cycle.
+//     - W_JB_V_NEW is EE_ALU_CC -> cc_match -> the W_JB_V FF. It is the only place that uses
+//       the ALU's CC in the same cycle (as the original comment says).
+//     - W_WE1/2_NEW, W_SETCC_NEW etc. are "E_FWD ? value : 0", so they are just ANDed with
+//       E_FWD (1-bit AND).
+//     - The STB has 1 entry = FFs STB_V (1 bit) + STB_AD (32 bits) + STB_DT (32 bits).
+//       STB_AD / STB_DT are "updated only when a store in E moves on", so they are FFs with CE.
 // ---------------------------------------------------------------------
 
 // e-act : e-cyc activity

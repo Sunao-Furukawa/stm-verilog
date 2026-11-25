@@ -26,6 +26,20 @@
 //       「A の FF → EAG → IF_REQ_AD → IB_AD の FF」「IWQ → … → DD_TGT → IF_REQ_AD →
 //       IB_AD の FF」がフェッチ側の長い経路。EXT_BUS=1 ではさらに IB_AD_NXT として
 //       stm_icache のブロック RAM の番地入力まで伸びる。
+//
+// [Netlist notes]
+//   Inputs : PC / START_TRIGGER (080), AA_EAG_OUTPUT (120), DD_TGT / DD_ISSUEING_* /
+//            IJB_IS_JA/JL (040), A_V_NOCAN (060), A_SET_EAG_TO_TGT (150), A_FWD / D_FWD (070),
+//            EID / NIP_0..5 / V01 / V23 / V45 (010), IB_V / IB_AD / IB_ID / D_IF_AD_A/B (FFs in 190)
+//   Outputs: IF_REQ_V / IF_REQ_AD / IF_REQ_ID -> 180 (SU_IF_RDY), 190 (IB_* FFs)
+//            CANCEL_IB -> 190 ;  IWQ_FULL -> 190
+//   Circuit:
+//     - IF_REQ_AD is a 32-bit 4:1 priority mux (PC / AA_EAG_OUTPUT / DD_TGT / IF_INCR_OUT).
+//       IF_INCR_OUT is a 32-bit adder (add_32_4, +8 or +0).
+//     - The inputs of this mux include the EAG of A (an adder) and DD_TGT of D (an adder), so
+//       "A FFs -> EAG -> IF_REQ_AD -> IB_AD FFs" and "IWQ -> ... -> DD_TGT -> IF_REQ_AD ->
+//       IB_AD FFs" are the long paths on the fetch side. With EXT_BUS=1 they extend further,
+//       as IB_AD_NXT, to the address input of the block RAMs in stm_icache.
 // ---------------------------------------------------------------------
 
 // if-req

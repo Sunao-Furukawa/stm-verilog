@@ -36,3 +36,15 @@
 //   AXI4 版 (stm_axi_top) では Mem の代わりに stm_axi_master / stm_icache がつながり、
 //   応答が遅れてもよいように RANDOM_FOR_OPCLH / RANDOM_FOR_IFCLH が「データが揃った」
 //   合図になる。
+//
+// [Netlist notes] This file has no circuit (not a single assign).
+//   The array accesses above are realised as the following nets through the ports of
+//   stm_cntl (connected in stm_sys.v / stm_axi_top.v):
+//     GR write  : W_WE1/2, W_WAD1/2, W_WDT1/2 (FFs in 090)  -> stm_regfile
+//     GR read   : DD_RAD1/2/B (030, combinational), B_LS_RADS (FF in 130) -> stm_regfile
+//                 -> GR_DT_1/2/B (to 140), GR_DT_S (to 100)
+//     Mem access: LBS_WE/AD/DT (FFs in 160) -> stm_memory -> MEM_DT_OP (to 050)
+//     Fetch     : IB_AD (FF in 190) -> stm_memory -> MEM_DT_IF_H/L (to 180)
+//   In the AXI4 version (stm_axi_top), stm_axi_master / stm_icache are connected instead of
+//   Mem, and RANDOM_FOR_OPCLH / RANDOM_FOR_IFCLH become "the data is ready" signals so that
+//   responses may be late.

@@ -54,6 +54,40 @@
 //   中に stm_cntl / stm_regfile / stm_icache / stm_axi_master の 4 つのモジュールが
 //   残り (stm_exu は stm_cntl に展開される)、命令キャッシュのデータ RAM が
 //   RAMB36E1 1 個, タグ RAM が RAMB18E1 1 個になる。
+//
+// [Netlist notes] This module is also wiring only (except for one NOT, rst = !aresetn).
+//   The difference from stm_sys.v is that two modules take the place of the memory, and the
+//   "random inputs" of stm_cntl become real handshakes:
+//
+//     net             driver                        loads               meaning
+//     ib_valid        u_cntl (IB_V FF)              u_icache            a fetch request is out
+//     ib_ad           u_cntl (IB_AD FFs)            u_icache            its address (8-byte unit)
+//     ib_ad_nxt       u_cntl (D input of IB_AD)     u_icache            ib_ad of the next cycle (RAM read-ahead)
+//     if_rdy          u_icache (combinational)      u_cntl RANDOM_FOR_IFCLH  two instructions are ready
+//     mem_dt_if_h/l   u_icache (combinational)      u_cntl (180)        those two instructions
+//     fr_req/addr/len/burst
+//                     u_icache                      u_axi (ifr_*)       burst read request for a line fill
+//     fr_ack          u_axi (combinational)         u_icache            AR was accepted
+//     fr_valid/data/last/err
+//                     u_axi (R channel split)       u_icache            a beat arrived
+//     op_b_new        u_cntl (OP_B_NEW FF)          u_axi op_new        a new request entered OP-B
+//     op_b_busreq     u_cntl (050, combinational)   u_axi op_busreq     that request needs the bus
+//     lbs_we/ad/dt    u_cntl (FFs in 160)           u_axi op_we/ad/wdt  read or write, address, write data
+//     op_rdy          u_axi (1 level after FFs)     u_cntl RANDOM_FOR_OPCLH  the request completed
+//     mem_dt_op       u_axi (op_dt FFs)             u_cntl (050)        the data read
+//     op_err          u_axi (op_err FF)             u_cntl MEM_OP_ERR   the read got an error response
+//     (the GR nets are the same as in stm_sys.v)
+//
+//   Between the AXI inputs (m_axi_*ready, m_axi_r*, m_axi_b*) and the FFs of stm_cntl there is
+//   always an FF of u_axi or u_icache (op_dt / op_err in u_axi, the RAMs and byp_* in u_icache).
+//   So the wiring delays on the AXI side never join the long paths inside the CPU.
+//   if_rdy / op_rdy are also made by a few levels of logic from the FFs (and RAM output
+//   registers) of u_icache / u_axi and do not pass directly through any AXI input.
+//
+//   In the Vivado synthesis result (the block design in syn/vivado), four modules remain inside
+//   this module: stm_cntl / stm_regfile / stm_icache / stm_axi_master (stm_exu is flattened
+//   into stm_cntl). The data RAM of the instruction cache becomes 1 RAMB36E1 and the tag RAM
+//   1 RAMB18E1.
 // =====================================================================
 module stm_axi_top #(
   parameter ID_W      = 4,
