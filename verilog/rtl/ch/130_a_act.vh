@@ -25,6 +25,23 @@
 //     INTCODE_OVF=4) だけなので、bit1 は常に 0。合成ツールはこれを見抜き、
 //     B_INTCODE → E_EX_INTCODE → W_EX_INTCODE の bit1 の FF を消す
 //     (合成結果には W_EX_INTCODE_reg[1] が無い)。
+//
+// [Netlist notes]
+//   Inputs : A_* (FFs in 150 / 140), AA_* (EXU / EAG outputs in 120, combinational),
+//            A_FWD / B_INTLK / D_FWD (070), G_BC_* (210), DD_ISSUEING_UNSOLVED_BC_ON_A_LS / _B_LS (040)
+//   Outputs (all FFs): B_* -> 110 (copy to E), 100 (data selection in the B cycle),
+//                      060 / 070 (B_V, B_WAD1, B_WE1, B_PRIVCODE), 040 (B_*_SETCC, B_EX_CC),
+//                      140 (bypass of B_EX_RES / B_WAD / B_WE)
+//   Circuit: the A -> B pipeline register. As in 110_b_act.vh,
+//     valid bits = 3:1 mux + FF, data = FF with CE (!B_INTLK).
+//     The D inputs of B_LS_LOG_AD / B_EX_RES / B_EX_CC / B_TGT, however, are not A FFs but the
+//     outputs of the units in 120 (AA_EAG_OUTPUT, AA_EX_RES, AA_EXU_CC), so this is where the
+//     A-cycle computation ends (in FFs). B_TGT is a 2:1 mux of AA_EAG_OUTPUT and A_TGT
+//     (select = A_SET_EAG_TO_TGT).
+//     B_EX_RAD2 is unused and disappears.
+//     B_INTCODE_NEW only ever receives DD_INTCODE (0 or INTCODE_OP=1) or AA_EXU_INT (0 or
+//     INTCODE_OVF=4), so bit 1 is always 0. Synthesis sees this and removes the bit-1 FFs of
+//     B_INTCODE -> E_EX_INTCODE -> W_EX_INTCODE (there is no W_EX_INTCODE_reg[1] in the result).
 // ---------------------------------------------------------------------
 
 // a-act

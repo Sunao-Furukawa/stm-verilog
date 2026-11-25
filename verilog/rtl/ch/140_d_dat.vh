@@ -35,6 +35,30 @@
 //       合成結果では A_EX_OP1_DT[i]_i_2 などの LUT6 がビットごとに何段も並ぶ。
 //     ・A_INTLK のときは基本的に保持 (CE) だが、待っていたロードデータ等を取り込む
 //       経路があるので、A_*_DT は単純な CE 付き FF にはならず MUX が残る。
+//
+// [Netlist notes]
+//   Inputs : DD_RAD1/2/B (030), ports GR_DT_1/2/B (stm_regfile),
+//            write numbers and valid bits of each stage (A_WAD2/A_WE2, B_WAD*/B_WE*, E_WAD*/E_WE*,
+//            W_WAD*/W_WE*), results of each stage (AA_EX_RES, B_EX_RES, BB_MEM_DATA,
+//            EE_ALU_OUTPUT, E_EX_RES, W_WDT1/2), A_INTLK / D_FWD (070),
+//            IEX_* / IJB_* (035), DD_DISP / DD_JB_INSN_AD_PART* (040)
+//   Outputs (FFs): A_LS_OPB_DT / A_EX_OP1_DT / A_EX_OP2_DT / A_DISP -> 120 (unit inputs)
+//                  A_LS_RADB / A_EX_RAD1 / A_EX_RAD2 / A_EX_OP2_IS_GR -> 060 (A_EAB), 120, 130
+//   Circuit: this file is the largest piece of combinational logic in the CPU (the bypass network).
+//     - Each of the 3 operands (B, 1, 2) has a 32-bit priority mux
+//       (9 inputs for B, 10 for 1 with the link address, 11 for 2 with the immediate too).
+//     - To make the selects, 4-bit equality comparators compare the read numbers
+//       (DD_RAD* / A_*_RAD*) with the 7 write numbers (A_WAD2, B_WAD1, B_WAD2, E_WAD1, E_WAD2,
+//       W_WAD1, W_WAD2): 10 per operand (7 for the numbers from D, 3 for the numbers of A
+//       during an interlock).
+//     - Many data inputs are results computed in the same cycle (AA_EX_RES = the EXU of A,
+//       EE_ALU_OUTPUT = the ALU of E, BB_MEM_DATA = load data in B), so
+//       "A FFs -> EXU -> this bypass mux -> A_*_DT FFs" and
+//       "E FFs -> ALU -> this bypass mux -> A_*_DT FFs"
+//       are candidates for the longest paths of this CPU (check a timing report for which one really is).
+//       In the synthesis result, LUT6s such as A_EX_OP1_DT[i]_i_2 line up several levels deep for each bit.
+//     - During A_INTLK the values are mostly held (CE), but there is a path that takes in the load
+//       data etc. that A was waiting for, so A_*_DT are not simple FFs with CE and a mux remains.
 // ---------------------------------------------------------------------
 
 // d-dat

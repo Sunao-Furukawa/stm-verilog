@@ -26,6 +26,23 @@
 //       A の EAG の加算結果がそのまま LBS_AD の FF に入るので、メモリへの番地は
 //       A サイクルの終わりに確定し、次のサイクル (B サイクル) にメモリへ出る。
 //       これが「B サイクルでキャッシュを引く」の回路上の意味。
+//
+// [Netlist notes]
+//   Inputs : AA_LD_GO / WW_ST_GO (060), AA_EAG_OUTPUT (120), STB_AD / STB_DT (090),
+//            A_LS_ST_V / A_JB_SUBJECT_TO_BC (150), B_OPCLH / OP_*_V_NOCAN (050),
+//            G_BC_JUST_SOLVED (210), port RANDOM_FOR_OPCLH
+//   Outputs (FFs): LBS_WE / LBS_AD / LBS_DT -> output ports of stm_cntl (memory / stm_axi_master);
+//                                             LBS_AD also goes to 050 (address compare, forwarding)
+//                  OP_B_V / OP_B_OPC / OP_B_SUBJECT_TO_BC -> 050, 060
+//                  OP_WAIT_*                               -> 050, 060
+//                  OP_B_NEW                                -> output port of stm_cntl (stm_axi_master)
+//   Circuit: a small FIFO of depth 2 (OP-WAIT -> OP-B).
+//     - The D inputs of the OP-B FFs are 3:1 muxes "stay / move from OP-WAIT / accept new".
+//       LBS_AD and LBS_DT are 32 bits each, so this is 64 bits of 3:1 muxes.
+//     - The newly accepted address ACCEPTING_AD is a 2:1 mux of AA_EAG_OUTPUT and STB_AD.
+//       The sum from the EAG in A goes straight into the LBS_AD FFs, so the memory address is
+//       settled at the end of the A cycle and goes out to memory in the next cycle (the B cycle).
+//       That is what "the cache is accessed in the B cycle" means in terms of the circuit.
 // ---------------------------------------------------------------------
 
 // OP-LBS in S-Unit : determine next state

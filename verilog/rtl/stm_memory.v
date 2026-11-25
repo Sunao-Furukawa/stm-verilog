@@ -19,6 +19,20 @@
 //     0xF000_0008 (tb のコンソール) へのストアはメモリの 0x008 にも書かれる。
 //   ・ifdth / ifdtl のバイパスは「同じサイクルにストアしている語をフェッチする」
 //     場合のためで、C 版の評価順 (書き込みの後に読む) を再現している。
+//
+// [Netlist notes]
+//   - Port connections (stm_sys.v):
+//       we / opad / stdt <- LBS_WE / LBS_AD / LBS_DT (FFs of S-unit OP-B, 160)
+//       opdt             -> MEM_DT_OP   (to OP_LBS_DATA in 050)
+//       ifad             <- IB_AD       (fetch FFs, 190)
+//       ifdth / ifdtl    -> MEM_DT_IF_H / MEM_DT_IF_L (to 180; the 2 words at 8n and 8n+4)
+//   - All 3 read ports are asynchronous (they don't wait for a clock), so this does not become
+//     FPGA block RAM (whose reads are synchronous). It is a model for simulation; what gets
+//     synthesized is stm_axi_top (with the memory as an external AXI slave).
+//   - Only the low AW+2 address bits are used (the upper bits are ignored and wrap around).
+//     So a store to 0xF000_0008 (the console of the tb) is also written to 0x008 of the memory.
+//   - The bypass on ifdth / ifdtl is for fetching a word that is being stored in the same
+//     cycle, and it reproduces the evaluation order of the C version (read after write).
 // =====================================================================
 module stm_memory #(
   parameter AW       = 10,          // 語アドレス幅 (2^AW 語)

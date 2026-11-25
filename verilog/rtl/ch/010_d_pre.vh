@@ -33,6 +33,23 @@
 //   EID は 192 本 (32bit x 6) の MUX の選択信号に配られるので、ファンアウトが大きい。
 //   EID の元の G_BC_* は前のサイクルの FF なので、分岐予測ミスのキュー切り替えは
 //   「解決した次のサイクル」に組合せ回路だけで即座に効く (1 サイクルも無駄にしない)。
+//
+// [Netlist notes]
+//   Inputs (FFs): IWQ_A_0..5 / IWQ_B_0..5 and their valid bits (200), NIP_A_REG / NIP_B /
+//                 CUR_IWQ_ID (190), G_BC_JUST_SOLVED / _TAKEN / _TKN_PREDICTED (210)
+//   Outputs     : I0, I1, I0_V, I1_V            -> 015, 030 (decode and issue)
+//                 EID                           -> 040, 170, 190 (which queue is used)
+//                 NIP, NIP_0..5, V01/V23/V45    -> 040 (address of a branch), 170 (queue full)
+//                 NIP_A                         -> 190 (NIP update)
+//   Circuit:
+//     1. EID       : one XOR/AND level built from 4 FFs (1 LUT).
+//     2. IWQ_0..5  : 2:1 muxes for 6 words x 32 bits (select = EID).
+//     3. I0 / I1   : 6:1 / 5:1 muxes (32 bits wide) selected by the decoded NIP_0..5.
+//        Synthesis merges 2 and 3 into one mux that picks 1 word out of 12
+//        (6 words each for A and B), built as a tree of LUT6 + MUXF7.
+//   EID is the select of 192 mux bits (32 bits x 6), so its fan-out is large.
+//   The G_BC_* that drive EID are FFs from the previous cycle, so switching queues after a
+//   misprediction takes effect through logic alone in the cycle after resolution (no cycle wasted).
 // ---------------------------------------------------------------------
 
 // d-pre : Insn Presentation

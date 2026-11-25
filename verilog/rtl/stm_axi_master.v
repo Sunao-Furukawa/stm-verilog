@@ -73,6 +73,28 @@
 //     IF 側は組合せのまま stm_icache へ (ifr_valid / ifr_data), OP 側は op_dt /
 //     op_err の FF に受けてから stm_cntl へ返す。
 //   ・BYTE_SWAP はパラメータなので lane() はバイトの並べ替え (配線) か素通し。
+//
+// [Netlist notes]
+//   - The only state is two small state machines for the IF side and the OP side
+//     (if_st, op_st, 2 bits each) and registers that hold the requests (if_ad_q, op_ad_q,
+//     op_wdt_q etc.). In the Vivado result it is a small circuit of 136 FDRE + 3 FDSE and about
+//     130 LUTs (an FDSE is an FF with reset value 1). Vivado does not keep if_st / op_st as
+//     2-bit codes; it re-encodes them as one-hot (one FF per state, FSM_onehot_if_st_reg[0..2]).
+//     On reset only the S_IDLE FF becomes 1, so it and if_burst_q[0] (reset value 1) are FDSEs.
+//   - Most AXI outputs are combinational outputs. For example
+//       m_axi_araddr = gnt_op ? op_addr : if_araddr
+//       op_addr      = (op_st == S_IDLE) ? {op_ad[31:2], 2'b00} : op_ad_q
+//     so in the first cycle of a request (S_IDLE) the LBS_AD FFs of stm_cntl appear directly
+//     on ARADDR (it goes out one cycle earlier). If it is not accepted, the value held in the
+//     op_ad_q FFs keeps being driven (AXI's "do not change the contents while VALID").
+//   - AR arbitration (gnt_op / gnt_if) is the two FFs ar_lock / ar_own_op plus the logic of
+//     op_arv / if_arv. m_axi_arready only goes into the D input of the ar_lock FF, the next
+//     state of if_st / op_st and ifr_ack (-> the state machine of stm_icache)
+//     (short AXI input -> FF paths; it never reaches stm_cntl).
+//   - The R channel is split between the IF side and the OP side by comparing m_axi_rid
+//     (r_if / r_op). The IF side goes combinationally to stm_icache (ifr_valid / ifr_data);
+//     the OP side is first latched in the op_dt / op_err FFs and then returned to stm_cntl.
+//   - BYTE_SWAP is a parameter, so lane() is either a byte reordering (wires) or a pass-through.
 // =====================================================================
 module stm_axi_master #(
   parameter ID_W      = 4,

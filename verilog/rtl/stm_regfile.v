@@ -26,6 +26,25 @@
 //     W の FF → この MUX → 140 / 100 のバイパス MUX → A_*_DT / E_LS_OPS_DT の FF。
 //   ・initial 文の 0 クリアは FPGA では FF の初期値 (INIT) になる。
 //     stm_cntl と違いリセット入力は無い (リセットしてもレジスタの中身は残る)。
+//
+// [Netlist notes]
+//   - Port connections (stm_sys.v / stm_axi_top.v):
+//       we1/wad1/wdt1 <- W_WE1/W_WAD1/W_WDT1 (result of the LS pipe)
+//       we2/wad2/wdt2 <- W_WE2/W_WAD2/W_WDT2 (result of the EX pipe)
+//       rad1/rdt1, rad2/rdt2, radb/rdtb <- DD_RAD1/2/B -> GR_DT_1/2/B (D cycle, to 140)
+//       rads/rdts                       <- B_LS_RADS   -> GR_DT_S     (B cycle, to 100)
+//   - 2 write ports + 4 read ports (asynchronous reads) fit neither FPGA block RAM nor
+//     distributed RAM (LUTRAM, 1 write port), so synthesis makes 16 words x 32 bits = 512 FFs
+//     and a 16:1 mux per read port (32 bits x 4 ports). The Vivado result has 512 FDRE,
+//     640 LUT6, 320 MUXF7 and 64 MUXF8 (stm_system_cpu_0_stm_regfile).
+//     The FFs are named gr_reg[number][bit].
+//   - The D input of each FF is "we2 && wad2 == k ? wdt2 : we1 && wad1 == k ? wdt1 : hold".
+//     Two 4-bit decoders select the destination, and the hold becomes CE.
+//   - The "return the write data while writing" compares in the read assigns are two 4-bit
+//     equality comparators + a 32-bit 3:1 mux after the 16:1 mux above.
+//     W FFs -> this mux -> bypass muxes of 140 / 100 -> A_*_DT / E_LS_OPS_DT FFs.
+//   - The 0-clear in the initial block becomes the FFs' initial value (INIT) on an FPGA.
+//     Unlike stm_cntl there is no reset input (the register contents survive a reset).
 // =====================================================================
 module stm_regfile (
   input             clk,

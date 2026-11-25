@@ -35,6 +35,25 @@
 //     番地 4n のバイトが語の上位 ([31:24]) なので、BYTE_SWAP=0 では
 //     AXI のバイト番地とメモリの語の中のバイト位置が逆になる。CPU は語単位でしか
 //     バスに出ない (stm_axi_master.v 参照) ので、CPU から使う限り問題にならない。
+//
+// [Netlist notes]
+//   - Port connections (inside the block design):
+//       AXI SmartConnect -> AXI BRAM Controller (stm_system_bram_ctrl_0)
+//         -> BRAM_PORTA (clk, rst, en, we[3:0], addr, din, dout) -> this module
+//     The X_INTERFACE_INFO attributes on the ports tell Vivado IP Integrator that these nets
+//     form one interface called BRAM_PORTA. Thanks to them they can be connected as a single
+//     line in the block design. They have no effect on the circuit.
+//   - The shape of the always block (synchronous write + synchronous read, all stopped by en)
+//     is the standard block RAM template, so Vivado maps it to RAMB36E1
+//     (2 RAMB36E1 for AW=11, 8 KB). we[k] connects directly to the byte write enables of the
+//     block RAM (WEA[k]), and dout is the RAM's own output latch (no separate FF).
+//   - rst is not used (the contents of a block RAM are not cleared by reset).
+//   - The contents from initial are embedded in the bitstream at synthesis as the block RAM's
+//     initial value (the INIT_xx attributes).
+//   - Byte lanes: we[0] / din[7:0] are the low byte of the word. STM is big-endian and the byte
+//     at address 4n is the top of the word ([31:24]), so with BYTE_SWAP=0 the AXI byte address
+//     and the byte position inside the memory word are reversed. The CPU only puts whole words
+//     on the bus (see stm_axi_master.v), so this does not matter as long as the CPU uses it.
 // =====================================================================
 module stm_prog_ram #(
   parameter AW        = 11,         // 2^AW words (11 = 8KB)

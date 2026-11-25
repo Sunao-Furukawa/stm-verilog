@@ -30,6 +30,24 @@
 //       D サイクルの長い経路になる。
 //     ・DD_RAD* は 4bit の 2:1 MUX。そのまま stm_cntl の外 (stm_regfile) へ出て
 //       読み出しデータが戻ってくる (stm_cntl.v のポートの解説参照)。
+//
+// [Netlist notes]
+//   Inputs : DD_FIRST_* / DD_SECOND_* (020), register numbers and I0/I1_IS_LEGAL (015),
+//            I0 / I1 / I0_V / I1_V (010), G_BC_PENDING (FF in 210)
+//   Outputs: DD_ISSUE_SECOND_INSN       -> 140, 150, 190 (also issue the second instruction?)
+//            ILS / IEX / IJB and ILS_V / IEX_V / IJB_V -> 035, 040, 140, 150, 190
+//            DD_RAD1 / DD_RAD2 / DD_RADB -> output ports of stm_cntl (register file),
+//                                           140 (register-number compares of the bypass), 070 (DD_RAD2)
+//            DD_INTCODE                 -> 150
+//   Circuit:
+//     - DD_ISSUE_SECOND_INSN is four 4-bit comparators (register dependences) ANDed with
+//       many conditions. It is one of the deepest pieces of logic in the D cycle.
+//     - ILS / IEX / IJB are three 32-bit 3:1 muxes ("I0, I1 or 0").
+//       ILS feeds DD_DISP through 035 -> 040, and IJB feeds DD_TGT (an adder) in 040, so
+//       IWQ -> I0/I1 -> DD_ISSUE_SECOND_INSN -> IJB -> DD_TGT -> the A_TGT FFs
+//       is a long D-cycle path.
+//     - DD_RAD* are 4-bit 2:1 muxes. They leave stm_cntl directly (to stm_regfile) and the
+//       read data comes back (see the notes on the ports in stm_cntl.v).
 // ---------------------------------------------------------------------
 
 // d-sec : issue second insn

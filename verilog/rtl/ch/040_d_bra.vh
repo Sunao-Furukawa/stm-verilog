@@ -34,6 +34,30 @@
 //       「CC のフォワーディング」をする回路そのもの。
 //     ・DD_ISSUEING_* は AND/OR の論理だが、170 のフェッチ要求 (IF_REQ_*) と
 //       190 の NIP / キュー切り替えに直接入るので、命令フェッチ側の長い経路になる。
+//
+// [Netlist notes]
+//   Inputs : IJB_* / ILS_* (035), IJB_V (030), DD_FIRST_* / DD_SECOND_IS_JB (020),
+//            EID / NIP / V45 (010), D_IF_AD_A/B (FFs in 190),
+//            *_SETCC of A/B/E and *_EX_CC of B/E (FFs in 130, 110, 150),
+//            W_SETCC / W_CC (FFs in 090), PSW_CC (FF in 080)
+//   Outputs: DD_TGT                         -> 150 (A_TGT), 170 (fetch address)
+//            DD_ISSUEING_TAKEN_BRANCH        -> 170
+//            DD_ISSUEING_UNSOLVED_BC         -> 070, 150, 170, 190, 210
+//            DD_ISSUEING_UNTAKEN_BC          -> 150, 190
+//            DD_ISSUEING_UNSOLVED_BC_ON_*    -> 110, 130, 150, 210 (where it is resolved)
+//            DD_PREDICTING_TAKEN             -> 190, 210
+//            DD_DISP                         -> 140 (A_DISP)
+//            DD_JB_INSN_AD_PART1 / PART2     -> 140 (return address of a link)
+//            IJB_IS_JA / IJB_IS_JL           -> 170
+//   Circuit:
+//     - DD_TGT is a 32-bit 3-input adder (add_32_5_20), the only carry chain in this file.
+//       Its input PART2 is a 6-bit value made with LUTs from NIP / V45.
+//     - DD_CC_FOR_SOLVED_BC is a 4-level priority mux (2 bits wide) B -> E -> W -> PSW, and
+//       it goes through cc_match (a 4:1 mux) to become DD_SOLVED_BC_TAKEN.
+//       This is the circuit that does "CC forwarding".
+//     - DD_ISSUEING_* are plain AND/OR logic, but they go straight into the fetch request
+//       (IF_REQ_*) in 170 and the NIP / queue switching in 190, so they form the long paths
+//       on the instruction-fetch side.
 // ---------------------------------------------------------------------
 
 // d-bra: D-cycle, issueing branch insn

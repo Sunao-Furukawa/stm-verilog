@@ -16,6 +16,16 @@
 //   以外は配線だけ。ILS_RB, ILS_RD, IEX_RB1, IEX_RS2, IJB_IMM12 などは
 //   どこからも使われないので消える (レジスタの値は 030 の DD_RAD* で I0/I1 から
 //   直接読んでいるため、振り分け後の番号は要らない)。
+//
+// [Netlist notes]
+//   Inputs : ILS / IEX / IJB / ILS_V (030)
+//   Outputs: ILS_* -> 040 (displacement), 150 (LS-pipe tags of A)
+//            IEX_* -> 140 (immediate operand), 150 (opcode, RD, SETCC)
+//            IJB_* -> 040 (branch kind, displacement, mask), 140 / 150 (link), 210 (mask)
+//   Circuit: only wires, except ILS_LS_FMT / ILS_EXRM_FMT (a compare of the upper bits
+//   ANDed with ILS_V). ILS_RB, ILS_RD, IEX_RB1, IEX_RS2, IJB_IMM12 etc. are unused and
+//   disappear (register values are read with DD_RAD* in 030 directly from I0/I1, so the
+//   register numbers after sorting are not needed).
 // ---------------------------------------------------------------------
 
 // d-ixx : decoding ILS, IEX and IJB

@@ -32,6 +32,28 @@
 //     ・XPSW_NEW の build_psw は配線だけなので、MODIFIED_CC (W の命令の CC を反映した
 //       値) と PSW_USER / PSW_TYPE の FF がそのまま XPSW の該当ビットの MUX に入る。
 //       XPSW の他のビット (CC/USER/TYPE 以外) は割り込みで 0 になる。
+//
+// [Netlist notes]
+//   Inputs : W_* (W-cycle FFs made in 090), WW_* (combinational, made from the W FFs in 050)
+//   Outputs (all FFs): PC          -> 170 (fetch address on restart), output port of stm_cntl
+//                      PSW_CC      -> 040 (CC of a resolved BC), 120 (RSR)
+//                      PSW_USER    -> 015 (legality of privileged instructions), 120
+//                      TBR / CMPR / XPSW / XPC / XLA / SVR0 / SVR1 / PSW_TYPE -> 120 (RSR)
+//                      CMPR        -> 050 (address compare)
+//                      START_TRIGGER (inverse of START_TRIGGER_BAR) -> 170, 180, 190
+//   Circuit:
+//     - The system registers (TBR, CMPR, SVR0/1, XPSW, XPC, XLA) are 32-bit FFs whose D input
+//       is "W_WDT2 if WSR writes this register, otherwise hold". The hold branch becomes the
+//       FF's CE pin, and a 4-bit compare of W_WAD2 makes the CE.
+//     - The next PC is a 4:1 priority mux (TBR / XPC / MODIFIED_PC / PC).
+//       MODIFIED_PC is a 2:1 mux of W_TGT and INCREMENTED_PC (a 32-bit adder, add_32_4).
+//       W FFs -> adder -> mux -> PC FFs in one cycle.
+//     - PC is an FF holding "the address of the completed instruction", not the fetch address
+//       (fetching runs ahead with IF_REQ_AD in 170). PC is used for fetching only in the cycle
+//       after an interrupt, RFE or state change (START_TRIGGER).
+//     - build_psw in XPSW_NEW is only wiring, so MODIFIED_CC (the CC including the W instruction)
+//       and the PSW_USER / PSW_TYPE FFs go straight into the muxes of the matching XPSW bits.
+//       The other bits of XPSW (other than CC/USER/TYPE) become 0 on an interrupt.
 // ---------------------------------------------------------------------
 
 // w-act : w-cycle activity

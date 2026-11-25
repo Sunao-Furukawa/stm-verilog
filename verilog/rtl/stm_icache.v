@@ -54,6 +54,28 @@
 //   ・byp_h / byp_l の上位 3bit (ILL_INSN = 0xE000_0000 の 1 のビット) は、Vivado が
 //     「エラーなら 1 にする」を FF のセット端子で作るので FDSE になる
 //     (byp_h[31:29] と byp_l[31:29] の 6 個が上の FDSE 6 個)。
+//
+// [Netlist notes]
+//   - Port connections (stm_axi_top.v):
+//       ib_valid / ib_ad / ib_ad_nxt <- IB_VALID / IB_AD / IB_AD_NXT of stm_cntl (190)
+//       if_rdy / if_dt_h / if_dt_l   -> RANDOM_FOR_IFCLH / MEM_DT_IF_H / MEM_DT_IF_L of stm_cntl (180)
+//       fr_*                         <-> ifr_* of stm_axi_master
+//   - Sizes with the defaults (LINE_W=5, SET_W=7):
+//       data RAM dram : 64 bits x 512 entries (= 4 KB)   -> 1 RAMB36E1 (SDP mode, 72 bits wide)
+//       tag RAM  tram : 20 bits x 128 entries            -> 1 RAMB18E1 (SDP mode, 36 bits wide)
+//       valid bits vbits: 128 FFs (they are cleared all at once on reset, so they can't be a RAM)
+//     The Vivado result (g_cache.dram_reg / g_cache.tram_reg) matches this:
+//     284 FDRE, 6 FDSE, about 330 LUTs, 5 CARRY4.
+//   - The RAM read address is ib_ad_nxt, not ib_ad. The IB_AD FFs of stm_cntl and the RAM
+//     output registers (d_q, t_q) update on the same clock, so in the next cycle ib_ad and the
+//     d_q / t_q for that address line up. The address logic of 170 -> 190 in stm_cntl extends
+//     to the address input of the RAMs, so this continues one of the long paths on the CPU side.
+//   - The hit test hit is a 20-bit equality compare of t_q (RAM output) with ib_tag (FFs), plus
+//     a selection of vbits. if_rdy / if_dt_h / if_dt_l are combinational outputs selected with
+//     it, and they enter the IWQ FFs through 180 -> 200 of stm_cntl.
+//   - The top 3 bits of byp_h / byp_l (the 1 bits of ILL_INSN = 0xE000_0000) become FDSEs,
+//     because Vivado makes "set to 1 on an error" with the FF's set pin
+//     (byp_h[31:29] and byp_l[31:29], the 6 FDSEs above).
 // =====================================================================
 module stm_icache #(
   parameter ENABLE = 1,
@@ -218,6 +240,11 @@ end else begin : g_nocache
   //   作られ (RAM は 0 個)、ENABLE=1 のときは丸ごと存在しない。byp_* の FF
   //   (8 バイトのバッファ 1 つ) と 3 状態の状態機械だけの回路になる。
   //   ib_ad_nxt はここでは使わないので、stm_cntl の IB_AD_NXT はどこにもつながらない。
+  //
+  // [Netlist notes] This is the else side of generate, so this circuit is built only with
+  //   ENABLE=0 (0 RAMs), and with ENABLE=1 it does not exist at all. It is just the byp_* FFs
+  //   (one 8-byte buffer) and a 3-state state machine.
+  //   ib_ad_nxt is not used here, so IB_AD_NXT of stm_cntl is connected to nothing.
   localparam [1:0] N_IDLE = 2'd0, N_REQ = 2'd1, N_DATA = 2'd2;
   reg  [1:0]  nst;
   reg  [28:0] n_ad;

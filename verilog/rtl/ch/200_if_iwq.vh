@@ -21,6 +21,21 @@
 //       有効ビット側 (SU_IF_CLH_NOCAN & IB_ID) だけで決まる。データの FF は
 //       「入れてもよい」ときに上書きされるだけで、有効ビットが 0 なら中身は使われない。
 //     ・キューの FF は 384 本で、stm_cntl の FF の約 1/4 を占める。
+//
+// [Netlist notes]
+//   Inputs : SFTUP_A / SFTUP_B / SU_IF_CLH_NOCAN / IB_ID (190), I_LBS_H / I_LBS_L (180)
+//   Outputs (FFs): IWQ_A_0..5 / IWQ_B_0..5 (32 bits x 12 = 384 bits) and 6 valid bits -> 010
+//                  IWQ_A_V45 / IWQ_B_V45 also -> 190 (SFTUP decision)
+//   Circuit: two shift registers (shifting towards 0 two words at a time).
+//     - Entries 0-3: D is "SFTUP ? the word two places behind : hold". The hold becomes CE,
+//       so the Q of one FF is wired straight to the D of the next and SFTUP drives CE
+//       (no LUT needed).
+//     - Entries 4,5: D is I_LBS_H / I_LBS_L, CE is (SFTUP | !V45).
+//       Entries 4,5 of both queues receive the same I_LBS_H/L; which queue the data really
+//       enters is decided only on the valid-bit side (SU_IF_CLH_NOCAN & IB_ID). The data FFs are
+//       simply overwritten whenever loading is allowed, and their contents are ignored while
+//       the valid bit is 0.
+//     - The queues have 384 FFs, about a quarter of the FFs in stm_cntl.
 // ---------------------------------------------------------------------
 
 // if-iwq

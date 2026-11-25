@@ -36,6 +36,25 @@
 //     合成後の回路は別の形になる (ネットリストでは stm_cntl の中に展開される)。
 //   ・cc / intr は z と同じ case の中で作るので、z == 0 の判定 → cc という経路が
 //     加算器の後ろにつながる (加算 → 32 入力の 0 判定 → cc)。
+//
+// [Netlist notes]
+//   - A purely combinational circuit without a single FF. The case inside always @* becomes
+//     all the per-opcode result circuits side by side and a mux that picks one by opc
+//     (they are computed in parallel and selected, not an "if chain" evaluated in case order).
+//   - Main parts inside:
+//       one 32-bit adder/subtractor (y inverted by is_sub, cin = is_sub; shared by A/S/C/AU/SU/CU),
+//       32-bit AND / OR / XOR, three kinds of 32-bit barrel shifters (SL, SRA, SRL),
+//       the z == 0 test (a 32-input NOR), sub-word extract/insert (wires and muxes)
+//   - There are 2 in stm_cntl:
+//       u_a_exu (120_a_dat.vh) : the top bit of opc is always 0, so synthesis removes the
+//                                sub-word logic (16-31).
+//       u_e_alu (090_e_act.vh) : also uses 16-31. Shifts and SETHI can appear in E_LS_OPCODE
+//                                (EX-RM format), so both stay.
+//     Even though both instances are the same module, they are tied to different constants, so
+//     after synthesis the circuits have different shapes (in the netlist they are expanded
+//     inside stm_cntl).
+//   - cc / intr are made in the same case as z, so a path z == 0 test -> cc hangs off the adder
+//     (add -> 32-input zero test -> cc).
 // =====================================================================
 module stm_exu (
   input      [4:0]  opc,

@@ -92,6 +92,48 @@
 //     EAG (add_32_16), フェッチ番地 (add_32_4), 2 個の stm_exu の加減算に使われる。
 //     LUT の大半はバイパス (140_d_dat.vh) とステージ間の「保持 / 更新」選択。
 //
+// [Netlist notes] What this module becomes as a circuit
+//   - The module consists of just two things: a row of FFs and a huge combinational circuit
+//     that builds their D inputs. Every assign in ch/*.vh becomes combinational logic (LUTs),
+//     and the always block at the end becomes the row of FFs (FDRE on Xilinx). There are no
+//     latches or clock gates; it is a fully synchronous circuit with the single clock clk.
+//   - FFs are declared as pairs X and X_NEW. In the netlist they look like
+//         X_NEW (LUT output) --D--> [FF X] --Q--> X (input of the LUTs of the next stage)
+//     and the FF keeps the name "X_reg" ("X_reg[i]" for multi-bit) after synthesis, so the RTL
+//     names can be followed in synthesis results and timing reports.
+//   - The ch/*.vh files are connected by one .vh using the output nets of another as inputs
+//     (the notes at the top of each .vh list the nets the file makes and who uses them, and the
+//     nets it uses and who makes them). File boundaries are not circuit boundaries; after
+//     synthesis everything melts into one combinational circuit.
+//   - Rough signal flow (arrows = direction of the nets, [] = FFs, numbers = files in ch/):
+//
+//      Fetch:    [PC] / DD_TGT / AA_EAG_OUTPUT --> 170 --IF_REQ_*--> 190 --> [IB_*] --IB_AD--> memory
+//                MEM_DT_IF_H/L --> 180 --I_LBS_H/L--> 200 --> [IWQ_A/B_*]
+//      D cycle:  [IWQ_*] --> 010 --I0,I1--> 015 --> 020 --> 030 --ILS/IEX/IJB--> 035 --> 040
+//                030 --DD_RAD1/2/B--> register file --GR_DT_1/2/B--> 140
+//                140 / 150 --> [A_*]
+//      A cycle:  [A_*] --> 120 (EXU, EAG) --AA_EX_RES, AA_EAG_OUTPUT--> 130 --> [B_*]
+//                AA_EAG_OUTPUT --> 060 / 160 (S-unit accept) --> [OP_B_*, LBS_*] --> memory
+//      B cycle:  MEM_DT_OP --> 050 --OP_LBS_DATA--> 100 ;  [B_*] --> 100 / 110 --> [E_*]
+//                B_LS_RADS --> register file --GR_DT_S--> 100
+//      E cycle:  [E_*] --> 090 (ALU) --> [W_*, STB_*]
+//      W cycle:  [W_*] --> 080 --> [PC, PSW_*, TBR, XPC ...] ;  W_WE/WAD/WDT --> register file
+//
+//      070 (interlock) makes xx_FWD / xx_INTLK in the order E -> B -> A -> D, and they select
+//      the "hold / update / clear" muxes of the FFs of almost every stage.
+//      CANCEL_BY_INT / CANCEL_BY_BC from 050 and G_BC_* from 210 also go to every stage
+//      (large fan-out; after synthesis they are signals where routing delay matters).
+//
+//   - For reference: the result of Vivado 2022.2 for xc7a35t (Arty A7-35)
+//     (the stm_cntl part inside stm_axi_top in the block design of syn/vivado) is
+//     about 1,600 FDRE, about 4,300 LUTs (about half of them LUT6), 65 CARRY4 and 49 MUXF7.
+//     (That is with EXT_BUS=1. Synthesizing stm_cntl alone with EXT_BUS=0 gives 3,034 LUTs /
+//      1,623 FFs, see syn/README.md. Most of the difference is the forwarding and I/O logic
+//      added with EXT_BUS=1.)
+//     The CARRY4s (fast carry chains) are used for the PC add, the branch target (add_32_5_20),
+//     the EAG (add_32_16), the fetch address (add_32_4) and the add/sub of the two stm_exu.
+//     Most LUTs are the bypass (140_d_dat.vh) and the "hold / update" selection between stages.
+//
 // =====================================================================
 module stm_cntl #(
   // 0: 元の動作 (メモリは同じサイクルに応答する。stm_sys / stm_memory 用)
@@ -129,6 +171,16 @@ module stm_cntl #(
   //   B_LS_RADS     : FF 出力 (B サイクルの命令のストアデータ等の番号) → GR_DT_S (100)。
   //   W_WE/WAD/WDT  : FF 出力。W サイクルの命令の書き込み。stm_regfile が次の
   //                   クロックで書き、同じサイクルの読み出しにはバイパスで見せる。
+  //
+  // [Netlist notes] Kind and timing of the ports
+  //   DD_RAD1/2/B   : combinational outputs (register numbers to read, made from the D-cycle
+  //                   instruction words, 030). The read of stm_regfile is combinational too, so
+  //                   GR_DT_1/2/B come back in the same cycle, go through the bypass selection of
+  //                   140 and enter the A_*_DT FFs. IWQ FFs -> decode -> register file -> bypass
+  //                   -> FFs has to fit in one cycle, which makes it one of the long paths.
+  //   B_LS_RADS     : FF output (register number of the store data etc. of the instruction in B) -> GR_DT_S (100).
+  //   W_WE/WAD/WDT  : FF outputs: the writes of the instruction in W. stm_regfile writes them at
+  //                   the next clock and shows them to reads in the same cycle through a bypass.
   output     [3:0]   DD_RAD1,
   output     [3:0]   DD_RAD2,
   output     [3:0]   DD_RADB,
@@ -150,6 +202,12 @@ module stm_cntl #(
   //   (stm_memory / stm_axi_master / stm_icache) から見てグリッチの無いきれいな信号。
   //   戻りの MEM_DT_OP / MEM_DT_IF_H/L は組合せで 050 / 180 に入り、同じサイクルに
   //   E_LS_LD_DT (100) や IWQ (200) の FF へ取り込まれる。
+  //
+  // [Netlist notes] LBS_WE/AD/DT and IB_AD are all FF outputs (160, 190).
+  //   Requests going out to memory are settled in FFs one cycle earlier, so for the logic
+  //   outside (stm_memory / stm_axi_master / stm_icache) they are clean, glitch-free signals.
+  //   The returning MEM_DT_OP / MEM_DT_IF_H/L enter 050 / 180 combinationally and are taken
+  //   into the E_LS_LD_DT (100) and IWQ (200) FFs in the same cycle.
   output reg         LBS_WE,
   output reg [31:0]  LBS_AD,
   output reg [31:0]  LBS_DT,
@@ -166,6 +224,13 @@ module stm_cntl #(
   //   IB_AD の FF が同じクロックで更新されるので、次のサイクルに両者が揃う)。
   //   OP_B_BUSREQ は OP-B の FF とアドレス比較から作る組合せ出力 (050)。
   //   stm_sys のように何もつながないと、これらを作る回路は合成で消える。
+  //
+  // [Netlist notes] IB_VALID and OP_B_NEW are FF outputs (the IB_V and OP_B_NEW FFs).
+  //   IB_AD_NXT is a combinational output that brings the D input of the IB_AD FFs (IB_AD_NEW)
+  //   out as it is. stm_icache uses it as the read address of its block RAMs (the RAM output
+  //   register and the IB_AD FFs update on the same clock, so both match in the next cycle).
+  //   OP_B_BUSREQ is a combinational output made from the OP-B FFs and address compares (050).
+  //   When nothing is connected, as in stm_sys, the logic making these disappears in synthesis.
   output             IB_VALID,      // IB の命令フェッチ要求が有効 (= IB_V)
   output     [31:0]  IB_AD_NXT,     // 次のサイクルの IB_AD (命令キャッシュの先読み用)
   output reg         OP_B_NEW,      // OP-B に新しい要求が入った最初のサイクル
@@ -185,6 +250,11 @@ module stm_cntl #(
 //         なので、合成時に「マスクで 1 のビットだけを比べる」比較器に縮む
 //         (既定値なら a[31:28] == 4'hF の 4 入力 AND 1 段)。EXT_BUS=0 では
 //         定数 0 になり、is_io() を使う回路はまるごと消える。
+//
+// [Netlist notes] EXT_BUS / IO_EN / IO_MASK / IO_BASE are all parameters (constants),
+//         so synthesis shrinks this to a comparator of only the bits that are 1 in the mask
+//         (with the defaults, one 4-input AND for a[31:28] == 4'hF). With EXT_BUS=0 it is
+//         the constant 0, and every circuit that uses is_io() disappears.
 function is_io(input [31:0] a);
   is_io = EXT_BUS && IO_EN && ((a & IO_MASK) == IO_BASE);
 endfunction
@@ -205,6 +275,18 @@ endfunction
 //        - W_LATTER_IS_JB, E_LS_RADS, E_LS_OPS_IS_GR, B_EX_RAD2 の FF
 //          (自分自身の保持にしか使われていない。合成結果にも *_reg が無い)
 //      これらは元の CHDL にあったものを対応を取りやすくするため残してある。
+//
+// [Netlist notes] How to read the declarations
+//    - A pair reg X / wire X_NEW is one FF (as many as the number of bits).
+//    - A wire alone (with no X_NEW) is a net in the middle of the combinational logic.
+//      It does not pass through an FF, so it reaches the expressions of other .vh files in the same cycle.
+//    - Nets declared here but used nowhere disappear in synthesis. For example
+//        - fields of 015 such as I0_JB_IMM12 / I0_LS_DISP16 (they only cut out part of the
+//          instruction word, and nothing uses them)
+//        - E_STAT etc. in 070 (simulation probes; not even the testbenches look at them)
+//        - the FFs W_LATTER_IS_JB, E_LS_RADS, E_LS_OPS_IS_GR, B_EX_RAD2
+//          (used only to hold their own value; there is no *_reg for them in the synthesis result)
+//      They come from the original CHDL and are kept so the two can be matched easily.
 // ---------------------------------------------------------------------
 
 // ---- 010-d-pre.ch
@@ -841,6 +923,13 @@ wire [3:0]     G_BC_MASK_NEW;
 //   出力で、どちらも FF を通らない組合せ出力。AA_EXU_OUTPUT → (130) → B_EX_RES,
 //   EE_ALU_OUTPUT → (090) → W_WDT1 / STB_DT のように次の段の FF の D 入力になるほか,
 //   バイパス (140, 100) や分岐解決 (210) へも同じサイクルのうちに配られる。
+//
+// [Netlist notes] There are 2 instances of stm_exu (u_e_alu, u_a_exu).
+//   EE_* are the outputs of the LS-pipe ALU in the E cycle, AA_* those of the EX-pipe EXU in the
+//   A cycle; both are combinational outputs that do not pass through FFs. Besides becoming the
+//   D inputs of the next stage's FFs, as in AA_EXU_OUTPUT -> (130) -> B_EX_RES and
+//   EE_ALU_OUTPUT -> (090) -> W_WDT1 / STB_DT, they are also distributed in the same cycle to
+//   the bypasses (140, 100) and to branch resolution (210).
 wire [1:0]     EE_ALU_CC;
 wire [31:0]    EE_ALU_OUTPUT;
 wire [2:0]     EE_ALU_INT;
@@ -899,6 +988,22 @@ wire [2:0]     AA_EXU_INT;
 //   ・なお iverilog のシミュレーションでは、always @(posedge clk) の右辺は
 //     このクロックの直前の値で評価されるので、C 版の「全 X_NEW を計算してから
 //     一斉に X = X_NEW」と同じ意味になる。
+//
+// [Netlist notes] The circuit made from this always block
+//   - Each line becomes one FF (as many as the number of bits). On Xilinx 7 series this is
+//     an FF with synchronous reset to 0 = FDRE: rst goes to the FF's R pin and X_NEW to its
+//     D pin (e.g. START_TRIGGER_BAR_reg in the synthesis result has
+//     .D(START_TRIGGER_BAR_NEW), .R(rst)).
+//   - When X_NEW contains a "hold (keep X)" case (e.g. TBR_NEW = cond ? W_WDT2 : TBR),
+//     synthesis often replaces the hold branch with the FF's CE (clock enable) pin,
+//     which saves LUTs.
+//   - Only the PC has the input RESET_PC as its reset value, so the R pin cannot be used.
+//     In the synthesis result the R of PC_reg is tied to 1'b0, and one LUT level choosing
+//     "RESET_PC during rst" is added before the D input (PC[i]_i_1 has aresetn and
+//     RESET_PC[i] as inputs).
+//   - In the iverilog simulation the right-hand sides in always @(posedge clk) are evaluated
+//     with the values just before this clock edge, which means the same as the C version's
+//     "compute every X_NEW, then do X = X_NEW all at once".
 always @(posedge clk) begin
   if (rst) begin
     TBR                     <= 0;

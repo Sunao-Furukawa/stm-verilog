@@ -33,6 +33,28 @@
 //    レジスタファイルを通って A_*_DT の FF まで 1 サイクルの長い経路になる)
 //   RANDOM_FOR_* は tb_stm.v から直接入り、キャッシュのミスを模擬する。
 //   常に 1 なら「メモリは同じサイクルに応答する」理想的なメモリになる。
+//
+// [Netlist notes] This module is wiring only (no gates, no FFs).
+//   Each wire is one net with exactly one driver and one or more loads:
+//
+//     net             driver                        load              meaning
+//     dd_rad1/2/b     u_cntl (030, combinational)   u_reg rad1/2/b    register numbers read in the D cycle
+//     b_ls_rads       u_cntl (FF in 130)            u_reg rads        register number read in the B cycle
+//     gr_dt_1/2/b     u_reg (combinational)         u_cntl (140)      read data for the D cycle
+//     gr_dt_s         u_reg (combinational)         u_cntl (100)      store data / operand of EX-RM
+//     w_we1/2, w_wad1/2, w_wdt1/2
+//                     u_cntl (FFs in 090)           u_reg             W-cycle writes (1=LS, 2=EX)
+//     lbs_we/ad/dt    u_cntl (FFs in 160)           u_mem             operand read / write
+//     mem_dt_op       u_mem (combinational)         u_cntl (050)      operand read data
+//     ib_ad           u_cntl (FFs in 190)           u_mem             fetch address (8-byte unit)
+//     mem_dt_if_h/l   u_mem (combinational)         u_cntl (180)      the 2 fetched instructions
+//
+//   Combinational paths go back and forth across modules, u_cntl -> u_reg -> u_cntl and
+//   u_cntl -> u_mem -> u_cntl, but they always start at FFs of u_cntl, so there is no loop.
+//   (Only dd_rad* come from combinational logic inside u_cntl, which makes a long one-cycle
+//    path from the IWQ FFs through the register file to the A_*_DT FFs.)
+//   RANDOM_FOR_* come straight from tb_stm.v and simulate cache misses.
+//   If they are always 1, the memory is an ideal one that "answers in the same cycle".
 // =====================================================================
 module stm_sys #(
   parameter MEM_AW   = 10,

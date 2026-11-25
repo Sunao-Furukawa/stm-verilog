@@ -24,6 +24,22 @@
 //     ・AA_IO_LD_HOLD は EXT_BUS=1 のときだけ残る。入力の AA_EAG_OUTPUT は
 //       A サイクルの 32bit 加算の結果なので、A → 060 → 070 (A_INTLK) → 140/150
 //       (A の FF の保持) という経路が加算器の後ろにつながる。
+//
+// [Netlist notes]
+//   Inputs : A_* (FFs in 150 / 140), B_* (FFs in 130), E_* (FFs in 110 / 100),
+//            STB_V (090), OP_B_* / OP_WAIT_* (160), CANCEL_BY_* / SU_*_RDY (050),
+//            AA_EAG_OUTPUT (adder output in 120, combinational; for the I/O check)
+//   Outputs: E_V_NOCAN / B_V_NOCAN / A_V_NOCAN -> 070 (interlock), A_V_NOCAN -> 170
+//            A_EAB      -> 070 (a cause of A_INTLK)
+//            AA_LD_GO   -> 070, 160 (the S unit accepted the L/ST in A)
+//            WW_ST_GO   -> 070, 090, 160 (the S unit accepted the ST2 from the STB)
+//   Circuit:
+//     - A_EAB is six 4-bit equality comparators (E_WAD1 / B_WAD1 against the 3 read numbers
+//       of A) plus AND/OR. No 32-bit data passes through it; only numbers and flags.
+//     - AA_LD_GO and WW_ST_GO form a 2-input arbiter that gives priority to the L/ST in A.
+//     - AA_IO_LD_HOLD only remains with EXT_BUS=1. Its input AA_EAG_OUTPUT is the result of
+//       the 32-bit add in the A cycle, so the path A -> 060 -> 070 (A_INTLK) -> 140/150
+//       (hold of the A FFs) hangs off the end of the adder.
 // ---------------------------------------------------------------------
 
 // g-srq : codes related to interlocks and releases
