@@ -1,5 +1,7 @@
 # Vivado が生成するネットリストの読み方
 
+[English](NETLIST.md) | **日本語**
+
 [`README.ja.md`](README.ja.md) の手順 (`create_bd.tcl`) でブロックデザインを作って合成すると、
 `vivado/stm_bd/` の下に Verilog のネットリストがたくさんできます。これらは **Vivado が生成する
 ファイル** で、git の管理外 (`.gitignore`) にあり、合成し直すたびに上書きされます。
