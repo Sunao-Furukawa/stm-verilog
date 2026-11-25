@@ -20,6 +20,40 @@
 //  命令もデータも同じ AXI4 ポートからアクセスする (命令フェッチは ARPROT[2]=1)。
 //  クロックは aclk 1 本, リセットは AXI の慣習どおり aresetn (0 でリセット,
 //  aclk に同期して扱う)。リセット解除後, RESET_PC から実行を始める。
+//
+// 【ネットリスト解説】このモジュールも配線だけ (rst = !aresetn の NOT 1 個を除く)。
+//   stm_sys.v との違いは、メモリの代わりに 2 つのモジュールが入り、
+//   stm_cntl の「乱数入力」が本物のハンドシェイクになること:
+//
+//     ネット          作り手                        使い手              意味
+//     ib_valid        u_cntl (IB_V の FF)           u_icache            命令フェッチ要求が出ている
+//     ib_ad           u_cntl (IB_AD の FF)          u_icache            その番地 (8 バイト単位)
+//     ib_ad_nxt       u_cntl (IB_AD の D 入力)      u_icache            次のサイクルの ib_ad (RAM の先読み)
+//     if_rdy          u_icache (組合せ)             u_cntl RANDOM_FOR_IFCLH  2 命令が揃った
+//     mem_dt_if_h/l   u_icache (組合せ)             u_cntl (180)        その 2 命令
+//     fr_req/addr/len/burst
+//                     u_icache                      u_axi (ifr_*)       ライン埋めのバースト読み出し要求
+//     fr_ack          u_axi (組合せ)                u_icache            AR が受け付けられた
+//     fr_valid/data/last/err
+//                     u_axi (R チャネルの振り分け)  u_icache            届いたビート
+//     op_b_new        u_cntl (OP_B_NEW の FF)       u_axi op_new        OP-B に新しい要求が入った
+//     op_b_busreq     u_cntl (050, 組合せ)          u_axi op_busreq     その要求にバスアクセスが要る
+//     lbs_we/ad/dt    u_cntl (160 の FF)            u_axi op_we/ad/wdt  読むか書くか, 番地, 書くデータ
+//     op_rdy          u_axi (FF から 1 段)          u_cntl RANDOM_FOR_OPCLH  要求が完了した
+//     mem_dt_op       u_axi (op_dt の FF)           u_cntl (050)        読んだデータ
+//     op_err          u_axi (op_err の FF)          u_cntl MEM_OP_ERR   読み出しがエラー応答だった
+//     (GR 関係のネットは stm_sys.v と同じ)
+//
+//   AXI の入力 (m_axi_*ready, m_axi_r*, m_axi_b*) から stm_cntl の FF までの間には
+//   必ず u_axi か u_icache の FF が入る (u_axi の op_dt / op_err, u_icache の RAM と
+//   byp_*)。そのため AXI 側の配線遅延が CPU 内部の長い経路とつながらない。
+//   if_rdy / op_rdy も u_icache / u_axi の FF (と RAM の出力レジスタ) から数段の
+//   論理で作られ、AXI の入力を直接は通らない。
+//
+//   Vivado の合成結果 (syn/vivado のブロックデザイン) では、このモジュールの
+//   中に stm_cntl / stm_regfile / stm_icache / stm_axi_master の 4 つのモジュールが
+//   残り (stm_exu は stm_cntl に展開される)、命令キャッシュのデータ RAM が
+//   RAMB36E1 1 個, タグ RAM が RAMB18E1 1 個になる。
 // =====================================================================
 module stm_axi_top #(
   parameter ID_W      = 4,

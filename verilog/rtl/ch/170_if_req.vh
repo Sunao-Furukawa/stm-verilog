@@ -12,6 +12,20 @@
 //   NULL  : レジスタ間接分岐を D で発行中 (番地はまだ不明なので要求しない)
 //   BA/BC : PC 相対分岐 → 分岐先 DD_TGT (未解決 BC は「もう一方の」キューへ)
 //   通常  : キューに空きがあれば続きの 8 バイト
+//
+// 【ネットリスト解説】
+//   入力 : PC / START_TRIGGER (080), AA_EAG_OUTPUT (120), DD_TGT / DD_ISSUEING_* /
+//          IJB_IS_JA/JL (040), A_V_NOCAN (060), A_SET_EAG_TO_TGT (150), A_FWD / D_FWD (070),
+//          EID / NIP_0..5 / V01 / V23 / V45 (010), IB_V / IB_AD / IB_ID / D_IF_AD_A/B (190 の FF)
+//   出力 : IF_REQ_V / IF_REQ_AD / IF_REQ_ID -> 180 (SU_IF_RDY), 190 (IB_* の FF)
+//          CANCEL_IB -> 190 ;  IWQ_FULL -> 190
+//   回路の形:
+//     ・IF_REQ_AD は 32bit の 4:1 優先 MUX (PC / AA_EAG_OUTPUT / DD_TGT / IF_INCR_OUT)。
+//       IF_INCR_OUT は 32bit 加算器 (add_32_4, +8 か +0)。
+//     ・この MUX の入力に A の EAG (加算器) と D の DD_TGT (加算器) が来るので、
+//       「A の FF → EAG → IF_REQ_AD → IB_AD の FF」「IWQ → … → DD_TGT → IF_REQ_AD →
+//       IB_AD の FF」がフェッチ側の長い経路。EXT_BUS=1 ではさらに IB_AD_NXT として
+//       stm_icache のブロック RAM の番地入力まで伸びる。
 // ---------------------------------------------------------------------
 
 // if-req

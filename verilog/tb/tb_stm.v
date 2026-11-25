@@ -17,6 +17,18 @@
 //  コンソール (Verilog 版で追加): 番地 F000_0008 に語をストアすると, その下位 8bit を
 //  1 文字として表示する ($write)。tb_stm_axi.v (axi4_mem_slave) と同じ番地。
 //  stm_memory は番地の下位 12bit しか見ないので, メモリの 0x008 にも書かれる。
+//
+// 【解説】テストベンチの構成とネット
+//   ・tb_stm と stm_sys の間のネットは、入力の clk, rst, reset_pc, rnd_opclh /
+//     rnd_ifrdy / rnd_ifclh と、出力の pc だけ。
+//     stm_sys の中のレジスタファイルとメモリの配線は stm_sys.v を参照。
+//   ・回路の中の信号は、階層名 (u_sys.u_cntl.D_FWD など) で直接のぞいている。
+//     ネットリストに 1 対 1 に対応する名前 (stm_cntl の中の wire / reg) なので、
+//     C シミュレータの出力 (siml.res) と同じ信号をサイクルごとに比べられる。
+//   ・テストベンチ自身は論理合成しない (initial, $readmemh, $random, #遅延 を使う)。
+//   ・時間の流れ: クロック周期 10 (#5 で反転)。乱数入力は立ち下がりで変え、
+//     #1 待ってから表示するので、表示する値は「次の立ち上がりで FF に入る直前」
+//     = そのサイクルの組合せ回路が落ち着いた値。
 // =====================================================================
 module tb_stm;
   reg         clk = 1'b0;
@@ -72,6 +84,8 @@ module tb_stm;
         rnd_ifclh = (($random(seed) & 15) >= 8);
       end
       #1;
+      // 【解説】PC は「完了した命令の次の番地」(080_w_act.vh)。その番地の命令が
+      //         診断命令 (上位 4bit = 0xD) なら、テストプログラムの終わりに着いた。
       insn = u_sys.u_mem.mem[pc[11:2]];
       if (trace)
         $display("%4d PC=%h D_FWD=%b A_FWD=%b B_FWD=%b E_FWD=%b W_COMPLETE=%b I0=%h I1=%h",

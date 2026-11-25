@@ -2,6 +2,11 @@
 //  stm_fmt_ls_ex.vh  <-  hard/fmt-ls-ex.h
 //  LS (ロード/ストア) 形式・EX (演算) 形式のフィールド抽出関数と
 //  命令の合法性チェック is_legal_opc
+//
+// 【ネットリスト解説】フィールド抽出の function は stm_fmt_jb.vh と同じく配線だけ。
+//   回路 (LUT) になるのは is_legal_opc だけで、入力は命令語の上位 8bit と
+//   PSW_USER の 9 本、出力 1 本の組合せ回路 (LUT 2〜3 個程度)。
+//   I0 用と I1 用に 015_d_i01.vh で 2 回呼ばれるので 2 組できる。
 // =====================================================================
 /*LS :
 # +--------+----+----+-----------------+
@@ -11,6 +16,8 @@
 #    OPCODE =  1   0   0   L/ST   0   0    HFW BYT
 #  No signed byte/halfword load ... they are usually char's
 */
+// 【解説】LENG = 0 は語, それ以外はサブワード (bit1 (=2) が立てばハーフワード,
+//         そうでなければバイト)。150_d_act.vh で E サイクルの opcode に変換される。
 function [2:0]  ls_opc_h  (input [31:0] i); ls_opc_h   = i[31:29]; endfunction // bit_ext(i,0,3)
 function        ls_store  (input [31:0] i); ls_store   = i[28];    endfunction // bit_ext(i,3,1)
 function [3:0]  ls_leng   (input [31:0] i); ls_leng    = i[27:24]; endfunction // bit_ext(i,4,4)
@@ -39,6 +46,9 @@ function [15:0] ls_disp16 (input [31:0] i); ls_disp16  = i[15:0];  endfunction /
 #   1  2  3      5  6  7  8  9  A  B   C   D    E
 #   A  S  C      AU SU CU N  O  X  SL SRA SRL  SETHI
 */
+// 【解説】EX 形式では RD / R1(RB) / R2(RS) が LS 形式の RD/RS / RB と同じ位置にある。
+//         そのため 030_d_sec.vh のレジスタ読み出し番号 (DD_RADB/RAD1/RAD2) は、
+//         形式を問わず同じビット ([19:16], [15:12]) から取れる。
 function        ex_opc_h   (input [31:0] i); ex_opc_h    = i[31];    endfunction // bit_ext(i,0,1)
 function [1:0]  ex_op2mode (input [31:0] i); ex_op2mode  = i[30:29]; endfunction // bit_ext(i,1,2)
 function        ex_setcc   (input [31:0] i); ex_setcc    = i[28];    endfunction // bit_ext(i,3,1)

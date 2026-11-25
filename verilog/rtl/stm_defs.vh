@@ -8,6 +8,19 @@
 //    この Verilog 版はすべて一般的な [N-1:0] (LSB が 0 番) で書いている。
 //    defs.h の bit_ext(i,s,n) (左から s ビット目から n ビット) は
 //    Verilog では  i[31-s -: n]  に相当する。
+//
+// 【ネットリスト解説】function は「呼んだ場所にその式を展開する」だけで、
+//   それ自身は回路の部品 (インスタンス) にならない。合成結果の中に
+//   sign_ext_16 という名前のセルは無く、呼び出し側のネットの一部になる
+//   (Vivado では add_32_5_20_return のように「関数名_return」というネット名で
+//   残ることがある)。中身で分けると:
+//     ・sign_ext_* / zero_ext_5 / build_psw / pickup_*  : 配線だけ (LUT 0 個)。
+//         符号拡張は最上位ビットのネットを複数のビットへ分岐させるだけ。
+//     ・cc_match                                       : 4:1 マルチプレクサ 1 個 (LUT 1 個)。
+//     ・we_on                                          : 4bit 入力の比較 (LUT 1 個)。
+//     ・add_*                                          : 加算器。FPGA では CARRY4 の連鎖
+//         (4bit ごと) + 各ビットの LUT になる。add_3_2 / add4_5 のように短いものは
+//         LUT だけで済むこともある。
 // =====================================================================
 
 // ---------------------------------------------------------------------
@@ -34,6 +47,8 @@ endfunction
 // cc matches condition-mask
 //   C 版: ((8 >> cc) & mask) != 0
 //   MASK の最上位ビット(8)が cc=0, 最下位ビット(1)が cc=3 に対応する。
+//   【解説】回路としては「cc を選択信号, mask の 4 本をデータとする 4:1 MUX」。
+//         例: BNE (mask=6=0110) は cc=1 (負) と cc=2 (正) で成立する。
 function cc_match(input [1:0] cc, input [3:0] mask);
   cc_match = mask[3 - cc];
 endfunction
@@ -53,6 +68,10 @@ endfunction
 //   Verilog の番号では cc=[29:28], user=[24], inttype=[23:16]
 
 // Function to build PSW from CC, USER and INTTYPE
+//   【解説】PSW は 1 本の 32bit レジスタとしては存在しない。実体は stm_cntl の
+//         PSW_CC (2bit), PSW_USER (1bit), PSW_TYPE (8bit) の 3 つの FF で、RSR で読む
+//         ときや XPSW に退避するときだけ build_psw で 32bit に並べる (配線のみ)。
+//         残りのビットは常に 0 (グランドにつながる)。
 function [31:0] build_psw(input [1:0] cc, input user, input [7:0] type_);
   build_psw = {2'b00, cc, 3'b000, user, type_, 16'h0000};
 endfunction
@@ -91,6 +110,11 @@ endfunction
 // Function to add 4, 5 and 3 bits with coefficients.  Used in JB-INSN-AD.
 //   C 版: (-1)*(x ? 16 : 8) + 4 * y + (z ? 0 : 4)
 //   結果は -16 .. +24 の範囲なので 6 bit の 2 の補数で表す。
+//   【解説】入力は 1+3+1 = 5bit しか無いので、合成ツールはこれを加算器ではなく
+//         5 入力の真理値表 (出力 6bit それぞれ LUT5 1 個) にしてしまえる。
+//         例: x=1 (V45), y=4 (NIP), z=1 (1 命令目が分岐)  →  -16 + 16 + 0 = 0。
+//         つまり「4,5 番が埋まっていて NIP=4 なら、分岐命令は最後に入れた
+//         8 バイトの先頭 (D_IF_AD) にある」。
 function [5:0] add_4_5_3(input x, input [2:0] y, input z);
   add_4_5_3 = (x ? 6'd48 : 6'd56)          // -16 / -8 (6bit 2の補数)
             + {1'b0, y, 2'b00}              // 4 * y
@@ -99,6 +123,11 @@ endfunction
 
 // Function to add 32, 5 and 20 bits with coefficients.  Used in DD-TGT.
 //   x + (6bit 符号付き y) + sign_ext(20, z)
+//   【解説】3 入力の加算 (x + y + z)。合成ではキャリー連鎖 (CARRY4) を使った加算器に
+//         なる (Vivado の合成結果では A_TGT_reg[..]_i_1 という名前の CARRY4 が並び、
+//         その出力ネットが add_32_5_20_return[..])。
+//         D サイクルの中で IWQ → NIP → PART2 → この加算 → A_TGT の FF と続くので、
+//         長い経路の 1 つ。
 function [31:0] add_32_5_20(input [31:0] x, input [5:0] y, input [19:0] z);
   add_32_5_20 = x + {{26{y[5]}}, y} + {{12{z[19]}}, z};
 endfunction

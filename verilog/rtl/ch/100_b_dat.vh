@@ -10,6 +10,24 @@
 // ・キャッシュから返ったロードデータを受け取る。直前のストアが同じ番地なら
 //   そのデータを使う (ストア → ロードのフォワーディング)
 // E がインタロック中 (E_INTLK) は値を保持する。
+//
+// 【ネットリスト解説】
+//   入力 : B_* (130 の FF), E_* (110 の FF), W_* (090 の FF), STB_* (090 の FF),
+//          EE_ALU_OUTPUT (090 の ALU, 組合せ), B_OPCLH / OP_B_INTCODE / OP_LBS_DATA (050),
+//          E_INTLK / E_STB_INTLK (070), ポート GR_DT_S (stm_regfile)
+//   出力 (FF): E_LS_OPS_DT, E_LS_LD_DT, E_LS_INTCODE -> 090 (ALU の入力と割り込み)
+//              E_OPCLH_LCH -> 050, 060, 070, 140 (「E のデータは揃った」)
+//   出力 (組合せ): BB_MEM_DATA -> 140 (A へのロードデータのバイパス)
+//   回路の形:
+//     ・E_LS_OPS_DT_NEW は 32bit の 7:1 優先 MUX。選択条件は 4bit 一致比較器 5 個
+//       (B_LS_RADS と B_WAD2 / E_WAD1 / E_WAD2 / W_WAD1 / W_WAD2) から作る。
+//       データ入力の 1 つ EE_ALU_OUTPUT は同じサイクルの ALU 出力なので、
+//       E の FF → ALU → この MUX → E_LS_OPS_DT の FF が 1 サイクルの経路。
+//     ・BB_MEM_DATA は B のロード番地と E のストア番地 / STB 番地を比べる
+//       32bit 一致比較器 2 個と 32bit 3:1 MUX。EXT_BUS=1 なら定数の伝搬で
+//       OP_LBS_DATA そのもの (配線) になり、比較器は消える。
+//     ・E_OPCLH_LCH / E_LS_INTCODE / E_LS_LD_DT は「!E_STB_INTLK のときだけ更新」
+//       なので CE 付きの FF。
 // ---------------------------------------------------------------------
 
 // b-dat

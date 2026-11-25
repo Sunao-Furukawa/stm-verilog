@@ -50,6 +50,48 @@
 //   WDT / DT                 : データ
 //   ..1 / ..2 (WE1, WAD1 …) : 1 = LS パイプ側, 2 = EX パイプ側 (W_WE1 / W_WE2 など)
 //
+// 【ネットリスト解説】このモジュールが回路としてどうなるか
+//
+//   ・このモジュールの中身は「FF の列」と「その D 入力を作る巨大な組合せ回路」
+//     の 2 つだけでできている。ch/*.vh の assign はすべて組合せ回路 (LUT) になり、
+//     末尾の always ブロックが FF (Xilinx なら FDRE) の列になる。ラッチや
+//     クロックゲートは無く、クロックは clk 1 本だけの完全同期回路。
+//   ・FF は X と X_NEW の対で宣言してある。ネットリスト上では
+//         X_NEW (LUT の出力) --D--> [FF X] --Q--> X (次の段の LUT の入力)
+//     という形になり、FF の名前は合成後も "X_reg" (多ビットなら "X_reg[i]")
+//     として残るので、合成結果やタイミングレポートで RTL の名前を追える。
+//   ・ch/*.vh 同士は、ある .vh の出力ネットを別の .vh が入力として使う形で
+//     つながっている (各 .vh の先頭の【ネットリスト解説】に、そのファイルが作る
+//     ネットと使い先・使っているネットと作り元を書いた)。
+//     ファイルの境界は回路の境界ではなく、合成すると 1 つの組合せ回路に溶け合う。
+//   ・おおまかな信号の流れ (矢印 = ネットの向き。[] は FF, 数字は ch/ のファイル):
+//
+//      命令フェッチ:  [PC] / DD_TGT / AA_EAG_OUTPUT --> 170 --IF_REQ_*--> 190 --> [IB_*] --IB_AD--> メモリ
+//                     MEM_DT_IF_H/L --> 180 --I_LBS_H/L--> 200 --> [IWQ_A/B_*]
+//      D サイクル:    [IWQ_*] --> 010 --I0,I1--> 015 --> 020 --> 030 --ILS/IEX/IJB--> 035 --> 040
+//                     030 --DD_RAD1/2/B--> レジスタファイル --GR_DT_1/2/B--> 140
+//                     140 / 150 --> [A_*]
+//      A サイクル:    [A_*] --> 120 (EXU, EAG) --AA_EX_RES, AA_EAG_OUTPUT--> 130 --> [B_*]
+//                     AA_EAG_OUTPUT --> 060 / 160 (S ユニットの受付) --> [OP_B_*, LBS_*] --> メモリ
+//      B サイクル:    MEM_DT_OP --> 050 --OP_LBS_DATA--> 100 ;  [B_*] --> 100 / 110 --> [E_*]
+//                     B_LS_RADS --> レジスタファイル --GR_DT_S--> 100
+//      E サイクル:    [E_*] --> 090 (ALU) --> [W_*, STB_*]
+//      W サイクル:    [W_*] --> 080 --> [PC, PSW_*, TBR, XPC ...] ;  W_WE/WAD/WDT --> レジスタファイル
+//
+//      070 (インタロック) は E→B→A→D の順に xx_FWD / xx_INTLK を作り、
+//      ほぼすべてのステージの FF の「保持 / 更新 / クリア」のマルチプレクサを選ぶ。
+//      050 の CANCEL_BY_INT / CANCEL_BY_BC と 210 の G_BC_* も全ステージに配られる
+//      (ファンアウトが大きく、合成すると配線遅延の効く信号になる)。
+//
+//   ・参考: Vivado 2022.2 で xc7a35t (Arty A7-35) 向けに合成した結果
+//     (syn/vivado のブロックデザイン, stm_axi_top の中の stm_cntl 部分) は
+//     FDRE 約 1600 個, LUT 約 4300 個 (LUT6 が約半分), CARRY4 65 個, MUXF7 49 個。
+//     (EXT_BUS=1 の場合。EXT_BUS=0 で stm_cntl だけを合成すると LUT 3,034 / FF 1,623。
+//      syn/README.ja.md 参照。差の多くは EXT_BUS=1 で増えるフォワーディングと I/O の回路)
+//     CARRY4 (高速キャリー連鎖) は PC の加算, 分岐先 (add_32_5_20),
+//     EAG (add_32_16), フェッチ番地 (add_32_4), 2 個の stm_exu の加減算に使われる。
+//     LUT の大半はバイパス (140_d_dat.vh) とステージ間の「保持 / 更新」選択。
+//
 // =====================================================================
 module stm_cntl #(
   // 0: 元の動作 (メモリは同じサイクルに応答する。stm_sys / stm_memory 用)
@@ -78,6 +120,15 @@ module stm_cntl #(
   input              RANDOM_FOR_IFCLH,
 
   // レジスタファイル (stm_regfile) とのインタフェース
+  // 【ネットリスト解説】ポートの種類とタイミング
+  //   DD_RAD1/2/B   : 組合せ出力 (D サイクルの命令語から作る読み出し番号, 030)。
+  //                   stm_regfile の読み出しも組合せなので、同じサイクルのうちに
+  //                   GR_DT_1/2/B が戻ってきて 140 のバイパス選択を通り A_*_DT の
+  //                   FF に入る。IWQ の FF → デコード → レジスタファイル → バイパス
+  //                   → FF が 1 サイクルに収まる必要があり、長い経路の 1 つになる。
+  //   B_LS_RADS     : FF 出力 (B サイクルの命令のストアデータ等の番号) → GR_DT_S (100)。
+  //   W_WE/WAD/WDT  : FF 出力。W サイクルの命令の書き込み。stm_regfile が次の
+  //                   クロックで書き、同じサイクルの読み出しにはバイパスで見せる。
   output     [3:0]   DD_RAD1,
   output     [3:0]   DD_RAD2,
   output     [3:0]   DD_RADB,
@@ -94,6 +145,11 @@ module stm_cntl #(
   output reg [31:0]  W_WDT2,
 
   // メモリ (stm_memory) とのインタフェース
+  // 【ネットリスト解説】LBS_WE/AD/DT と IB_AD はすべて FF 出力 (160, 190)。
+  //   メモリへ出る要求は 1 サイクル前に FF に確定しているので、外側の回路
+  //   (stm_memory / stm_axi_master / stm_icache) から見てグリッチの無いきれいな信号。
+  //   戻りの MEM_DT_OP / MEM_DT_IF_H/L は組合せで 050 / 180 に入り、同じサイクルに
+  //   E_LS_LD_DT (100) や IWQ (200) の FF へ取り込まれる。
   output reg         LBS_WE,
   output reg [31:0]  LBS_AD,
   output reg [31:0]  LBS_DT,
@@ -104,6 +160,12 @@ module stm_cntl #(
   input      [31:0]  MEM_DT_IF_L,
 
   // 外部バス (EXT_BUS=1) 用の要求信号 (stm_axi_master へ)。EXT_BUS=0 では未使用。
+  // 【ネットリスト解説】IB_VALID と OP_B_NEW は FF 出力 (IB_V, OP_B_NEW の FF)。
+  //   IB_AD_NXT は IB_AD の FF の D 入力 (IB_AD_NEW) をそのまま外へ出した組合せ出力で、
+  //   stm_icache はこれをブロック RAM の読み出し番地に使う (RAM の出力レジスタと
+  //   IB_AD の FF が同じクロックで更新されるので、次のサイクルに両者が揃う)。
+  //   OP_B_BUSREQ は OP-B の FF とアドレス比較から作る組合せ出力 (050)。
+  //   stm_sys のように何もつながないと、これらを作る回路は合成で消える。
   output             IB_VALID,      // IB の命令フェッチ要求が有効 (= IB_V)
   output     [31:0]  IB_AD_NXT,     // 次のサイクルの IB_AD (命令キャッシュの先読み用)
   output reg         OP_B_NEW,      // OP-B に新しい要求が入った最初のサイクル
@@ -119,6 +181,10 @@ module stm_cntl #(
 `include "stm_fmt_jb.vh"
 
 // (Verilog 版で追加) 番地が I/O 領域か。EXT_BUS=0 では常に 0。
+// 【ネットリスト解説】EXT_BUS / IO_EN / IO_MASK / IO_BASE はすべてパラメータ (定数)
+//         なので、合成時に「マスクで 1 のビットだけを比べる」比較器に縮む
+//         (既定値なら a[31:28] == 4'hF の 4 入力 AND 1 段)。EXT_BUS=0 では
+//         定数 0 になり、is_io() を使う回路はまるごと消える。
 function is_io(input [31:0] a);
   is_io = EXT_BUS && IO_EN && ((a & IO_MASK) == IO_BASE);
 endfunction
@@ -127,6 +193,18 @@ endfunction
 //  宣言 (元の .ch ファイルごと)。ビット幅は vh/prop.tab, vh/assi.tab による。
 //    wire      : CHDL の '='  (組合せ回路のネット)
 //    reg       : CHDL の ':=' (FF)。 *_NEW がその D 入力
+//
+// 【ネットリスト解説】宣言の読み方
+//    ・reg X と wire X_NEW の組が 1 本の FF (多ビットならそのビット数ぶん)。
+//    ・wire だけのもの (X_NEW の無いもの) は組合せ回路の途中のネット。
+//      FF を通らないので、同じサイクルのうちに別の .vh の式へ伝わる。
+//    ・ここで宣言しても、どこからも使われないネットは合成で消える。たとえば
+//        - 015 の I0_JB_IMM12 / I0_LS_DISP16 などのフィールド (命令語の一部を
+//          切り出すだけで、使われないもの)
+//        - 070 の E_STAT など (シミュレーション観測用。tb からも見ていない)
+//        - W_LATTER_IS_JB, E_LS_RADS, E_LS_OPS_IS_GR, B_EX_RAD2 の FF
+//          (自分自身の保持にしか使われていない。合成結果にも *_reg が無い)
+//      これらは元の CHDL にあったものを対応を取りやすくするため残してある。
 // ---------------------------------------------------------------------
 
 // ---- 010-d-pre.ch
@@ -758,6 +836,11 @@ wire           G_BC_TKN_PREDICTED_NEW;
 reg  [3:0]     G_BC_MASK;
 wire [3:0]     G_BC_MASK_NEW;
 // ---- EXU の出力 (090-e-act.ch / 120-a-dat.ch の exu() 呼び出し)
+// 【ネットリスト解説】stm_exu のインスタンスは 2 個 (u_e_alu, u_a_exu)。
+//   EE_* は E サイクルの LS パイプ ALU の出力, AA_* は A サイクルの EX パイプ EXU の
+//   出力で、どちらも FF を通らない組合せ出力。AA_EXU_OUTPUT → (130) → B_EX_RES,
+//   EE_ALU_OUTPUT → (090) → W_WDT1 / STB_DT のように次の段の FF の D 入力になるほか,
+//   バイパス (140, 100) や分岐解決 (210) へも同じサイクルのうちに配られる。
 wire [1:0]     EE_ALU_CC;
 wire [31:0]    EE_ALU_OUTPUT;
 wire [2:0]     EE_ALU_INT;
@@ -801,6 +884,21 @@ wire [2:0]     AA_EXU_INT;
 //         同期リセット: rst=1 の間のクロックで 0 (PC は RESET_PC) にする。
 //         (PC のリセット値が定数ではなく入力 RESET_PC なので、非同期リセットに
 //          すると FPGA ではラッチで代用されてしまう。そのため同期リセットにしている)
+//
+// 【ネットリスト解説】この always ブロックから作られる回路
+//   ・各行が FF 1 本 (多ビットならビット数ぶん) になる。Xilinx 7 系では
+//     「リセット値 0 の同期リセット付き FF」= FDRE で、rst は FF の R 端子に、
+//     X_NEW は D 端子につながる (例: 合成結果の START_TRIGGER_BAR_reg は
+//     .D(START_TRIGGER_BAR_NEW), .R(rst))。
+//   ・X_NEW が「保持 (X のまま)」の場合を含む式 (例: TBR_NEW = 条件 ? W_WDT2 : TBR)
+//     は、合成ツールが「保持」の分岐を FF の CE (クロックイネーブル) 端子に
+//     置き換えることが多い。その分 LUT が減る。
+//   ・PC だけはリセット値が入力 RESET_PC なので R 端子は使えない。合成結果では
+//     PC_reg の R は 1'b0 に固定され、D 入力の前に「rst なら RESET_PC」を選ぶ
+//     LUT が 1 段入る (PC[i]_i_1 が aresetn と RESET_PC[i] を入力に持つ)。
+//   ・なお iverilog のシミュレーションでは、always @(posedge clk) の右辺は
+//     このクロックの直前の値で評価されるので、C 版の「全 X_NEW を計算してから
+//     一斉に X = X_NEW」と同じ意味になる。
 always @(posedge clk) begin
   if (rst) begin
     TBR                     <= 0;
