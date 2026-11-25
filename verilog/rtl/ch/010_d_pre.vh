@@ -17,6 +17,20 @@
 //   6, 7 : 次の命令はこれから届く 8 バイトの 0 / 1 語目 (キューは空)
 // I0 = NIP の位置の命令、I1 = その次 (NIP+1) の命令。
 //
+// [Note] D cycle (1): take the two issue candidates I0, I1 out of the instruction queues
+//
+// For branch prediction STM has two instruction queues (IWQ), A and B.
+//   - one holds "the stream being executed", the other "the stream not predicted"
+//   - which one is current is shown by CUR_IWQ_ID (an FF)
+// Each queue has 6 words (IWQ_x_0..5) with a valid bit per 2 words (8 bytes):
+// V01 / V23 / V45. Instructions are fetched 8 bytes (2 instructions) at a time into
+// entries 4,5, and as they are consumed they shift forward (towards 0) 2 words at a time (200_if_iwq.vh).
+//
+// NIP (Next Insn Pointer) is the position in the queue of the next instruction to issue:
+//   0..5 : the instruction at that position issues next
+//   6, 7 : the next instruction is word 0 / 1 of the 8 bytes still to arrive (queue empty)
+// I0 = the instruction at NIP, I1 = the one after it (NIP+1).
+//
 // 【ネットリスト解説】
 //   入力 (FF): IWQ_A_0..5 / IWQ_B_0..5 と有効ビット (200), NIP_A_REG / NIP_B /
 //              CUR_IWQ_ID (190), G_BC_JUST_SOLVED / _TAKEN / _TKN_PREDICTED (210)
@@ -75,9 +89,14 @@
 // 【解説】Effective ID: このサイクルで実際に使うキュー (0=A, 1=B)。
 //         前サイクルで条件分岐が解決し (G_BC_JUST_SOLVED)、予測 (G_BC_TKN_PREDICTED) と
 //         実際 (G_BC_JUST_TAKEN) が食い違っていたら、もう一方のキューへ即座に切り替える。
+// [Note] Effective ID: the queue actually used in this cycle (0=A, 1=B).
+//        If a conditional branch was resolved in the previous cycle (G_BC_JUST_SOLVED) and
+//        the prediction (G_BC_TKN_PREDICTED) and the outcome (G_BC_JUST_TAKEN) differ,
+//        switch to the other queue at once.
 assign EID = CUR_IWQ_ID ^ (G_BC_JUST_SOLVED & (G_BC_JUST_TAKEN ^ G_BC_TKN_PREDICTED) );
 
 // 【解説】EID で選んだ側のキューの 6 語。
+// [Note] The 6 words of the queue selected by EID.
 assign IWQ_0 = (EID ? IWQ_B_0 : IWQ_A_0);
 assign IWQ_1 = (EID ? IWQ_B_1 : IWQ_A_1);
 assign IWQ_2 = (EID ? IWQ_B_2 : IWQ_A_2);
@@ -87,8 +106,11 @@ assign IWQ_5 = (EID ? IWQ_B_5 : IWQ_A_5);
 
 // 【解説】NIP_A は FF に「値 ^ 6」の形で格納している (NIP_A_REG)。
 //         こうするとリセット (0) 直後の NIP_A が 6 = 「キューは空」になる。
+// [Note] NIP_A is stored in the FF as "value ^ 6" (NIP_A_REG).
+//        That way NIP_A is 6 = "queue empty" right after reset (0).
 assign NIP_A = NIP_A_REG ^ 6;
 // 【解説】選択中のキューの NIP と、その値ごとのデコード信号。
+// [Note] NIP of the selected queue, and a decode signal for each of its values.
 assign NIP = (EID ? NIP_B     : NIP_A);
 assign NIP_0 = (NIP == 0);
 assign NIP_1 = (NIP == 1);
@@ -98,21 +120,26 @@ assign NIP_4 = (NIP == 4);
 assign NIP_5 = (NIP == 5);
 
 // 【解説】選択中のキューの有効ビット (2 語ごと)。
+// [Note] Valid bits of the selected queue (one per 2 words).
 assign V01 = (EID ? IWQ_B_V01 : IWQ_A_V01);
 assign V23 = (EID ? IWQ_B_V23 : IWQ_A_V23);
 assign V45 = (EID ? IWQ_B_V45 : IWQ_A_V45);
 
 // 【解説】I0 / I1 が有効か: その命令が入っている 2 語ペアの有効ビットを見る。
 //         I1 は NIP+1 の位置なので、NIP=5 (キューの最後) なら I1 は無い。
+// [Note] Are I0 / I1 valid: look at the valid bit of the word pair holding the instruction.
+//        I1 is at NIP+1, so with NIP=5 (the end of the queue) there is no I1.
 assign I0_V = (NIP_0 | NIP_1) ? V01 : (NIP_2 | NIP_3) ? V23 : (NIP_4 | NIP_5) ? V45 : 0;
 assign I1_V = (NIP_0        ) ? V01 : (NIP_1 | NIP_2) ? V23 : (NIP_3 | NIP_4) ? V45 : 0;
 
 // 【解説】NIP の位置の命令語 (無効なら 0)。
+// [Note] The instruction word at NIP (0 if not valid).
 assign I0_CANDID = NIP_0 ? IWQ_0 : NIP_1 ? IWQ_1 : NIP_2 ? IWQ_2 :
             NIP_3 ? IWQ_3 : NIP_4 ? IWQ_4 : NIP_5 ? IWQ_5 : 0;
 assign I0 = I0_V ? I0_CANDID : 0;
 
 // 【解説】NIP+1 の位置の命令語 (無効なら 0)。
+// [Note] The instruction word at NIP+1 (0 if not valid).
 assign I1_CANDID = NIP_0 ? IWQ_1 : NIP_1 ? IWQ_2 : NIP_2 ? IWQ_3 :
             NIP_3 ? IWQ_4 : NIP_4 ? IWQ_5 : 0;
 assign I1 = I1_V ? I1_CANDID : 0;

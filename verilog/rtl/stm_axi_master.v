@@ -229,6 +229,9 @@ module stm_axi_master #(
   // 【解説】OP の要求をバスに出し始める条件: 何も出しておらず (S_IDLE), バスが要り,
   //         今の要求の結果をまだ持っていない (op_done=0) か新しい要求が来た (op_new)。
   //         op_done は「この要求は済んだ」の FF で、同じ要求を 2 度出さないためのもの。
+  // [Note] Condition to start putting an OP request on the bus: nothing is out (S_IDLE), the bus is needed,
+  //        and the result of the current request is not held yet (op_done=0) or a new request came (op_new).
+  //        op_done is an FF meaning "this request is done", so the same request is not issued twice.
   wire        op_launch = (op_st == S_IDLE) & op_busreq & (!op_done | op_new);
   wire        op_wr     = (op_st == S_IDLE) ? op_we : op_wr_q;
   wire [31:0] op_addr   = (op_st == S_IDLE) ? {op_ad[31:2], 2'b00} : op_ad_q;
@@ -243,6 +246,8 @@ module stm_axi_master #(
 
   // 【解説】op_rdy (→ stm_cntl の RANDOM_FOR_OPCLH): 結果が揃っていて, かつ同じサイクルに
   //         新しい要求が入っていない。op_new のサイクルは古い要求の結果なので返さない。
+  // [Note] op_rdy (-> RANDOM_FOR_OPCLH of stm_cntl): the result is ready, and no new request entered
+  //        in the same cycle. In an op_new cycle the result belongs to the old request, so it is not returned.
   assign op_rdy = op_done & !op_new;
   wire   op_io  = IO_EN && ((op_addr & IO_MASK) == IO_BASE);
 
@@ -337,6 +342,8 @@ module stm_axi_master #(
       // ---------------- OP ----------------
       // 【解説】新しい要求が来たら前の結果は無効。バスに出している途中なら、
       //         その応答は受け取ってから捨てる (op_stale)。
+      // [Note] When a new request comes, the previous result is invalid. If it is still on the bus,
+      //        its response is received and then dropped (op_stale).
       if (op_new) op_done <= 1'b0;
       if (op_new && op_st != S_IDLE) op_stale <= 1'b1;
 

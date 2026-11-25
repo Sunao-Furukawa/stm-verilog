@@ -42,6 +42,25 @@
 //     u_dut から出ているがスレーブにはつないでいない (モデルが見ないため)。
 //   ・n_if は arid == 0 (stm_axi_top の IF_ID) の AR を数える。命令キャッシュが
 //     有効なら、これがキャッシュミス (ライン埋め) の回数になる。
+//
+// [Note] Structure of the testbench and its nets
+//
+//     +-------------+   aw*/w*  (master -> slave)       +----------------+
+//     |             | --------------------------------> |                |
+//     | stm_axi_top |   b*      (slave -> master)       | axi4_mem_slave |
+//     |   (u_dut)   | <-------------------------------- |    (u_mem)     |
+//     |             |   ar*     (master -> slave)       |                |
+//     |             | --------------------------------> |                |
+//     |             |   r*      (slave -> master)       |                |
+//     +-------------+ <-------------------------------- +----------------+
+//
+//   - The wires below are the 5 AXI4 channels themselves, named without m_axi_ / s_axi_
+//     (awaddr = address of the AW channel, rdata = data of the R channel, ...).
+//     On each channel, VALID (sender) and READY (receiver) together decide one transfer.
+//   - awlock / arlock / awcache / arcache / awprot / arprot / awqos / arqos come out of
+//     u_dut but are not connected to the slave (the model does not look at them).
+//   - n_if counts ARs with arid == 0 (IF_ID of stm_axi_top). With the instruction cache
+//     enabled, this is the number of cache misses (line fills).
 // =====================================================================
 module tb_stm_axi;
   parameter BYTE_SWAP = 0;
@@ -150,6 +169,8 @@ module tb_stm_axi;
     #1;   // スレーブの initial (メモリのクリア) の後で読み込む
     // 【解説】BYTE_SWAP=1 のときはバスの語のバイト順が逆になるので、スレーブの
     //         メモリにも反転した語を入れておく (CPU から見える内容は同じになる)。
+    // [Note] With BYTE_SWAP=1 the byte order of the words on the bus is reversed, so reversed words
+    //        are put into the slave's memory too (the contents seen by the CPU stay the same).
     u_mem.seed = seed;
     $readmemh(hexfile, u_mem.mem);
     if (BYTE_SWAP)

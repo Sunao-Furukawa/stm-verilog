@@ -23,6 +23,8 @@
 */
 // 【解説】LENG = 0 は語, それ以外はサブワード (bit1 (=2) が立てばハーフワード,
 //         そうでなければバイト)。150_d_act.vh で E サイクルの opcode に変換される。
+// [Note] LENG = 0 is a word, anything else a sub-word (halfword if bit1 (=2) is set,
+//        otherwise byte). 150_d_act.vh turns it into the E-cycle opcode.
 function [2:0]  ls_opc_h  (input [31:0] i); ls_opc_h   = i[31:29]; endfunction // bit_ext(i,0,3)
 function        ls_store  (input [31:0] i); ls_store   = i[28];    endfunction // bit_ext(i,3,1)
 function [3:0]  ls_leng   (input [31:0] i); ls_leng    = i[27:24]; endfunction // bit_ext(i,4,4)
@@ -54,6 +56,9 @@ function [15:0] ls_disp16 (input [31:0] i); ls_disp16  = i[15:0];  endfunction /
 // 【解説】EX 形式では RD / R1(RB) / R2(RS) が LS 形式の RD/RS / RB と同じ位置にある。
 //         そのため 030_d_sec.vh のレジスタ読み出し番号 (DD_RADB/RAD1/RAD2) は、
 //         形式を問わず同じビット ([19:16], [15:12]) から取れる。
+// [Note] In the EX format RD / R1(RB) / R2(RS) are at the same places as RD/RS / RB of the LS format.
+//        So the register read numbers of 030_d_sec.vh (DD_RADB/RAD1/RAD2) can be taken from
+//        the same bits ([19:16], [15:12]) whatever the format.
 function        ex_opc_h   (input [31:0] i); ex_opc_h    = i[31];    endfunction // bit_ext(i,0,1)
 function [1:0]  ex_op2mode (input [31:0] i); ex_op2mode  = i[30:29]; endfunction // bit_ext(i,1,2)
 function        ex_setcc   (input [31:0] i); ex_setcc    = i[28];    endfunction // bit_ext(i,3,1)

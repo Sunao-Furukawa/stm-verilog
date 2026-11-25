@@ -19,6 +19,16 @@
 //   (アセンブラでは BE=8, BL=4, BG=2, BNE=6, BLE=12, BGE=10)。
 //   A / S でオーバーフローすると INTCODE_OVF (4) の割り込みを出す。
 //
+// [Note] Meaning of the condition code CC (2 bits)
+//   signed A / S / C       :  0 = result is 0,  1 = negative,  2 = positive,  3 = overflow
+//                             (C is a compare, so overflow does not interrupt)
+//   unsigned AU/SU/CU      :  0 = result 0 with carry,  1 = no carry,
+//                             2 = carry (result not 0)
+//   logic ops, shifts      :  0 = result is 0,  1 = not 0
+//   The mask of a conditional branch is 4 bits; from the top bit they stand for cc=0,1,2,3
+//   (in the assembler BE=8, BL=4, BG=2, BNE=6, BLE=12, BGE=10).
+//   On overflow, A / S raise the INTCODE_OVF (4) interrupt.
+//
 // 【ネットリスト解説】
 //   ・FF を 1 つも持たない純粋な組合せ回路。always @* の中の case は、
 //     各 opcode の結果を計算する回路を全部並べて、opc で選ぶ MUX になる
@@ -83,10 +93,15 @@ module stm_exu (
 
   // 【解説】ovf = bit31 へのキャリーと bit31 からのキャリーが違う = 符号付きの桁あふれ。
   //         符号なし演算 (AU/SU/CU) の cc は cry0 (最上位からのキャリー) で決める。
+  // [Note] ovf = the carry into bit31 and the carry out of bit31 differ = signed overflow.
+  //        The cc of unsigned operations (AU/SU/CU) is decided by cry0 (carry out of the top).
 
   // 【解説】シフト量は y の下位 6bit (0〜63)。32 以上は Verilog の定義どおり
   //         SL/SRL で 0, SRA で符号ビットの並びになる。シフタは 6bit 選択の
   //         バレルシフタ (MUX 6 段) になる。
+  // [Note] The shift amount is the low 6 bits of y (0-63). From 32 up, as Verilog defines it,
+  //        SL/SRL give 0 and SRA gives copies of the sign bit. The shifter becomes a barrel
+  //        shifter with 6-bit select (6 levels of MUX).
   wire [5:0]  amt    = y[5:0];
 
   always @* begin

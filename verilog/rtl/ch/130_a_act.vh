@@ -8,6 +8,11 @@
 // 110_b_act.vh と同じ考え方で、A の命令が進めば (A_FWD) タグを B へ移し、
 // B がインタロック中なら保持し、それ以外は有効ビットを 0 にする。
 //
+// [Note] State transition A -> B
+//
+// Same idea as 110_b_act.vh: if the instruction in A moves on (A_FWD) its tags go to B,
+// if B is interlocked they are held, otherwise the valid bits become 0.
+//
 // 【ネットリスト解説】
 //   入力 : A_* (150 / 140 の FF), AA_* (120 の EXU / EAG の出力, 組合せ),
 //          A_FWD / B_INTLK / D_FWD (070), G_BC_* (210), DD_ISSUEING_UNSOLVED_BC_ON_A_LS / _B_LS (040)
@@ -47,9 +52,11 @@
 // a-act
 
 // 【解説】B の有効ビット: A から来るか, B が留まるか。
+// [Note] Valid bit of B: something comes from A, or B stays.
 assign B_V_NEW = A_FWD | B_INTLK;
 
 // 【解説】分岐関係のタグ (110_b_act.vh と同じく分岐解決で更新)。
+// [Note] Branch tags (updated by branch resolution, as in 110_b_act.vh).
 assign B_JB_IS_BC_NEW = A_FWD   ? A_JB_IS_BC & !G_BC_JUST_SOLVED :
 			B_INTLK ? B_JB_IS_BC & !G_BC_JUST_SOLVED : 0;
 assign B_JB_SUBJECT_TO_BC_NEW = A_FWD   ? A_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED :
@@ -63,11 +70,14 @@ assign B_LS_SOLVING_BC_NEW =
 
 // 【解説】割り込みコード: D で検出した不正命令などがあればそれ,
 //         なければ EXU のオーバーフロー。
+// [Note] Interrupt code: the one found in D (illegal instruction etc.) if any,
+//        otherwise the EXU overflow.
 assign B_INTCODE_NEW = B_INTLK ? B_INTCODE : !A_FWD ? 0 :
 		   (A_INTCODE != 0) ? A_INTCODE : AA_EXU_INT;
 
 // These tags are just copied unmodified:
 // 【解説】以下のタグは変更せずにそのままコピーする。
+// [Note] The tags below are copied unchanged.
 assign B_PRIVCODE_NEW = A_FWD ?  A_PRIVCODE  : B_INTLK ? B_PRIVCODE  : 0;
 assign B_LS_LD_V_NEW = A_FWD ?  A_LS_LD_V   : B_INTLK ? B_LS_LD_V   : 0;
 assign B_LS_ST_V_NEW = A_FWD ?  A_LS_ST_V	: B_INTLK ? B_LS_ST_V   : 0;
@@ -79,9 +89,11 @@ assign B_EX_SETCC_NEW = A_FWD ?  A_EX_SETCC  : B_INTLK ? B_EX_SETCC  : 0;
 
 // Tags that are not 'valid' tags can be copied with CE = !B-INTLK.
 // 【解説】L/ST の論理アドレス = A で計算した EAG の出力。
+// [Note] Logical address of the L/ST = the EAG output computed in A.
 assign B_LS_LOG_AD_NEW = !B_INTLK ? AA_EAG_OUTPUT : B_LS_LOG_AD;
 
 // 【解説】有効ビット以外のタグは B がインタロックでなければコピー。
+// [Note] Tags other than valid bits are copied when B is not interlocked.
 assign B_WAD1_NEW = !B_INTLK ?  A_WAD1   	: B_WAD1;
 assign B_WAD2_NEW = !B_INTLK ?  A_WAD2   	: B_WAD2;
 assign B_LS_OPS_IS_GR_NEW = !B_INTLK ?  A_LS_OPS_IS_GR   : B_LS_OPS_IS_GR;
@@ -95,8 +107,11 @@ assign B_EX_RAD2_NEW = !B_INTLK ?  A_EX_RAD2  	: B_EX_RAD2;
 // In branch using reg+base, TGT adrs is generated at EAG in A-cyc.
 // 【解説】分岐先。レジスタ間接分岐 (A_SET_EAG_TO_TGT) では A の EAG で
 //         計算した番地, PC 相対分岐では D で計算済みの番地。
+// [Note] Branch target: for a register-indirect branch (A_SET_EAG_TO_TGT) the address computed by the
+//        EAG in A, for a PC-relative branch the address already computed in D.
 assign B_TGT_NEW = B_INTLK ? B_TGT    : (A_SET_EAG_TO_TGT ? AA_EAG_OUTPUT : A_TGT );
 
 // 【解説】EX パイプの結果と CC を B へ。
+// [Note] The EX-pipe result and CC go to B.
 assign B_EX_RES_NEW = B_INTLK ? B_EX_RES : AA_EX_RES;
 assign B_EX_CC_NEW = !B_INTLK ?  AA_EXU_CC : B_EX_CC;

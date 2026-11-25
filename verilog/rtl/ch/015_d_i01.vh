@@ -10,6 +10,13 @@
 // (020_d_iss.vh) に応じて必要なものを使う。
 // フィールドの位置は stm_fmt_ls_ex.vh / stm_fmt_jb.vh を参照。
 //
+// [Note] D cycle (2): decode the fields of I0, I1
+//
+// It is not known yet whether the format is LS / EX / JB, so the same 32-bit word
+// is cut into the fields of every format, and the ones needed are used according to
+// the format decision (020_d_iss.vh).
+// For the field positions see stm_fmt_ls_ex.vh / stm_fmt_jb.vh.
+//
 // 【ネットリスト解説】
 //   入力 : I0, I1 (010), PSW_USER (080 の FF)
 //   出力 : 形式判定用の上位ビット (I0_LS_OPC_H など) -> 020
@@ -34,6 +41,7 @@
 // d-i01 : decoding I0 and I1
 
 // 【解説】I0 を LS 形式 (ロード/ストア) として見たフィールド。
+// [Note] Fields of I0 seen as LS format (load/store).
 assign I0_LS_STORE = ls_store(I0);
 assign I0_LS_LENG = ls_leng(I0);
 assign I0_LS_RD_RS = ls_rd_rs(I0);
@@ -41,6 +49,7 @@ assign I0_LS_RB = ls_rb(I0);
 assign I0_LS_DISP16 = ls_disp16(I0);
 
 // 【解説】I0 を EX 形式 (演算) として見たフィールド。
+// [Note] Fields of I0 seen as EX format (arithmetic).
 assign I0_EX_OP2MODE = ex_op2mode(I0);
 assign I0_EX_SETCC = ex_setcc(I0);
 assign I0_EX_EXU_OPC = ex_exu_opc(I0);
@@ -50,6 +59,7 @@ assign I0_EX_RD = ex_rd(I0);
 assign I0_EX_DISP12 = ex_disp12(I0);
 
 // 【解説】I0 を JB 形式 (分岐) として見たフィールド。
+// [Note] Fields of I0 seen as JB format (branch).
 assign I0_JB_COND = jb_cond(I0);
 assign I0_JB_REG = jb_reg(I0);
 assign I0_JB_LINK = jb_link(I0);
@@ -60,6 +70,7 @@ assign I0_JB_R2_IMM4 = jb_r2_imm4(I0);
 assign I0_JB_IMM12 = jb_imm12(I0);
 
 // 【解説】以下 I1 について同じ。
+// [Note] The same for I1 below.
 assign I1_LS_STORE = ls_store(I1);
 assign I1_LS_LENG = ls_leng(I1);
 assign I1_LS_RD_RS = ls_rd_rs(I1);
@@ -85,10 +96,13 @@ assign I1_JB_IMM12 = jb_imm12(I1);
 
 // 【解説】不正命令の検出。特権命令 (RFE/RSR/WSR) はユーザーモード
 //         (PSW_USER=1) では不正命令になる。
+// [Note] Illegal instruction detection. Privileged instructions (RFE/RSR/WSR) are illegal
+//        in user mode (PSW_USER=1).
 assign I0_IS_LEGAL = is_legal_opc(I0,PSW_USER);
 assign I1_IS_LEGAL = is_legal_opc(I1,PSW_USER);
 
 // 【解説】形式判定 (020_d_iss.vh) に使う上位ビット。
+// [Note] Upper bits used for the format decision (020_d_iss.vh).
 assign I0_LS_OPC_H = ls_opc_h(I0);
 assign I0_EX_OPC_H = ex_opc_h(I0);
 assign I0_INSN_OPC = insn_opc(I0);

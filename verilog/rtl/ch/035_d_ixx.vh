@@ -6,6 +6,9 @@
 // 【解説】D サイクル(5): パイプごとにまとめ直した命令 ILS / IEX / IJB のフィールド解読
 //
 // 015_d_i01.vh と同じことを、振り分け後の命令について行う。
+// [Note] D cycle (5): decode the fields of ILS / IEX / IJB, the instructions regrouped per pipe
+//
+// The same as 015_d_i01.vh, done for the instructions after sorting.
 //
 // 【ネットリスト解説】
 //   入力 : ILS / IEX / IJB / ILS_V (030)
@@ -32,6 +35,7 @@
 
 
 // 【解説】LS パイプの命令 (LS 形式としてのフィールド)。
+// [Note] The LS-pipe instruction (fields as LS format).
 assign ILS_STORE = ls_store(ILS);
 assign ILS_LENG = ls_leng(ILS);
 assign ILS_RD_RS = ls_rd_rs(ILS);
@@ -39,6 +43,7 @@ assign ILS_RB = ls_rb(ILS);
 assign ILS_DISP16 = ls_disp16(ILS);
 
 // 【解説】LS パイプの命令を EX-RM 形式 (メモリオペランド演算) として見たフィールド。
+// [Note] Fields of the LS-pipe instruction seen as EX-RM format (operation with a memory operand).
 assign ILS_OP2MODE = ex_op2mode(ILS);
 assign ILS_SETCC = ex_setcc(ILS);
 assign ILS_EXU_OPC = ex_exu_opc(ILS);
@@ -48,6 +53,7 @@ assign ILS_RD = ex_rd(ILS);
 assign ILS_DISP12 = ex_disp12(ILS);
 
 // 【解説】EX パイプの命令のフィールド。
+// [Note] Fields of the EX-pipe instruction.
 assign IEX_OP2MODE = ex_op2mode(IEX);
 assign IEX_SETCC = ex_setcc(IEX);
 assign IEX_EXU_OPC = ex_exu_opc(IEX);
@@ -57,6 +63,7 @@ assign IEX_RD = ex_rd(IEX);
 assign IEX_DISP12 = ex_disp12(IEX);
 
 // 【解説】分岐命令のフィールド。
+// [Note] Fields of the branch instruction.
 assign IJB_COND = jb_cond(IJB);
 assign IJB_REG = jb_reg(IJB);
 assign IJB_LINK = jb_link(IJB);
@@ -78,5 +85,6 @@ assign ILS_LS_OPC_H = ls_opc_h(ILS);
 assign ILS_EX_OPC_H = ex_opc_h(ILS);
 
 // 【解説】LS パイプの命令が本物のロード/ストアか、メモリオペランド演算 (EX-RM) か。
+// [Note] Is the LS-pipe instruction a real load/store, or an operation with a memory operand (EX-RM)?
 assign ILS_LS_FMT = (ILS_LS_OPC_H == 4) & ILS_V;
 assign ILS_EXRM_FMT = (ILS_EX_OPC_H == 0) & (ILS_OP2MODE != 0) & ILS_V;

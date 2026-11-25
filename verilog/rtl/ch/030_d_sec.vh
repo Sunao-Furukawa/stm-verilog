@@ -13,6 +13,16 @@
 //   IJB : 分岐命令
 // にまとめ直し、以降のステージはこの 3 つを見る。
 //
+// [Note] D cycle (4): can the second instruction issue at the same time, and sorting into the pipes
+//
+// Dual issue is possible only for pairs like "1 LS-pipe + 1 EX-pipe instruction" or
+// "LS/EX + branch", and only with no dependence or resource conflict.
+// The issued instructions are regrouped by role into
+//   ILS : the instruction sent to the LS pipe
+//   IEX : the instruction sent to the EX pipe
+//   IJB : the branch instruction
+// and the later stages look at these three.
+//
 // 【ネットリスト解説】
 //   入力 : 020 の DD_FIRST_* / DD_SECOND_*, 015 のレジスタ番号と I0/I1_IS_LEGAL,
 //          010 の I0 / I1 / I0_V / I1_V, 210 の G_BC_PENDING (FF)
@@ -71,6 +81,8 @@
 // First, check that I0 is legal
 // 【解説】1 命令目が有効かつ合法か。不正命令なら命令例外 (INTCODE_OP) を
 //         A サイクルへ渡し、W サイクルで割り込みになる。
+// [Note] Is the first instruction valid and legal? An illegal instruction passes an instruction
+//        exception (INTCODE_OP) to the A cycle, and it becomes an interrupt in the W cycle.
 assign I0_V_NOINT = I0_V & I0_IS_LEGAL;
 assign DD_INTCODE = (I0_IS_LEGAL ? 0 : INTCODE_OP);
 
@@ -81,6 +93,14 @@ assign DD_INTCODE = (I0_IS_LEGAL ? 0 : INTCODE_OP);
 //           ・EX + リンク付き分岐 (どちらも EX パイプを使う)
 //           ・未解決の条件分岐があるのに、また条件分岐が来た
 //           ・1 命令目が分岐、LS どうし、EX どうし、特権命令、不正命令
+//
+// [Note] Condition to issue the second instruction too. If any one of these holds, only one issues:
+//          - both instructions change CC
+//          - the second reads/writes a register the first writes (register dependence)
+//          - LS + register-indirect branch (both need the address adder EAG)
+//          - EX + branch with link (both use the EX pipe)
+//          - a conditional branch arrives while one is still unresolved
+//          - the first is a branch, both are LS, both are EX, privileged, or illegal
 assign DD_ISSUE_SECOND_INSN = 
        I1_V
     & !(DD_FIRST_SETCC & DD_SECOND_SETCC)   // CC dependency
@@ -106,6 +126,9 @@ assign DD_ISSUE_SECOND_INSN =
 // 【解説】レジスタファイルの読み出しアドレス (ポートは RADB, RAD1, RAD2 の 3 本)。
 //         1 命令目が使うならその番号, そうでなければ 2 命令目の番号を出す。
 //         (元コメント: タイミング的にクリティカルかもしれない部分)
+// [Note] Read addresses of the register file (3 ports: RADB, RAD1, RAD2).
+//        If the first instruction uses a port, its number; otherwise the second's.
+//        (original comment: this may be timing-critical)
 assign DD_RADB = (DD_FIRST_RADB_V ? I0_LS_RB : I1_LS_RB);
 assign DD_RAD1 = (DD_FIRST_RAD1_V ? I0_EX_RB1 : I1_EX_RB1);
 assign DD_RAD2 = ((DD_FIRST_RAD2_V | (DD_PRIVCODE != 0)) ? I0_EX_RS2 : I1_EX_RS2);
@@ -115,6 +138,8 @@ assign DD_RAD2 = ((DD_FIRST_RAD2_V | (DD_PRIVCODE != 0)) ? I0_EX_RS2 : I1_EX_RS2
 
 // 【解説】パイプへの振り分け。_V が有効ビット、ILS/IEX/IJB が命令語そのもの。
 //         1 命令目を優先し、2 命令目は同時発行するときだけ選ぶ。
+// [Note] Sorting into the pipes. _V is the valid bit, ILS/IEX/IJB the instruction word itself.
+//        The first instruction has priority; the second is chosen only when dual-issued.
 assign ILS_V = I0_V_NOINT & DD_FIRST_IS_LS | DD_ISSUE_SECOND_INSN & DD_SECOND_IS_LS;
 assign ILS = ( I0_V_NOINT & DD_FIRST_IS_LS ? I0 :
 		     (DD_ISSUE_SECOND_INSN & DD_SECOND_IS_LS ? I1 : 0) );

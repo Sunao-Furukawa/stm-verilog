@@ -150,6 +150,9 @@ if (ENABLE) begin : g_cache
   // 【解説】番地の分け方 (既定値の場合):
   //           [31:12] タグ (20bit) | [11:5] ライン番号 (7bit) | [4:3] ライン内の 8 バイト単位 | [2:0]
   //         データ RAM の番地は {ライン番号, ライン内の 8 バイト単位} の 9bit。
+  // [Note] How the address is split (with the defaults):
+  //          [31:12] tag (20 bits) | [11:5] line number (7 bits) | [4:3] 8-byte unit in the line | [2:0]
+  //        The data RAM address is the 9 bits {line number, 8-byte unit in the line}.
   // ---- RAM (読み出しは IB_AD_NXT で 1 サイクル先に)
   wire [DEP_W-1:0] rd_a = {ib_ad_nxt[LINE_W+SET_W-1:LINE_W], ib_ad_nxt[LINE_W-1:3]};
   wire             d_we = (fst == F_DATA) & fr_valid & f_word[0];
@@ -160,6 +163,11 @@ if (ENABLE) begin : g_cache
   //         定型。d_q / t_q は RAM の内部の出力レジスタになり、別の FF にはならない。
   //         1 ビートは 32bit なので、前半 (H) を f_hw に貯めておき、後半 (L) が来た
   //         サイクルに 64bit まとめて書く (d_we は f_word[0] = 後半のときだけ)。
+  //
+  // [Note] These two always blocks are the standard template of a block RAM with "1 write port + 1
+  //        synchronous read port". d_q / t_q become the RAM's internal output registers, not separate FFs.
+  //        A beat is 32 bits, so the first half (H) is kept in f_hw and the 64 bits are written
+  //        together in the cycle the second half (L) arrives (d_we only when f_word[0] = second half).
   always @(posedge clk) begin
     if (d_we) dram[d_wa] <= {f_hw, fr_data};
     d_q <= dram[rd_a];

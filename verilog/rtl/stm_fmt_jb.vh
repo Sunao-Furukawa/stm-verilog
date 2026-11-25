@@ -62,6 +62,12 @@ function [11:0] jb_imm12   (input [31:0] i); jb_imm12    = i[11:0];  endfunction
 //         (比較分岐 CMP=1 では imm20 の位置に R1/R2 が重なるが、元の設計の DD_TGT は
 //          形式によらず imm20 を足している。imm12 を使う式は元ソースでもコメントの
 //          ままで、比較分岐は未完成だったと思われる。040_d_bra.vh 参照)
+//
+// [Note] imm16 is the displacement of a "register + displacement" branch (REG=1), imm20 that of a PC-relative one.
+//        jb_backward is the sign bit of imm20 (= backward branch), used by the static prediction in 040_d_bra.vh.
+//        (For a compare branch, CMP=1, R1/R2 overlap the position of imm20, but DD_TGT of the original
+//         design adds imm20 whatever the format. The expression using imm12 is only a comment
+//         in the original source too, so compare branches seem to have been unfinished. See 040_d_bra.vh)
 function [15:0] jb_imm16   (input [31:0] i); jb_imm16    = i[15:0];  endfunction // bit_ext(i,16,16)
 function [19:0] jb_imm20   (input [31:0] i); jb_imm20    = i[19:0];  endfunction // bit_ext(i,12,20)
 function        jb_backward(input [31:0] i); jb_backward = i[19];    endfunction // bit_ext(i,12,1)
@@ -78,4 +84,7 @@ function        jb_backward(input [31:0] i); jb_backward = i[19];    endfunction
 // 【解説】特権命令の種類は 2 番目の 4bit の下位 2bit (1=RFE, 2=RSR, 3=WSR)。
 //         RD は ex_rd, R2 は ex_rs2 と同じ位置なので、特権命令の番号は EX 形式の
 //         フィールド (I0_EX_RD / I0_EX_RS2) で読む (030_d_sec.vh, 150_d_act.vh)。
+// [Note] The kind of privileged instruction is the low 2 bits of the second 4-bit group (1=RFE, 2=RSR, 3=WSR).
+//        RD is at the same place as ex_rd and R2 as ex_rs2, so the numbers of privileged instructions
+//        are read with the EX-format fields (I0_EX_RD / I0_EX_RS2) (030_d_sec.vh, 150_d_act.vh).
 function [1:0]  priv_opc   (input [31:0] i); priv_opc    = i[25:24]; endfunction // bit_ext(i,6,2)

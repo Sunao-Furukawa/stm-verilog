@@ -9,6 +9,12 @@
 // SU_IF_CLH : 要求していた 8 バイトが届いた (キャッシュヒット)
 // キャッシュミス模擬が無効 (RANDOM_* = 1) なら、要求の次のサイクルに必ず届く。
 //
+// [Note] Response of the instruction cache side
+//
+// SU_IF_RDY : the fetch request was accepted
+// SU_IF_CLH : the requested 8 bytes have arrived (cache hit)
+// With cache-miss simulation off (RANDOM_* = 1), they always arrive in the cycle after the request.
+//
 // 【ネットリスト解説】
 //   入力 : IB_V (190 の FF), IF_REQ_V (170), START_TRIGGER (080),
 //          ポート RANDOM_FOR_IFCLH / RANDOM_FOR_IFRDY / MEM_DT_IF_H / MEM_DT_IF_L
@@ -37,11 +43,14 @@
 // ---- #endif ----
 
 // 【解説】要求中 (IB_V) の命令データが届いた。
+// [Note] The instruction data of the pending request (IB_V) has arrived.
 assign SU_IF_CLH = IB_V     & RANDOM_FOR_IFCLH;
 // 【解説】新しいフェッチ要求を受け付けられるか (要求中のものが無いか, ちょうど届いた)。
+// [Note] Can a new fetch request be accepted (nothing pending, or it just arrived)?
 assign SU_IF_RDY = IF_REQ_V & RANDOM_FOR_IFRDY & (!IB_V | SU_IF_CLH)
 		 | START_TRIGGER;
 
   // 【解説】届いた 2 命令 (上位 = 先の命令)。届いていないときは目印のダミー値。
+  // [Note] The 2 instructions that arrived (upper = the earlier one). A marker dummy value when nothing arrived.
   assign I_LBS_H = SU_IF_CLH ? MEM_DT_IF_H : 32'hf0f0f0f0;
   assign I_LBS_L = SU_IF_CLH ? MEM_DT_IF_L : 32'hff0f0f0f;

@@ -12,6 +12,15 @@
 //   予測で先に進み、CC が出た所 (A または E サイクル) で答え合わせをする
 //   (210_g_bc.vh)。予測は「後方分岐なら taken」という静的予測。
 //
+// [Note] D cycle (6): branch handling
+//
+// - computes the address of the branch itself and the branch target DD_TGT
+// - decides the kind of branch (BA/JA/BL/JL/BC)
+// - a conditional branch (BC) is decided taken/untaken right here if the CC it needs is
+//   already settled ("resolved"). If an earlier instruction is still computing the CC, it is
+//   "unresolved": execution goes on by prediction, and the answer is checked where the CC
+//   comes out (A or E cycle) (210_g_bc.vh). The prediction is static: "backward means taken".
+//
 // 【ネットリスト解説】
 //   入力 : IJB_* / ILS_* (035), IJB_V (030), DD_FIRST_* / DD_SECOND_IS_JB (020),
 //          EID / NIP / V45 (010), D_IF_AD_A/B (190 の FF),
@@ -78,6 +87,12 @@
 //           PART2 : そこからの相対位置 (6bit 符号付き)
 //                     = -(V45 ? 16 : 8) + 4 * NIP + (分岐が 2 命令目なら +4)
 //                    (4,5 番が埋まっていれば最後の 8 バイトは 4,5 番, 空なら 2,3 番にある)
+//
+// [Note] The branch's own address is computed in two parts.
+//          PART1 : fetch address of the last 8 bytes put into the queue (D_IF_AD_x, 8-byte aligned)
+//          PART2 : the position relative to it (6 bits, signed)
+//                    = -(V45 ? 16 : 8) + 4 * NIP + (+4 if the branch is the second instruction)
+//                   (if entries 4,5 are filled the last 8 bytes are in 4,5, if empty in 2,3)
 assign DD_JB_INSN_AD_PART1 = EID ? D_IF_AD_B & 32'hfffffff8 : D_IF_AD_A & 32'hfffffff8;
 //DD-JB-INSN-AD-PART2 = MINUS1*(V45 ? 16 : 8) + 4*NIP + (DD-FIRST-IS-JB ? 0 : 4)
 assign DD_JB_INSN_AD_PART2 = add_4_5_3(V45,NIP,DD_FIRST_IS_JB);
@@ -88,6 +103,11 @@ assign DD_JB_INSN_AD_PART2 = add_4_5_3(V45,NIP,DD_FIRST_IS_JB);
 //           BA : 無条件・PC 相対        JA : 無条件・レジスタ間接
 //           BL : リンク付き・PC 相対    JL : リンク付き・レジスタ間接
 //           BC : 条件分岐
+//
+// [Note] Kinds of branch:
+//          BA : unconditional, PC-relative      JA : unconditional, register-indirect
+//          BL : with link, PC-relative          JL : with link, register-indirect
+//          BC : conditional branch
 assign IJB_IS_BA = IJB_V & !IJB_COND & !IJB_LINK & !IJB_REG;
 assign IJB_IS_JA = IJB_V & !IJB_COND & !IJB_LINK &  IJB_REG;
 assign IJB_IS_BL = IJB_V &   IJB_LINK & !IJB_REG;
@@ -108,23 +128,32 @@ assign DD_SETCC = DD_FIRST_SETCC;
 // 【解説】発行しようとしている BC の CC がもう確定しているか。
 //         A (EX/LS), B (LS), E (LS) に CC を変える命令が残っていなければ確定済み。
 //         B の EX, E の EX, W の結果はもう計算済みなので下のフォワーディングで使える。
+// [Note] Is the CC for the BC being issued already settled?
+//        It is if no instruction that changes CC is left in A (EX/LS), B (LS) or E (LS).
+//        The EX result in B, the EX result in E and W are already computed, so the forwarding below can use them.
 assign DD_ISSUEING_SOLVED_BC = !(A_EX_SETCC | A_LS_SETCC | B_LS_SETCC | E_LS_SETCC
 			   | DD_FIRST_SETCC & DD_SECOND_IS_JB) & IJB_IS_BC;
 // 【解説】確定済みの最新 CC (新しい順に B の EX 結果 → E → W → PSW)。
+// [Note] The latest settled CC (newest first: EX result in B -> E -> W -> PSW).
 assign DD_CC_FOR_SOLVED_BC = (B_EX_SETCC ? B_EX_CC :
 			  (E_EX_SETCC ? E_EX_CC : (W_SETCC ? W_CC : PSW_CC) ) );
 assign DD_SOLVED_BC_TAKEN = cc_match(DD_CC_FOR_SOLVED_BC,IJB_RD_MASK);
 // 【解説】D サイクルで taken が確定する分岐 (解決済み BC で成立, BA, BL)。
+// [Note] Branches known to be taken in the D cycle (a resolved BC that holds, BA, BL).
 assign DD_ISSUEING_TAKEN_BRANCH = DD_SOLVED_BC_TAKEN & DD_ISSUEING_SOLVED_BC
                | IJB_IS_BA | IJB_IS_BL;
 assign DD_ISSUEING_UNTAKEN_BC = !DD_SOLVED_BC_TAKEN & DD_ISSUEING_SOLVED_BC;
 
 // 【解説】未解決の条件分岐 (予測で進める)。
+// [Note] An unresolved conditional branch (goes on by prediction).
 assign DD_ISSUEING_UNSOLVED_BC =  !DD_ISSUEING_SOLVED_BC & IJB_IS_BC;
 
 // 【解説】未解決 BC の CC を作る命令がどこにいるか (そこで解決される):
 //           ON_D_EX / ON_D_LS : 同時発行した 1 命令目 (EX / LS パイプ)
 //           ON_A_EX / ON_A_LS / ON_B_LS / ON_E_LS : 先行してそのステージにいる命令
+// [Note] Where is the instruction that makes the CC of the unresolved BC (it is resolved there):
+//          ON_D_EX / ON_D_LS : the first instruction issued together with it (EX / LS pipe)
+//          ON_A_EX / ON_A_LS / ON_B_LS / ON_E_LS : an earlier instruction in that stage
 assign DD_ISSUEING_UNSOLVED_BC_ON_D_EX =  DD_FIRST_SETCC & DD_SECOND_IS_JB
 				  & DD_FIRST_IS_EX & IJB_IS_BC;
 // 				 | IJB-IS-CMP  !!!!!
@@ -138,13 +167,17 @@ assign DD_ISSUEING_UNSOLVED_BC_ON_E_LS =  !DD_SETCC & !A_LS_SETCC & !A_EX_SETCC
 					& !B_LS_SETCC & E_LS_SETCC & IJB_IS_BC;
 // branch prediction : backward branch <-> TKN predicted
 // 【解説】静的分岐予測: 後方分岐 (変位が負) なら taken と予測する (ループ向け)。
+// [Note] Static branch prediction: a backward branch (negative displacement) is predicted taken (good for loops).
 assign DD_PREDICTING_TAKEN = DD_ISSUEING_UNSOLVED_BC & IJB_BACKWARD;
 // 【解説】A サイクルのアドレス加算器 (EAG) に渡す変位 16bit。
 //         LS 命令は DISP16, EX-RM は DISP12 を符号拡張, レジスタ間接分岐は IMM16。
+// [Note] The 16-bit displacement given to the address adder (EAG) of the A cycle.
+//        DISP16 for LS instructions, DISP12 sign-extended for EX-RM, IMM16 for register-indirect branches.
 assign DD_DISP = ILS_LS_FMT   ? ILS_DISP16 :
 		ILS_EXRM_FMT ? sign_ext_12(ILS_DISP12) : IJB_IMM16;
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
 // 【解説】PC 相対分岐の分岐先 = 分岐命令のアドレス (PART1+PART2) + IMM20 (符号拡張)。
+// [Note] Target of a PC-relative branch = address of the branch (PART1+PART2) + IMM20 (sign-extended).
 assign DD_TGT = add_32_5_20(DD_JB_INSN_AD_PART1,DD_JB_INSN_AD_PART2,IJB_IMM20);
 //# + (IJB-CMP ? sign-ext(12,IJB-IMM12) : sign-ext(20,jb-imm20(IJB)))
 // ---- #endif ----
