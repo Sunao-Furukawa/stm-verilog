@@ -1,6 +1,7 @@
 // =====================================================================
 //  050_op_lb1.vh  <-  hard/050-op-lb1.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】S ユニット (オペランド側キャッシュ) の出力と、取り消し信号
@@ -88,6 +89,9 @@
 //   -> Verilog 版では stm_cntl の入力ポート RANDOM_FOR_OPCLH にした。
 //      常に 1 ならキャッシュ常時ヒット、テストベンチから乱数を入れると
 //      C 版の 'stmsiml -r' と同じキャッシュミス模擬になる。
+//   -> In the Verilog version this became the input port RANDOM_FOR_OPCLH of stm_cntl.
+//      Always 1 means the cache always hits; feeding random values from the testbench
+//      gives the same cache-miss simulation as 'stmsiml -r' of the C version.
 // ---- #endif ----
 
 // This is actually in IU, but appears here becaused it's referenced here..
@@ -99,6 +103,7 @@ assign WW_RFE = (W_PRIVCODE == PRIVCODE_RFE);
 assign WW_LS_INT_V = (W_LS_INTCODE != 0);
 assign WW_EX_INT_V = (W_EX_INTCODE != 0);
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
 // 【解説】WSR で PSW / TBR / CMPR (システムレジスタ 0〜3 番) を書いたら、
 //         動作状態が変わるのでパイプラインを全部やり直す。
 //         (VHDL 版の式は条件が逆になっていたので C 版を採用)
@@ -107,6 +112,7 @@ assign WW_EX_INT_V = (W_EX_INTCODE != 0);
 //        (the VHDL version had the condition reversed, so the C version is used)
 assign WW_STATECHANGE = WW_WSR & ((W_WAD2 & 12) == 0);
 // ---- #else (VHDL 版: 参考) ----
+//      (#else: the VHDL version, for reference)
 // WW-STATECHANGE  = WW-WSR & (W-WAD2[0] | W-WAD2[1])
 // ---- #endif ----
 assign WW_INTERRUPTION = WW_LS_INT_V | WW_EX_INT_V;
@@ -177,11 +183,13 @@ assign OP_B_INTCODE = OP_B_CMP_INT ? INTCODE_CMP :
 //          - the STB or the store in E has the same address (the line is reserved, so no miss)
 //          - an interrupt was raised (the data is not used, so don't wait)
 // ---- EXT_BUS=0 : 元の式 ----
+//      (EXT_BUS=0: the original expression)
 // B-OPCLH = OP-B-V & ((OP-B-OPC==SU-OPC-LD)|(OP-B-OPC==SU-OPC-ST))
 //    & ( RANDOM-FOR-OPCLH | (STB-V & (LBS-AD == STB-AD))
 //       | (E-LS-ST-V & E-OPCLH-LCH & (LBS-AD == E-LS-LOG-AD))
 //       | (OP-B-INTCODE != 0)  )
 // ---- EXT_BUS=1 : Verilog 版で追加 ----
+//      (EXT_BUS=1: added in the Verilog version)
 // 【解説】外部バスでは RANDOM_FOR_OPCLH は「バスの読み出しが終わった」の意味になる。
 //         STB / E のストアと同じ番地なら、バスを待たずにそのストアのデータを
 //         使ってヒット扱いにする (ストア→ロードのフォワーディング, OP_LBS_DATA)。

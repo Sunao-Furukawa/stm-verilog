@@ -1,6 +1,7 @@
 // =====================================================================
 //  120_a_dat.vh  <-  hard/120-a-dat.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】A サイクル: EX パイプの演算と、LS パイプのアドレス計算
@@ -66,6 +67,7 @@
 //   MEMOP is itself a bypassed data.  May be critical path!
 
 // ---- #if 0 (元ソースで無効化) ----
+//      (#if 0: disabled in the original source)
 // AA-OPB = 
 //  (A-LS-OPB-IS-GR & B-WE2 & (A-LS-RADB == B-WAD2)) ? B-EX-RES  :
 //  (A-LS-OPB-IS-GR & E-WE1 & (A-LS-RADB == E-WAD1) & (E-LS-OPCODE==0))? EE-MEMOP :
@@ -87,6 +89,7 @@
 //  (A-EX-OP2-IS-GR & W-WE1 & (A-EX-RAD2 == W-WAD1)) ? W-WDT1 :
 //  (A-EX-OP2-IS-GR & W-WE2 & (A-EX-RAD2 == W-WAD2)) ? W-WDT2 : A-EX-OP2-DT
 // ---- #else (有効) ----
+//      (#else: this is the version in effect)
 // 【解説】A で使うオペランド。旧版 (#if 0) はここでバイパスしていたが、
 //         現行版は 1 サイクル前の D → A の時点でバイパス済み。
 // [Note] Operands used in A. The old version (#if 0) bypassed here; the current version
@@ -98,9 +101,12 @@ assign AA_OP2 = A_EX_OP2_DT;
 
 
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
 // exu(A-EX-OPCODE,AA-OP1,AA-OP2,&AA-EXU-CC,&AA-EXU-OUTPUT,&AA-EXU-INT)
 //   -> EX パイプの EXU インスタンス。A-EX-OPCODE は 4bit なので
 //      VHDL 版の FOUR2FIVE と同様に先頭に 0 を付けて 5bit にする。
+//   -> the EXU instance of the EX pipe. A-EX-OPCODE is 4 bits, so, like FOUR2FIVE of the
+//      VHDL version, a 0 is added in front to make it 5 bits.
 // 【解説】EX パイプの EXU。分岐の比較 (C)、リンクアドレスの計算 (AU)、
 //         WSR の値の素通し (LDW) にも使う (150_d_act.vh の A_EX_OPCODE)。
 // [Note] The EXU of the EX pipe. Also used for branch compares (C), the link address (AU)

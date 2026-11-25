@@ -12,6 +12,9 @@
 //
 //  VHDL 版で外に出していた加算器や EXU は stm_cntl の中に入れてある。
 //
+//  The whole system (equivalent of vh/behave/sys.vst of the VHDL version).
+//  The adders and EXU that the VHDL version had outside are inside stm_cntl.
+//
 // 【ネットリスト解説】このモジュールは配線だけ (ゲートも FF も無い)。
 //   各 wire は 1 本のネットで、作り手 (ドライバ) は 1 つ、使い手は 1 つ以上:
 //
@@ -103,10 +106,12 @@ module stm_sys #(
     .LBS_DT           (lbs_dt),
     .MEM_DT_OP        (mem_dt_op),
     .MEM_OP_ERR       (1'b0),         // 外部バス (EXT_BUS=1) 用。ここでは未使用
+                                      // for the external bus (EXT_BUS=1); unused here
     .IB_AD            (ib_ad),
     .MEM_DT_IF_H      (mem_dt_if_h),
     .MEM_DT_IF_L      (mem_dt_if_l),
     .IB_VALID         (),             // 外部バス (EXT_BUS=1) 用。ここでは未使用
+                                      // for the external bus (EXT_BUS=1); unused here
     .IB_AD_NXT        (),
     .OP_B_NEW         (),
     .OP_B_BUSREQ      (),

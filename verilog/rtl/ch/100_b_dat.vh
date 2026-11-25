@@ -1,6 +1,7 @@
 // =====================================================================
 //  100_b_dat.vh  <-  hard/100-b-dat.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】B サイクル: E サイクルへ渡すデータの準備
@@ -67,6 +68,7 @@
 
 
 // ---- #if 0 (元ソースで無効化) ----
+//      (#if 0: disabled in the original source)
 // E-LS-OPS-DT := 
 // 	   E-INTLK & (E-LS-OPS-IS-GR & W-WE1 & (E-LS-RADS == W-WAD1)) 
 // 	| !E-INTLK & (B-LS-OPS-IS-GR & W-WE1 & (B-LS-RADS == W-WAD1)) ? W-WDT1 :
@@ -75,6 +77,7 @@
 // 	  !E-INTLK                                         ? GR-DT-S :
 //   		 					     E-LS-OPS-DT
 // ---- #else (有効) ----
+//      (#else: this is the version in effect)
 // 【解説】B → E で渡すレジスタオペランド。新しい順に
 //           B の EX 結果 (同じ組で EX が先) > E の ALU 結果 > E の EX 結果
 //           > W の結果 > レジスタファイル (GR_DT_S)
@@ -111,10 +114,12 @@ assign E_LS_OPS_DT_NEW =
 assign E_OPCLH_LCH_NEW = !E_STB_INTLK ? B_OPCLH 		: E_OPCLH_LCH;
 assign E_LS_INTCODE_NEW = !E_STB_INTLK ? OP_B_INTCODE 	: E_LS_INTCODE;
 // ---- #if 0 (元ソースで無効化) ----
+//      (#if 0: disabled in the original source)
 // E-LS-LD-DT   := !E-STB-INTLK & (B-LS-LD-V & STB-V & (B-LS-LOG-AD == STB-AD)) ?
 //                 	  STB-DT : 
 // 		!E-STB-INTLK ? OP-LBS-DATA 	: E-LS-LD-DT
 // ---- #else (有効) ----
+//      (#else: this is the version in effect)
 // 【解説】ロードデータ。B のロードと同じ番地を
 //           ・E のストアが書こうとしている → その書き込みデータ (EE_ALU_OUTPUT)
 //           ・ストアバッファ STB が持っている → STB_DT

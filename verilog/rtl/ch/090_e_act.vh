@@ -1,6 +1,7 @@
 // =====================================================================
 //  090_e_act.vh  <-  hard/090-e-act.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】E サイクル: LS パイプの ALU と、W サイクルへの受け渡し
@@ -71,6 +72,7 @@
 // [Note] Data read from memory (second ALU input).
 assign EE_MEMOP = E_LS_LD_DT;
 // ---- #if 0 (元ソースで無効化) ----
+//      (#if 0: disabled in the original source)
 // EE-MEMOP = (E-LS-LD-V & STB-V & (E-LS-LOG-AD == STB-AD)) ? STB-DT : E-LS-LD-DT
 // ---- #endif ----
 
@@ -79,6 +81,7 @@ assign EE_MEMOP = E_LS_LD_DT;
 // [Note] Operand read from a register (store data / first operand of EX-RM).
 assign EE_OPS = E_LS_OPS_DT;
 // ---- #if 0 (元ソースで無効化) ----
+//      (#if 0: disabled in the original source)
 //    (E-LS-OPS-IS-GR & E-WE2 & (E-LS-RADS == E-WAD2) & E-FIRST-IS-EX) ? E-EX-RES :
 //    (E-LS-OPS-IS-GR & W-WE1 & (E-LS-RADS == W-WAD1))	? W-WDT1  :
 //    (E-LS-OPS-IS-GR & W-WE2 & (E-LS-RADS == W-WAD2))  	? W-WDT2  : E-LS-OPS-DT
@@ -87,6 +90,7 @@ assign EE_OPS = E_LS_OPS_DT;
 // ---- #ifndef VHDL ----
 // exu(E-LS-OPCODE,EE-OPS,EE-MEMOP,&EE-ALU-CC,&EE-ALU-OUTPUT,&EE-ALU-INT);
 //   -> C 関数呼び出しを EXU モジュールのインスタンスに置き換え (LS パイプの ALU)
+//   -> the C function call is replaced by an instance of the EXU module (the ALU of the LS pipe)
 // 【解説】LS パイプの ALU。opcode は 110_b_act.vh で作った E_LS_OPCODE:
 //           0 (LDW) ならロードデータをそのまま, 4 (STW) ならストアデータをそのまま,
 //           16 以上はバイト/ハーフワードの切り出し・はめ込み, 1〜14 は EX-RM の演算。

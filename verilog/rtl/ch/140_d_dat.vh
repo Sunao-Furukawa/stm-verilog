@@ -1,6 +1,7 @@
 // =====================================================================
 //  140_d_dat.vh  <-  hard/140-d-dat.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】D → A で渡すオペランドの選択 (バイパス)
@@ -91,6 +92,7 @@ assign A_EX_OP2_IS_GR_NEW = A_INTLK ? A_EX_OP2_IS_GR  :
 assign DD_JB_INSN_AD_PART2P4 = add4_5(DD_JB_INSN_AD_PART2);   // ... + 4
 
 // ---- #if 0 (元ソースで無効化) ----
+//      (#if 0: disabled in the original source)
 // A-LS-OPB-DT	:=   
 // 	( !A-INTLK & (DD-RADB == W-WAD1) 
 // 	 | A-INTLK & (A-LS-RADB == W-WAD1) & A-LS-OPB-IS-GR ) & W-WE1 ? W-WDT1 :
@@ -115,6 +117,7 @@ assign DD_JB_INSN_AD_PART2P4 = add4_5(DD_JB_INSN_AD_PART2);   // ... + 4
 //      A-INTLK 		? A-EX-OP2-DT :
 //     (IJB-V & IJB-LINK)  ? DD-JB-INSN-AD-PART1 : GR-DT-2
 // ---- #else (有効) ----
+//      (#else: this is the version in effect)
 // 【解説】LS パイプのベースレジスタの値 (アドレス計算用)。
 // [Note] Value of the LS-pipe base register (for the address computation).
 assign A_LS_OPB_DT_NEW = 

@@ -1,6 +1,7 @@
 // =====================================================================
 //  stm_const.vh  <-  hard/const.h
 //  STM 定数定義 (モジュール本体の中で `include して使う localparam)
+//  STM constant definitions (localparams, `include'd inside module bodies)
 //
 // 【ネットリスト解説】
 //   localparam は回路を作らない。式の中で使われると、合成ツールはその値を
@@ -31,6 +32,7 @@ localparam [1:0] EXMOD_RR = 2'd1;   // B'01'
 localparam [1:0] EXMOD_RM = 2'd2;   // B'10'
 
 // EXU opcode (5 bit: 0-15 は EX 命令と共通, 16-31 はバイト/ハーフワード L/ST)
+//      (5 bits: 0-15 are shared with the EX instructions, 16-31 are byte/halfword L/ST)
 // 【解説】A=加算, S=減算, C=比較(結果は書かない), AU/SU/CU=符号なし版,
 //         N/O/X=AND/OR/XOR, SL/SRA/SRL=シフト, SETHI=上位 16bit に即値
 //         LDBn/LDHn = n 番目のバイト/ハーフワードを読む (n はアドレス下位, 0 が最上位側)

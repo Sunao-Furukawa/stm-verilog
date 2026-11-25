@@ -18,6 +18,25 @@
 //  1 文字として表示する ($write)。tb_stm_axi.v (axi4_mem_slave) と同じ番地。
 //  stm_memory は番地の下位 12bit しか見ないので, メモリの 0x008 にも書かれる。
 //
+//  tb_stm.v  -  testbench for stm_sys
+//    Runs the same way as the C simulator (stmsiml, built with soft/chc):
+//      * initialise the memory and run from PC = start address
+//      * stop when the top 4 bits of Mem[PC>>2] are 0xD (diagnostic instructions DD/DF...) in a cycle
+//      * the bup0/bup1 tests pass if they end at SUCCESS (0x3F0); DEAD (0x3D0) is a failure
+//
+//  plusargs:
+//    +HEX=<file>      memory image in $readmemh format (made by tools/mem2hex.py)
+//    +PC=<hex>        start address
+//    +CYCLES=<dec>    maximum number of cycles
+//    +RANDOM          simulate cache misses at random ('stmsiml -r' of the C version)
+//    +SEED=<dec>      random seed
+//    +TRACE           print PC etc. every cycle
+//    +CTRACE          print every cycle in the same format as siml.res of the C simulator
+//
+//  Console (added in the Verilog version): storing a word to address F000_0008 prints its low
+//  8 bits as a character ($write). The same address as tb_stm_axi.v (axi4_mem_slave).
+//  stm_memory only looks at the low 12 address bits, so it is also written to 0x008 of the memory.
+//
 // 【解説】テストベンチの構成とネット
 //   ・tb_stm と stm_sys の間のネットは、入力の clk, rst, reset_pc, rnd_opclh /
 //     rnd_ifrdy / rnd_ifclh と、出力の pc だけ。
@@ -50,6 +69,7 @@ module tb_stm;
   wire [31:0] pc;
 
   reg  [8*1024-1:0] hexfile;     // +HEX= のファイル名 (最大 1024 文字)
+                                 // file name from +HEX= (up to 1024 characters)
   integer       cycles, maxcyc, seed;
   reg           use_random, trace, ctrace;
   reg  [31:0]   insn;
@@ -67,6 +87,7 @@ module tb_stm;
   always #5 clk = ~clk;
 
   // コンソール: F000_0008 へのストアで 1 文字表示
+  // console: a store to F000_0008 prints one character
   always @(posedge clk)
     if (!rst && u_sys.u_mem.we && u_sys.u_mem.opad == 32'hf000_0008)
       $write("%c", u_sys.u_mem.stdt[7:0]);
@@ -90,6 +111,7 @@ module tb_stm;
 
     for (cycles = 1; cycles <= maxcyc; cycles = cycles + 1) begin
       // 立ち下がりで乱数入力を更新 (C 版は 1 サイクルごとに random())
+      // update the random inputs on the falling edge (the C version calls random() once per cycle)
       if (use_random) begin
         rnd_opclh = (($random(seed) & 15) >= 8);
         rnd_ifrdy = (($random(seed) & 15) >= 8);
@@ -107,6 +129,7 @@ module tb_stm;
                  u_sys.u_cntl.B_FWD, u_sys.u_cntl.E_FWD,
                  u_sys.u_cntl.W_COMPLETE, u_sys.u_cntl.I0, u_sys.u_cntl.I1);
       if (ctrace)   // C 版 siml.res と同じ並び (比較用 form.dat: tools/form_cmp.dat)
+                    // same order as siml.res of the C version (form.dat for comparison: tools/form_cmp.dat)
         $display("%h%h%h%h%h%h%h%h%h%h%h%h%h%h%h",
                  pc, u_sys.u_cntl.D_FWD, u_sys.u_cntl.A_FWD, u_sys.u_cntl.B_FWD,
                  u_sys.u_cntl.E_FWD, u_sys.u_cntl.W_COMPLETE,

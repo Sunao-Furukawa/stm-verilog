@@ -1,6 +1,7 @@
 // =====================================================================
 //  180_if_lbs.vh  <-  hard/180-if-lbs.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】命令キャッシュ側の応答
@@ -40,6 +41,7 @@
 // RANDOM-FOR-IFRDY = random_clh ? ((random() & 0xf) >= 8) : 1
 // RANDOM-FOR-IFCLH = random_clh ? ((random() & 0xf) >= 8) : 1
 //   -> Verilog 版では stm_cntl の入力ポート RANDOM_FOR_IFRDY / RANDOM_FOR_IFCLH。
+//   -> In the Verilog version these are the input ports RANDOM_FOR_IFRDY / RANDOM_FOR_IFCLH of stm_cntl.
 // ---- #endif ----
 
 // 【解説】要求中 (IB_V) の命令データが届いた。

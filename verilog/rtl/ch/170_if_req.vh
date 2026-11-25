@@ -1,6 +1,7 @@
 // =====================================================================
 //  170_if_req.vh  <-  hard/170-if-req.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】命令フェッチ要求 (IF) の生成
@@ -74,6 +75,7 @@ assign IF_INCR_1 = IB_V & (EID == IB_ID) ? IB_AD : EID ? D_IF_AD_B : D_IF_AD_A;
 assign IF_INCR_2 = IB_V & (EID == IB_ID)
 		 | NIP_0 | NIP_1 | NIP_2 | NIP_3 | NIP_4 | NIP_5  ? 8 : 0;
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
 assign IF_INCR_OUT = add_32_4(IF_INCR_1,IF_INCR_2);
 // ---- #endif ----
 

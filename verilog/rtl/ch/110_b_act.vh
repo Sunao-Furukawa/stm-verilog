@@ -1,6 +1,7 @@
 // =====================================================================
 //  110_b_act.vh  <-  hard/110-b-act.ch
 //  (stm_cntl.v の中に `include される。宣言は stm_cntl.v 側にある)
+//  (included inside stm_cntl.v; the declarations are in stm_cntl.v)
 // =====================================================================
 // ---------------------------------------------------------------------
 // 【解説】B → E の状態遷移
@@ -122,6 +123,7 @@
 
 // Change OPCODE depending on address when L/ST-byte/hfw
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
+//      (#ifndef VHDL: the C-simulator version is used)
    // 【解説】バイト/ハーフワードの L/ST は、どのバイトを使うかをアドレスの
    //         下位 2bit で opcode に入れる (opcode が 16 以上のとき):
    //           bit1 ← アドレス bit1,  bit0 ← アドレス bit0 (バイトのときだけ)
@@ -138,6 +140,7 @@
 				(B_LS_LOG_AD & 1) : 0)	)
 		: E_LS_OPCODE;
 // ---- #else (VHDL 版: 参考) ----
+//      (#else: the VHDL version, for reference)
 // E-LS-OPCODE    := !E-INTLK ? B-LS-OPCODE[0:3] . 
 // 		  B-LS-OPCODE[0] & B-LS-LOG-AD[30] . 
 // 		  B-LS-OPCODE[0] & !B-LS-OPCODE[2] & B-LS-LOG-AD[31]  
