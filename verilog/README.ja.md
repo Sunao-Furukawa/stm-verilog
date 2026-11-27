@@ -52,7 +52,7 @@ verilog/
 ├── bench/loop.s          ループのベンチマーク (命令キャッシュの効果を見る)
 ├── tests/                AXI4 版のテスト (I/O 領域, バスエラー例外。8 章)
 ├── rtos/                 小さなリアルタイム OS (rtos.s), Arty A7-35 用のアプリ (greet_uart.s), 検査ツール。rtos/README.ja.md 参照
-├── tools/
+├── tools/                アセンブラと変換ツール。tools/README.ja.md 参照
 │   ├── asm.py            アセンブラ (soft/asm.pl の Python 移植版。通常はこちらを使う。SVC 命令を追加)
 │   ├── asm64.pl          soft/asm.pl の 64bit perl 対応版 (参考用)
 │   ├── mem2hex.py        mem.dat → $readmemh 形式
