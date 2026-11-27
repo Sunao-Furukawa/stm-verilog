@@ -68,6 +68,39 @@ The `ch/*.vh` files are Verilog fragments, not stand-alone modules: they are pul
 `module stm_cntl` with `` `include `` (pass `-I rtl` to the compiler and do not list `.vh`
 files on the command line).
 
+### Comments in the sources
+
+The `.v` / `.vh` files in `rtl/`, `rtl/ch/`, `syn/vivado/stm_prog_ram.v` and `tb/` are explained
+on three levels, in Japanese and English.
+
+| Where | What |
+|---|---|
+| Top of each file | [Note] the role of the file (the original `.ch`). [Netlist notes] the nets the file makes and who uses them, the nets it uses and where they come from, and what the circuit becomes after synthesis |
+| Before a group of expressions | [Note] what that part does |
+| End of every code line | what the line means and **what it becomes in the synthesized netlist** |
+
+The end-of-line comments have the form "Japanese / English", for example:
+
+```verilog
+assign EID = CUR_IWQ_ID ^ (G_BC_JUST_SOLVED & ...); // ... / flip queue on mispredict: 4 FFs -> one LUT4, high fan-out select of 192 mux bits
+reg            IWQ_A_V01;                           // ... / 1 FF (D=IWQ_A_V01_NEW, 200): valid of 0,1 <- valid of 2,3 (FF with CE)
+```
+
+- For combinational logic they say whether it becomes LUTs, a mux, a comparator, an adder (CARRY4)
+  or just wiring (no gate).
+- For FFs they say when the "hold" branch becomes the CE pin and that the synchronous reset goes to
+  the R pin of the FDRE.
+- Nets that nothing uses, and logic disabled by `EXT_BUS` / `IO_EN`, are marked "removed by synthesis".
+- The declarations in `stm_cntl.v` read `N FFs (D=X_NEW, file): meaning` or `comb (file): meaning`.
+  The meaning is the same as the comment on the `assign` line in `ch/*.vh`, and the file number
+  tells you which `ch/*.vh` drives it.
+- The testbenches (`tb/`) are simulation only and never synthesized, so their comments only
+  describe behaviour.
+
+When you change a line of code, update its end-of-line comment as well.
+The netlists Vivado generates (under `syn/vivado/stm_bd/`, not tracked by git) carry no comments;
+how to read them is described in [`syn/NETLIST.md`](syn/NETLIST.md).
+
 ## 3. Translation rules
 
 | CHDL / C                                   | Verilog 2001 |
