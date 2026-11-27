@@ -161,7 +161,7 @@ endfunction                                             // 関数の終わり / 
 function [5:0] add_4_5_3(input x, input [2:0] y, input z); // 分岐命令の相対位置 (6bit 2の補数) / relative position of a branch insn (6-bit two's complement)
   add_4_5_3 = (x ? 6'd48 : 6'd56)          // -16 / -8 (6bit 2の補数)
                                            // -16 / -8 (6-bit two's complement)
-            + {1'b0, y, 2'b00}              // 4 * y
+            + {1'b0, y, 2'b00}              // 4 * y  -- NIPの4倍 = 2bit左シフト (配線だけ) / NIP times 4 = shift left by 2 (wires only)
             + (z ? 6'd0 : 6'd4);                        // +4 (分岐が2命令目なら)… 全体で5入力→6出力の真理値表 (LUT5 x6) / +4 (branch is the second insn)... a 5-in/6-out truth table overall (6 LUT5s)
 endfunction                                             // 関数の終わり / end of function
 

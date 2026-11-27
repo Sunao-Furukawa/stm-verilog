@@ -168,7 +168,7 @@ module stm_axi_master #(                                // AXI4マスタ: icache
   input      [31:0]     ifr_addr,                       // バーストの先頭番地 / burst start address
   input      [7:0]      ifr_len,    // ARLEN (ビート数 - 1)
                                     // ARLEN (number of beats - 1)
-  input      [1:0]      ifr_burst,  // ARBURST
+  input      [1:0]      ifr_burst,  // ARBURST  -- icacheが選ぶバーストの種類 (WRAP/INCR) → m_axi_arburst / burst type chosen by the icache (WRAP / INCR) -> m_axi_arburst
   output                ifr_ack,    // AR が受け付けられた
                                     // the AR was accepted
   output                ifr_valid,  // ビートが届いた
@@ -184,10 +184,10 @@ module stm_axi_master #(                                // AXI4マスタ: icache
   input                 op_busreq,                      // OP-Bの要求にバスが要る (stm_cntlの組合せ出力) / the OP-B request needs the bus (combinational from stm_cntl)
   input                 op_we,      // LBS_WE (1 なら ST2 = 書き込み)
                                     // LBS_WE (1 = ST2 = write)
-  input      [31:0]     op_ad,      // LBS_AD
-  input      [31:0]     op_wdt,     // LBS_DT
-  output                op_rdy,     // -> RANDOM_FOR_OPCLH
-  output reg [31:0]     op_dt,      // -> MEM_DT_OP
+  input      [31:0]     op_ad,      // LBS_AD  -- OP-Bの番地 (stm_cntlのFF出力) → 下位2bitを0にしてAR/AWへ / OP-B address (FF output of stm_cntl) -> AR/AW with the low 2 bits cleared
+  input      [31:0]     op_wdt,     // LBS_DT  -- ST2の書き込みデータ (FF出力) → WDATA / ST2 write data (FF output) -> WDATA
+  output                op_rdy,     // -> RANDOM_FOR_OPCLH  -- 要求が完了した (op_doneのFF & !op_new のAND) / the request is done (AND of the op_done FF and !op_new)
+  output reg [31:0]     op_dt,      // -> MEM_DT_OP  -- 読み出しデータ: Rを受けた時に取り込むFF 32本 / read data: 32 FFs loaded when R arrives
   output reg            op_err,     // -> MEM_OP_ERR (読み出しがエラー応答だった)
                                     // -> MEM_OP_ERR (the read got an error response)
 
@@ -355,7 +355,7 @@ module stm_axi_master #(                                // AXI4マスタ: icache
   assign m_axi_arcache = (gnt_op && op_io) ? 4'b0000 : 4'b0011; // OPのI/OアクセスだけDevice(0000), 他はNormal non-cacheable bufferable (0011) / Device (0000) for OP I/O only, else Normal non-cacheable bufferable (0011)
   assign m_axi_arprot  = gnt_op ? 3'b000 : 3'b100;    // [2]=1: 命令アクセス
                                                       // [2]=1: instruction access
-  assign m_axi_arqos   = 4'd0;                          // QoS: GND / QoS: GND
+  assign m_axi_arqos   = 4'd0;                          // QoS: GND / QoS: GND  -- QoSは使わない: 定数0でGNDに接続 / (no QoS used)
 
   wire if_ar_acc = gnt_if & m_axi_arready;              // IFのARが受け付けられた (ハンドシェイク成立) / IF AR accepted (handshake)
   wire op_ar_acc = gnt_op & m_axi_arready;              // OPのARが受け付けられた / OP AR accepted
@@ -363,7 +363,7 @@ module stm_axi_master #(                                // AXI4マスタ: icache
 
   // ---- AW / W (OP の書き込みだけ)
   //      (AW / W: only for OP writes)
-  assign m_axi_awvalid = op_awv;                        // AWVALID = op_awv / AWVALID = op_awv
+  assign m_axi_awvalid = op_awv;                        // AWVALID = op_awv / AWVALID = op_awv  -- 書き込みアドレス有効: op_awvをそのまま出す組合せ出力 / (combinational output)
   assign m_axi_awid    = OPID;                          // 書き込みは常にOPのID (定数) / writes always use the OP ID (constant)
   assign m_axi_awaddr  = op_addr;                       // 書き込み番地 = op_addr / write address = op_addr
   assign m_axi_awlen   = 8'd0;                          // 1ビート (GND) / 1 beat (GND)
@@ -372,9 +372,9 @@ module stm_axi_master #(                                // AXI4マスタ: icache
   assign m_axi_awlock  = 1'b0;                          // 排他無し (GND) / not exclusive (GND)
   assign m_axi_awcache = op_io ? 4'b0000 : 4'b0011;     // I/OならDevice, 他はNormal / Device for I/O, else Normal
   assign m_axi_awprot  = 3'b000;                        // データ・非特権・セキュア (GND) / data, unprivileged, secure (GND)
-  assign m_axi_awqos   = 4'd0;                          // QoS (GND) / QoS (GND)
+  assign m_axi_awqos   = 4'd0;                          // QoS (GND) / QoS (GND)  -- QoSは使わない: GND / (no QoS used)
 
-  assign m_axi_wvalid  = op_wv;                         // WVALID = op_wv / WVALID = op_wv
+  assign m_axi_wvalid  = op_wv;                         // WVALID = op_wv / WVALID = op_wv  -- 書き込みデータ有効: op_wvをそのまま出す組合せ出力 / (combinational output)
   assign m_axi_wdata   = lane(op_data);                 // 書き込みデータ (lane()で並べ替え) / write data (reordered by lane())
   assign m_axi_wstrb   = 4'hf;                          // 全バイト書き込み (VCC x4) / write all bytes (4 x VCC)
   assign m_axi_wlast   = 1'b1;                          // 1ビートなので常に最後 (VCC) / single beat, always last (VCC)
@@ -423,7 +423,7 @@ module stm_axi_master #(                                // AXI4マスタ: icache
           end                                           // if の終わり / end of if
         S_ADDR:                                         // ARの受け付け待ち / waiting for AR acceptance
           if (if_ar_acc) if_st <= S_RESP;               // 受け付けられたらデータ待ちへ / to data wait once accepted
-        default: // S_RESP
+        default: // S_RESP  -- IF側のデータ待ちの状態 (if_stの値2) / IF-side data-wait state (if_st value 2)
           if (r_if && m_axi_rlast) if_st <= S_IDLE;     // (S_RESP) 最後のビートが来たらIDLEへ / (S_RESP) back to IDLE at the last beat
       endcase                                           // IF側の終わり / end of IF side
 
@@ -453,7 +453,7 @@ module stm_axi_master #(                                // AXI4マスタ: icache
             if (wr_sent) op_st <= S_RESP;               // 両方済んだらB応答待ちへ / both done -> wait for B
           end else if (op_ar_acc)                       // 読み出し: ARが受け付けられたら ... / read: when AR is accepted ...
             op_st <= S_RESP;                            // ...R待ちへ / ... wait for R
-        default: // S_RESP
+        default: // S_RESP  -- OP側の応答待ちの状態 (op_stの値2) / OP-side response-wait state (op_st value 2)
           if (op_wr_q ? b_op : (r_op & m_axi_rlast)) begin // (S_RESP) 書き込みはB, 読み出しはRの最後のビートで完了 / (S_RESP) done on B for writes, on the last R beat for reads
             if (!op_wr_q) begin                         // 読み出しなら / for a read
               op_dt  <= lane(m_axi_rdata);              // データを保持 → stm_cntlのMEM_DT_OP (FF32本) / keep the data -> MEM_DT_OP of stm_cntl (32 FFs)

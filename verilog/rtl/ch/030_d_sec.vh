@@ -104,22 +104,22 @@ assign DD_INTCODE = (I0_IS_LEGAL ? 0 : INTCODE_OP);     // 不正ならINTCODE_O
 //          - the first is a branch, both are LS, both are EX, privileged, or illegal
 assign DD_ISSUE_SECOND_INSN =                           // 2命令目も発行するか: 下の全条件のAND (Dサイクルで最も深い論理, LUT 3~4段) / dual issue?: AND of all terms below (deepest D-cycle logic, 3-4 LUT levels)
        I1_V                                             // I1が存在する / I1 exists
-    & !(DD_FIRST_SETCC & DD_SECOND_SETCC)   // CC dependency
+    & !(DD_FIRST_SETCC & DD_SECOND_SETCC)   // CC dependency  -- 2命令ともCCを変えるなら1命令だけ (AND+NOT, LUTの1入力) / both insns set CC -> issue one only (AND + NOT, one LUT input)
     & !(DD_FIRST_WAD_V &((DD_SECOND_WAD_V  & (DD_FIRST_WAD == DD_SECOND_WAD )) // I0の書き先をI1も書く (WAW): 4bit一致比較器(XNOR4+AND) / I1 writes I0's destination (WAW): 4-bit equality comparator
 	                |(DD_SECOND_RADB_V & (DD_FIRST_WAD == DD_SECOND_RADB1)) // I0の書き先をI1がベースとして読む (RAW) / I1 reads I0's destination as base (RAW)
 	                |(DD_SECOND_RAD1_V & (DD_FIRST_WAD == DD_SECOND_RADB1)) // I1がR1として読む (R1とRBは同じ[19:16]なので比較器を共有) / I1 reads it as R1 (R1 and RB share bits [19:16], so the comparator is shared)
 	                |(DD_SECOND_RAD2_V & (DD_FIRST_WAD == DD_SECOND_RAD2)) ) // I1がR2として読む (2つ目の4bit比較器) / I1 reads it as R2 (second 4-bit comparator)
-       )   // REG dependency
-    & !(DD_FIRST_IS_LS & DD_SECOND_IS_JB & I1_JB_REG)   // EAG conflict
-    & !(DD_FIRST_IS_EX & DD_SECOND_IS_JB & I1_JB_LINK)   // EX/LINK conflict
-    & !(DD_SECOND_IS_JB & I1_JB_COND & G_BC_PENDING)   // BC 2nd
-    & ! DD_FIRST_IS_JB   // First branches
-    & !(DD_FIRST_IS_LS & DD_SECOND_IS_LS)   // pipe conflict
-    & !(DD_FIRST_IS_EX & DD_SECOND_IS_EX)   // pipe conflict
-    & (DD_PRIVCODE == 0)   // privileged op
-    & !DD_SECOND_PRIV_V   // privileged op
-    & I0_IS_LEGAL   // not intrrupting
-    & I1_IS_LEGAL;   // not intrrupting
+       )   // REG dependency  -- 上の4項の終わり: I0の書き先をI1が使えば1命令だけ (4bit比較器2個のOR) / end of the 4 terms above: one insn if I1 uses I0's destination (OR of 2 comparators)
+    & !(DD_FIRST_IS_LS & DD_SECOND_IS_JB & I1_JB_REG)   // EAG conflict  -- LS+レジスタ間接分岐はアドレス加算器EAGを取り合う (AND3) / LS + register-indirect branch both need the EAG adder (AND3)
+    & !(DD_FIRST_IS_EX & DD_SECOND_IS_JB & I1_JB_LINK)   // EX/LINK conflict  -- EX+リンク付き分岐はどちらもEXパイプで書く (AND3) / EX + branch with link both write through the EX pipe (AND3)
+    & !(DD_SECOND_IS_JB & I1_JB_COND & G_BC_PENDING)   // BC 2nd  -- 未解決BCがあるのに2命令目もBC: 2つ目は待たせる (AND3, G_BC_PENDINGはFF) / second BC while one is pending: hold it (AND3, G_BC_PENDING is an FF)
+    & ! DD_FIRST_IS_JB   // First branches  -- 1命令目が分岐なら2命令目は出さない (分岐先が変わるため) / no second insn after a branch (the path changes)
+    & !(DD_FIRST_IS_LS & DD_SECOND_IS_LS)   // pipe conflict  -- LS+LS: LSパイプは1本 (AND) / LS + LS: there is one LS pipe (AND)
+    & !(DD_FIRST_IS_EX & DD_SECOND_IS_EX)   // pipe conflict  -- EX+EX: EXパイプは1本 (AND) / EX + EX: there is one EX pipe (AND)
+    & (DD_PRIVCODE == 0)   // privileged op  -- 1命令目が特権命令なら単独で発行 (2bitのNOR) / a privileged first insn issues alone (2-bit NOR)
+    & !DD_SECOND_PRIV_V   // privileged op  -- 2命令目が特権命令なら次のサイクルに回す / a privileged second insn waits for the next cycle
+    & I0_IS_LEGAL   // not intrrupting  -- 1命令目が不正命令 (例外になる) なら2命令目は出さない / no second insn if the first is illegal (it traps)
+    & I1_IS_LEGAL;   // not intrrupting  -- 2命令目が不正命令なら出さない (次のサイクルに1命令目として例外にする). ここまでの全項のAND = LUT 3~4段 / not if the second is illegal (it traps next cycle as the first). AND of all terms = 3-4 LUT levels
 
 
 // Register file address port -- may be critical!
