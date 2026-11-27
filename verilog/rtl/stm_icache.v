@@ -126,11 +126,11 @@ module stm_icache #(                                    // 命令キャッシュ
 
   // ---- stm_cntl 側
   //      (stm_cntl side)
-  input             ib_valid,       // IB_VALID
-  input      [31:0] ib_ad,          // IB_AD
+  input             ib_valid,       // IB_VALID  -- フェッチ要求が有効 (stm_cntlのIB_VのFF) / fetch request valid (IB_V FF of stm_cntl)
+  input      [31:0] ib_ad,          // IB_AD  -- 要求中のフェッチ番地 (FF出力) → タグ比較とバッファ比較 / pending fetch address (FF output) -> tag and buffer compares
   input      [31:0] ib_ad_nxt,      // IB_AD_NXT (次のサイクルの IB_AD)
                                     // IB_AD_NXT (IB_AD of the next cycle)
-  output            if_rdy,         // -> RANDOM_FOR_IFCLH
+  output            if_rdy,         // -> RANDOM_FOR_IFCLH  -- 命令が届いた (ヒット/バッファ/I/OのOR) / insns arrived (OR of hit / buffer / I/O)
   output     [31:0] if_dt_h,        // -> MEM_DT_IF_H (先の命令, 番地 8n)
                                     // -> MEM_DT_IF_H (the earlier instruction, address 8n)
   output     [31:0] if_dt_l,        // -> MEM_DT_IF_L (後の命令, 番地 8n+4)
@@ -174,7 +174,7 @@ if (ENABLE) begin : g_cache                             // キャッシュあり
 
   localparam [1:0] F_IDLE = 2'd0, F_REQ = 2'd1, F_DATA = 2'd2, F_DONE = 2'd3; // ライン埋めの状態の符号 (2bitの状態FF fst) / line-fill state codes (2-bit state FFs fst)
 
-  reg [63:0]       dram [0:(1<<DEP_W)-1];      // {H, L}
+  reg [63:0]       dram [0:(1<<DEP_W)-1];      // {H, L}  -- データRAM: 8バイト (先の命令が上位) を1語として格納 → RAMB36E1 1個 / data RAM: 8 bytes per entry (earlier insn on top) -> one RAMB36E1
   reg [TAG_W-1:0]  tram [0:(1<<SET_W)-1];               // タグRAM: 128語x20bit → ブロックRAM (RAMB18) / tag RAM: 128 x 20 bits -> block RAM (RAMB18)
   reg [(1<<SET_W)-1:0] vbits;                           // ラインの有効ビット: FF 128本 (リセットで一斉に0にするのでRAMにしない) / line valid bits: 128 FFs (cleared at once by reset, so not a RAM)
   reg [63:0]       d_q;                                 // データRAMの読み出し: RAMの出力レジスタそのもの / data RAM read: the RAM's own output register
@@ -247,7 +247,7 @@ if (ENABLE) begin : g_cache                             // キャッシュあり
   assign fr_req   = miss_start | (fst == F_REQ);        // バースト要求: ミスした瞬間 (組合せ) か受け付け待ちの間 / burst request: at the miss (combinational) or while waiting for acceptance
   assign fr_addr  = (fst == F_REQ) ? {f_ad, 3'b000} : {ib_ad[31:3], 3'b000}; // 要求番地: 待ちの間はf_ad, 最初は今のIB_AD (32bit 2:1 MUX) / request address: f_ad while waiting, else the current IB_AD (32-bit 2:1 mux)
   assign fr_len   = WORDS - 1;                          // 1ラインの語数-1 (定数, 既定7 = 8ビート) / words per line - 1 (constant, 7 = 8 beats by default)
-  assign fr_burst = 2'b10;                      // WRAP
+  assign fr_burst = 2'b10;                      // WRAP  -- 要求した語から読み始めて回り込む (early restartのため) / start at the requested word and wrap (for early restart)
 
   always @(posedge clk) begin                           // ライン埋めの状態機械 / line-fill state machine
     if (rst) begin                                      // リセット / reset
@@ -297,7 +297,7 @@ if (ENABLE) begin : g_cache                             // キャッシュあり
               fst          <= F_DONE;                   // 1サイクル休む (RAMの読み書きの重なり回避) / rest one cycle (avoid RAM read/write overlap)
             end                                         // if の終わり / end of if
           end                                           // if (fr_valid) の終わり / end of if (fr_valid)
-        default: // F_DONE
+        default: // F_DONE  -- ライン埋めの直後の1サイクル (状態値3) / the cycle right after a line fill (state 3)
           fst <= F_IDLE;                                // (F_DONE) 待機へ戻る / (F_DONE) back to idle
       endcase                                           // caseの終わり / end of case
     end                                                 // else の終わり / end of else
@@ -330,7 +330,7 @@ end else begin : g_nocache                              // キャッシュ無し
   assign fr_addr  = (nst == N_REQ) ? {n_ad, 3'b000} : {ib_ad[31:3], 3'b000}; // 要求番地 (32bit 2:1 MUX) / request address (32-bit 2:1 mux)
   assign fr_len   = 8'd1;                       // 2 ビート
                                                 // 2 beats
-  assign fr_burst = 2'b01;                      // INCR
+  assign fr_burst = 2'b01;                      // INCR  -- キャッシュ無し: 8バイトを順に2ビート読む / no cache: read the 8 bytes in 2 ascending beats
 
   always @(posedge clk) begin                           // 状態機械 / state machine
     if (rst) begin                                      // リセット / reset
@@ -351,7 +351,7 @@ end else begin : g_nocache                              // キャッシュ無し
           end                                           // if の終わり / end of if
         N_REQ:                                          // 受け付け待ち / waiting for acceptance
           if (fr_ack) nst <= N_DATA;                    // 受け付けられた / accepted
-        default: // N_DATA
+        default: // N_DATA  -- キャッシュ無しのデータ待ちの状態 (状態値2) / no-cache data-wait state (state 2)
           if (fr_valid) begin                           // (N_DATA) ビートが届いた / (N_DATA) a beat arrived
             n_beat <= 1'b1;                             // 次は後半 / next is the second half
             if (!n_beat) begin                          // 前半なら / first half

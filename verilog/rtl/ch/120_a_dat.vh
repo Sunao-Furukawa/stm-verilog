@@ -133,12 +133,12 @@ assign AA_EAG_OUTPUT = add_32_16(AA_OPB,A_DISP);        // 実効アドレス = 
 // [Note] Value of the system register read by RSR (the number is in the R2 field).
 assign A_SR_READ_DATA =                                 // RSRで読むシステムレジスタ: A_EX_RAD2(4bit)で選ぶ32bit 9:1 MUX ... / system register read by RSR: 32-bit 9:1 mux on A_EX_RAD2 (4 bits) ...
         (A_EX_RAD2 == SYSREG_PSW)   ? build_psw(PSW_CC,PSW_USER,PSW_TYPE) : // ...0: PSW (CC/USER/TYPEのFFを配線で組み立て, 他bitは0) / ... 0: PSW (CC/USER/TYPE FFs wired together, other bits 0)
-        (A_EX_RAD2 == SYSREG_TBR)   ? TBR :             // ...2: TBR / ... 2: TBR
-        (A_EX_RAD2 == SYSREG_CMPR)  ? CMPR :            // ...3: CMPR / ... 3: CMPR
-        (A_EX_RAD2 == SYSREG_XPSW)  ? XPSW :            // ...4: XPSW / ... 4: XPSW
-        (A_EX_RAD2 == SYSREG_XPC)   ? XPC :             // ...5: XPC / ... 5: XPC
-        (A_EX_RAD2 == SYSREG_XLA)   ? XLA :             // ...6: XLA / ... 6: XLA
-        (A_EX_RAD2 == SYSREG_SVR0)  ? SVR0 :            // ...8: SVR0 / ... 8: SVR0
+        (A_EX_RAD2 == SYSREG_TBR)   ? TBR :             // ...2: TBR / ... 2: TBR  -- A_EX_RAD2==2のとき (4bit一致) / when A_EX_RAD2 == 2 (4-bit match)
+        (A_EX_RAD2 == SYSREG_CMPR)  ? CMPR :            // ...3: CMPR / ... 3: CMPR  -- A_EX_RAD2==3のとき / when A_EX_RAD2 == 3
+        (A_EX_RAD2 == SYSREG_XPSW)  ? XPSW :            // ...4: XPSW / ... 4: XPSW  -- A_EX_RAD2==4のとき / when A_EX_RAD2 == 4
+        (A_EX_RAD2 == SYSREG_XPC)   ? XPC :             // ...5: XPC / ... 5: XPC  -- A_EX_RAD2==5のとき / when A_EX_RAD2 == 5
+        (A_EX_RAD2 == SYSREG_XLA)   ? XLA :             // ...6: XLA / ... 6: XLA  -- A_EX_RAD2==6のとき / when A_EX_RAD2 == 6
+        (A_EX_RAD2 == SYSREG_SVR0)  ? SVR0 :            // ...8: SVR0 / ... 8: SVR0  -- A_EX_RAD2==8のとき (7番は欠番) / when A_EX_RAD2 == 8 (7 is unused)
         (A_EX_RAD2 == SYSREG_SVR1)  ? SVR1 : 0;         // ...9: SVR1, 欠番は0 (LUT6+MUXF7の木 x32bit) / ... 9: SVR1, gaps give 0 (LUT6+MUXF7 tree x 32 bits)
 
 // 【解説】EX パイプの結果: RSR ならシステムレジスタの値, それ以外は EXU の出力。

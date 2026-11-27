@@ -50,9 +50,9 @@ localparam [4:0] OPC_C     = 5'd3;                      // 比較 = 減算して
 localparam [4:0] OPC_AU    = 5'd5;                      // 符号なし加算 (オーバーフロー例外なし, リンク番地の計算にも使う) / unsigned add (no overflow trap; also used for the link address)
 localparam [4:0] OPC_SU    = 5'd6;                      // 符号なし減算 / unsigned subtract
 localparam [4:0] OPC_CU    = 5'd7;                      // 符号なし比較 (GRに書かない) / unsigned compare (no GR write)
-localparam [4:0] OPC_N     = 5'd8;                      // AND / AND
-localparam [4:0] OPC_O     = 5'd9;                      // OR / OR
-localparam [4:0] OPC_X     = 5'd10;                     // XOR / XOR
+localparam [4:0] OPC_N     = 5'd8;                      // AND / AND  -- 論理積 x & y: EXUの中で32本のLUT2 / bitwise AND: 32 LUT2s in the EXU
+localparam [4:0] OPC_O     = 5'd9;                      // OR / OR  -- 論理和 x | y / bitwise OR
+localparam [4:0] OPC_X     = 5'd10;                     // XOR / XOR  -- 排他的論理和 x ^ y / bitwise XOR
 localparam [4:0] OPC_SL    = 5'd11;                     // 左シフト / shift left
 localparam [4:0] OPC_SRA   = 5'd12;                     // 算術右シフト / arithmetic shift right
 localparam [4:0] OPC_SRL   = 5'd13;                     // 論理右シフト / logical shift right

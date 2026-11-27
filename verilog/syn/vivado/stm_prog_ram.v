@@ -56,8 +56,8 @@
 //     on the bus (see stm_axi_master.v), so this does not matter as long as the CPU uses it.
 // =====================================================================
 module stm_prog_ram #(                                  // ブロックデザイン用のプログラムメモリ (ブロックRAMとして合成される) / program memory for the block design (synthesized as block RAM)
-  parameter AW        = 11,         // 2^AW words (11 = 8KB)
-  parameter INIT_FILE = ""          // $readmemh file, "" = all zeros
+  parameter AW        = 11,         // 2^AW words (11 = 8KB)  -- 語番地の幅: 2^11語 = 8KB → RAMB36E1 2個 / word-address width: 2^11 words = 8 KB -> 2 RAMB36E1
+  parameter INIT_FILE = ""          // $readmemh file, "" = all zeros  -- 初期値のファイル (mem2hex.pyの出力). 合成でRAMのINIT_xx属性になる / initial-contents file (mem2hex.py output); becomes the RAM's INIT_xx attributes
 ) (                                                     // パラメータの終わり, ポートの始まり / end of parameters, start of ports
   (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 BRAM_PORTA CLK" *) // 次のclkがBRAM_PORTAのCLKだとIP Integratorに教える属性 (回路は変わらない) / tells IP Integrator the next clk is BRAM_PORTA CLK (no effect on logic)
   (* X_INTERFACE_PARAMETER = "MASTER_TYPE BRAM_CTRL,MEM_ECC NONE,MEM_WIDTH 32,READ_WRITE_MODE READ_WRITE,READ_LATENCY 1" *) // インタフェースの性質: 32bit幅, 読み出し遅れ1, ECC無し / interface properties: 32 bits wide, read latency 1, no ECC

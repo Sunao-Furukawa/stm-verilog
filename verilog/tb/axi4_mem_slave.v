@@ -158,12 +158,12 @@ module axi4_mem_slave #(                                // AXI4スレーブの�
     begin                                               // 関数本体 / body
       bytes = 32'd1 << size;                            // 1ビートのバイト数 / bytes per beat
       case (burst)                                      // 種類ごと / per type
-        2'b00:   next_addr = a;                                   // FIXED
-        2'b10: begin                                              // WRAP
+        2'b00:   next_addr = a;                                   // FIXED  -- 同じ番地を繰り返す / repeat the same address
+        2'b10: begin                                              // WRAP  -- 範囲の中で回り込む / wrap inside the window
           wmask = bytes * (len + 1) - 1;                // (WRAP) 折り返す範囲のマスク = バースト全体のバイト数-1 / (WRAP) wrap mask = total bytes of the burst - 1
           next_addr = (a & ~wmask) | ((a + bytes) & wmask); // 範囲の中で+bytesし, はみ出したら先頭へ回る / add bytes inside the window, wrapping to its start
         end                                             // WRAPの終わり / end of WRAP
-        default: next_addr = a + bytes;                           // INCR
+        default: next_addr = a + bytes;                           // INCR  -- 1ビートぶん進める / advance by one beat
       endcase                                           // caseの終わり / end of case
     end                                                 // 関数本体の終わり / end of body
   endfunction                                           // 関数の終わり / end of function
@@ -240,8 +240,8 @@ module axi4_mem_slave #(                                // AXI4スレーブの�
                                       // remaining beats - 1
   reg [7:0]      rq_olen [0:QD-1];    // 元の ARLEN (WRAP 用)
                                       // original ARLEN (for WRAP)
-  reg [2:0]      rq_size [0:QD-1];                      // ARSIZE / ARSIZE
-  reg [1:0]      rq_burst[0:QD-1];                      // ARBURST / ARBURST
+  reg [2:0]      rq_size [0:QD-1];                      // ARSIZE / ARSIZE  -- 1ビートのサイズ / beat size
+  reg [1:0]      rq_burst[0:QD-1];                      // ARBURST / ARBURST  -- バーストの種類 / burst type
   reg [3:0]      rq_wait [0:QD-1];    // 応答を始めるまでのサイクル数
                                       // cycles before the response starts
   integer        rq_seq  [0:QD-1];    // 受付順 (同じ ID の順序を守る)
@@ -304,10 +304,10 @@ module axi4_mem_slave #(                                // AXI4スレーブの�
           s_axi_rvalid <= 1;                            // RVALIDを出す / raise RVALID
           s_axi_rid    <= rq_id[pick];                  // その行のID / that row's ID
           s_axi_rlast  <= (rq_len[pick] == 0);          // 最後のビートか / last beat?
-          s_axi_rresp  <= 2'b00;                        // OKAY / OKAY
+          s_axi_rresp  <= 2'b00;                        // OKAY / OKAY  -- 正常応答 / normal response
           if (is_err(rq_addr[pick])) begin              // エラー領域 (0xE...) なら / error region (0xE...)
             s_axi_rdata <= 32'hBAD0BAD0;                // 目印のデータ / marker data
-            s_axi_rresp <= 2'b10;                       // SLVERR
+            s_axi_rresp <= 2'b10;                       // SLVERR  -- スレーブのエラー応答: CPUの例外の試験用 / slave error response: for testing CPU exceptions
             n_rd_err = n_rd_err + 1;                    // エラーを返した数 / count error responses
           end else if (is_dev(rq_addr[pick])) begin     // I/Oデバイス領域 (0xF...) なら / I/O device region (0xF...)
             dev_rd = dev_rd + 1;                        // デバイスの読み出し数 / device read count
