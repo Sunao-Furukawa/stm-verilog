@@ -74,6 +74,29 @@ both ends would leave no time for the path itself.
 Warnings that remain are harmless: truncation of C-style unsized constants (e.g. `? 1 : 0`)
 and decoded fields / pipeline tags that are never read and get optimized away.
 
+## Matching the RTL comments to the synthesis results
+
+Every code line of the RTL (`rtl/*.v`, `rtl/ch/*.vh`, `vivado/stm_prog_ram.v`) ends with a comment
+saying what the line becomes after synthesis (see [../README.md §2 "Comments in the sources"](../README.md#comments-in-the-sources)).
+When reading the synthesis reports or the netlists, they map as follows.
+
+* **FF names**: a `reg X;` line in `stm_cntl.v` says `N FFs (D=X_NEW, file)`, and the synthesized
+  FF keeps the name `X_reg` (`X_reg[i]` for a multi-bit one). From the start / end FF of a path in
+  the timing report you can find the `ch/*.vh` that builds its D input.
+* **Removed logic**: nets whose comment says "unused, removed" or "removed by synthesis" are deleted
+  by the tool. The "decoded fields / pipeline tags that are never read" warnings above are these.
+  In `stm_cntl` alone with `EXT_BUS=0`, the logic that depends on `EXT_BUS` / `is_io()` goes too.
+* **Long paths**: lines marked "long path" or "critical-path candidate" (`IJB` in `030_d_sec.vh`
+  into the adder in 040, the bypass muxes in `100_b_dat.vh` / `140_d_dat.vh`, `IF_REQ_AD` in
+  `170_if_req.vh`, `G_BC_JUST_TAKEN` in `210_g_bc.vh`, ...) are the first places to look in a timing
+  report. Check in the report which one is really the longest.
+* **Cell names**: the cells named in the comments (LUT6, FDRE, CARRY4, MUXF7, RAMB36E1 ...) are
+  Vivado (Xilinx 7-series) ones. On Quartus (Cyclone IV E) a LUT is a 4-input LE, an FF is the LE's
+  register (with clock enable), CARRY4 is the LE carry chain and block RAM is M9K. The shape of the
+  circuit (what becomes a mux, what becomes CE) is the same.
+* **Block-design memory**: the comments in `vivado/stm_prog_ram.v` explain the port attributes
+  (`X_INTERFACE_INFO`) and how the module maps onto block RAM (RAMB36E1).
+
 ## The CPU with an AXI4 master (`stm_axi_top`)
 
 `stm_axi_top` (see [../README.md §8](../README.md#8-axi4-master-version-stm_axi_top)) contains
