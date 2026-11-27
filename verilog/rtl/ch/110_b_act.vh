@@ -70,7 +70,7 @@
 
    // 【解説】E の有効ビット: B から来れば 1, E が留まるなら保持, それ以外は 0。
    // [Note] Valid bit of E: 1 if something comes from B, held if E stays, otherwise 0.
-   assign E_V_NEW = B_FWD   ? 1 : E_INTLK ? E_V : 0;
+   assign E_V_NEW = B_FWD   ? 1 : E_INTLK ? E_V : 0;    // Eの有効ビット: B_FWD→1 / E_INTLK→保持 / else 0. FF1本+LUT3 / E valid: B_FWD -> 1, E_INTLK -> hold, else 0. 1 FF + LUT3
 
 // JB-related tags need special handling; may be modified even when interlock
    // 【解説】分岐関係のタグは、インタロック中でも分岐の解決 (G_BC_JUST_SOLVED) で
@@ -79,47 +79,47 @@
    // [Note] Branch tags are updated by branch resolution (G_BC_JUST_SOLVED) even during an interlock.
    //        Once resolved, the "unresolved BC" and "speculative" flags are dropped, and a branch
    //        found to be untaken is invalidated.
-   assign E_JB_IS_BC_NEW = B_FWD   ? B_JB_IS_BC & !G_BC_JUST_SOLVED :
-			   E_INTLK ? E_JB_IS_BC & !G_BC_JUST_SOLVED : 0;
-   assign E_JB_SUBJECT_TO_BC_NEW = B_FWD   ? B_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED :
-			   E_INTLK ? E_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED : 0;
-   assign E_JB_V_NEW = 
-      B_FWD   ? B_JB_V & !(B_JB_IS_BC & G_BC_JUST_SOLVED & !G_BC_JUST_TAKEN) :
-      E_INTLK ? E_JB_V & !(E_JB_IS_BC & G_BC_JUST_SOLVED & !G_BC_JUST_TAKEN) : 0;
+   assign E_JB_IS_BC_NEW = B_FWD   ? B_JB_IS_BC & !G_BC_JUST_SOLVED : // EのBCが未解決か: Bから来た値 ... / is E's BC unsolved: value from B ...
+			   E_INTLK ? E_JB_IS_BC & !G_BC_JUST_SOLVED : 0; // ...か保持の値を, 解決した(G_BC_JUST_SOLVED)ら0に (LUT5) / ... or held value, cleared once solved (G_BC_JUST_SOLVED) (LUT5)
+   assign E_JB_SUBJECT_TO_BC_NEW = B_FWD   ? B_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED : // 未解決分岐の先の投機命令か: 同じ形 ... / speculative behind an unsolved branch: same form ...
+			   E_INTLK ? E_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED : 0; // ...解決したら投機でなくなる (LUT5) / ... no longer speculative once solved (LUT5)
+   assign E_JB_V_NEW =                                  // Eに分岐があるか: ... / branch present in E: ...
+      B_FWD   ? B_JB_V & !(B_JB_IS_BC & G_BC_JUST_SOLVED & !G_BC_JUST_TAKEN) : // ...Bから来たBCが不成立と解決したら消す ... / ... drop a BC from B resolved not-taken ...
+      E_INTLK ? E_JB_V & !(E_JB_IS_BC & G_BC_JUST_SOLVED & !G_BC_JUST_TAKEN) : 0; // ...留まっている分も同様 (LUT6 1~2個) / ... same for one held in E (1-2 LUT6s)
    // 【解説】この LS 命令が、未解決 BC の CC を作る命令か。D で BC を発行した
    //         サイクルに、その CC を作る命令が B/E にいた場合もここでセットする。
    // [Note] Is this LS instruction the one that makes the CC of the unresolved BC? It is also set here
    //        when that instruction was in B/E in the cycle the BC was issued in D.
-   assign E_LS_SOLVING_BC_NEW = 
-	B_FWD   ? B_LS_SOLVING_BC | DD_ISSUEING_UNSOLVED_BC_ON_B_LS & D_FWD :
-	E_INTLK ? E_LS_SOLVING_BC | DD_ISSUEING_UNSOLVED_BC_ON_E_LS & D_FWD : 0;
+   assign E_LS_SOLVING_BC_NEW =                         // このLS命令が未解決BCのCCを作るか: ... / does this LS insn make the unsolved BC's CC: ...
+	B_FWD   ? B_LS_SOLVING_BC | DD_ISSUEING_UNSOLVED_BC_ON_B_LS & D_FWD : // ...Bからの値, またはBCを今発行しCCの作り手がBにいる ... / ... value from B, or a BC issued now whose CC maker is in B ...
+	E_INTLK ? E_LS_SOLVING_BC | DD_ISSUEING_UNSOLVED_BC_ON_E_LS & D_FWD : 0; // ...保持の値, または作り手がEにいる (LUT6) → 090/210 / ... held value, or maker is in E (LUT6) -> 090/210
 
 // These tags are just copied unmodified:
    // 【解説】以下のタグは変更せずにそのままコピーする。
    // [Note] The tags below are copied unchanged.
-   assign E_LS_LD_V_NEW = B_FWD ? B_LS_LD_V  	: E_INTLK ? E_LS_LD_V    : 0;
-   assign E_LS_ST_V_NEW = B_FWD ?  B_LS_ST_V 	: E_INTLK ? E_LS_ST_V    : 0;
-   assign E_WE1_NEW = B_FWD ?  B_WE1 	: E_INTLK ? E_WE1        : 0;
-   assign E_WE2_NEW = B_FWD ?  B_WE2 	: E_INTLK ? E_WE2        : 0;
-   assign E_LS_SETCC_NEW = B_FWD ?  B_LS_SETCC  : E_INTLK ? E_LS_SETCC   : 0;
-   assign E_EX_SETCC_NEW = B_FWD ?  B_EX_SETCC  : E_INTLK ? E_EX_SETCC   : 0;
-   assign E_EX_INTCODE_NEW = B_FWD ?  B_INTCODE   : E_INTLK ? E_EX_INTCODE : 0;
-   assign E_PRIVCODE_NEW = B_FWD ?  B_PRIVCODE  : E_INTLK ? E_PRIVCODE   : 0;
+   assign E_LS_LD_V_NEW = B_FWD ? B_LS_LD_V  	: E_INTLK ? E_LS_LD_V    : 0; // ロードか: 3:1 MUX (B値/保持/0) = FF1本+LUT3 / load?: 3:1 mux (B / hold / 0) = 1 FF + LUT3
+   assign E_LS_ST_V_NEW = B_FWD ?  B_LS_ST_V 	: E_INTLK ? E_LS_ST_V    : 0; // ストアか: 同じ形 / store?: same form
+   assign E_WE1_NEW = B_FWD ?  B_WE1 	: E_INTLK ? E_WE1        : 0; // LS側GR書き込み: 同じ形 / LS GR write: same
+   assign E_WE2_NEW = B_FWD ?  B_WE2 	: E_INTLK ? E_WE2        : 0; // EX側GR書き込み: 同じ形 / EX GR write: same
+   assign E_LS_SETCC_NEW = B_FWD ?  B_LS_SETCC  : E_INTLK ? E_LS_SETCC   : 0; // LSがCCを変える: 同じ形 / LS sets CC: same
+   assign E_EX_SETCC_NEW = B_FWD ?  B_EX_SETCC  : E_INTLK ? E_EX_SETCC   : 0; // EXがCCを変える: 同じ形 / EX sets CC: same
+   assign E_EX_INTCODE_NEW = B_FWD ?  B_INTCODE   : E_INTLK ? E_EX_INTCODE : 0; // EX側の割り込みコード: 3bit x 同じ形 / EX interrupt code: 3 bits of the same form
+   assign E_PRIVCODE_NEW = B_FWD ?  B_PRIVCODE  : E_INTLK ? E_PRIVCODE   : 0; // 特権命令の種類: 2bit x 同じ形 / privileged kind: 2 bits of the same form
 
 // Tags that are not 'valid' tags can be copied with CE = !E-INTLK.
    // 【解説】有効ビット以外のタグは E がインタロックでなければコピー (CE = !E_INTLK)。
    // [Note] Tags other than valid bits are copied when E is not interlocked (CE = !E_INTLK).
-   assign E_LS_LOG_AD_NEW = !E_INTLK ?  B_LS_LOG_AD  	: E_LS_LOG_AD;
-   assign E_WAD1_NEW = !E_INTLK ?  B_WAD1    	: E_WAD1;
-   assign E_WAD2_NEW = !E_INTLK ?  B_WAD2    	: E_WAD2;
-   assign E_LS_OPS_IS_GR_NEW = !E_INTLK ?  B_LS_OPS_IS_GR 	: E_LS_OPS_IS_GR;
-   assign E_LS_RADS_NEW = !E_INTLK ?  B_LS_RADS   	: E_LS_RADS;
-   assign E_EX_RES_NEW = !E_INTLK ?  B_EX_RES 	: E_EX_RES;
-   assign E_EX_CC_NEW = !E_INTLK ?  B_EX_CC  	: E_EX_CC;
-   assign E_TGT_NEW = !E_INTLK ?  B_TGT 		: E_TGT;
-   assign E_IS_SUPERSCALAR_NEW = !E_INTLK ?  B_IS_SUPERSCALAR : E_IS_SUPERSCALAR;
-   assign E_LATTER_IS_JB_NEW = !E_INTLK ?  B_LATTER_IS_JB   : E_LATTER_IS_JB;
-   assign E_FIRST_IS_EX_NEW = !E_INTLK ?  B_FIRST_IS_EX    : E_FIRST_IS_EX;
+   assign E_LS_LOG_AD_NEW = !E_INTLK ?  B_LS_LOG_AD  	: E_LS_LOG_AD; // L/ST番地: D=B_LS_LOG_ADのQ直結, CE=!E_INTLK (LUT無しのFF32本) / L/ST address: D wired to B_LS_LOG_AD, CE = !E_INTLK (32 FFs, no LUT)
+   assign E_WAD1_NEW = !E_INTLK ?  B_WAD1    	: E_WAD1; // LS側の書き込み番号: CE付きFF4本 / LS write number: 4 FFs with CE
+   assign E_WAD2_NEW = !E_INTLK ?  B_WAD2    	: E_WAD2; // EX側の書き込み番号: CE付きFF4本 / EX write number: 4 FFs with CE
+   assign E_LS_OPS_IS_GR_NEW = !E_INTLK ?  B_LS_OPS_IS_GR 	: E_LS_OPS_IS_GR; // 旧版(#if 0)用: 使われず合成で消える / for the old #if 0 code: unused, removed
+   assign E_LS_RADS_NEW = !E_INTLK ?  B_LS_RADS   	: E_LS_RADS; // 旧版用: 使われず消える / for the old code: unused, removed
+   assign E_EX_RES_NEW = !E_INTLK ?  B_EX_RES 	: E_EX_RES; // EXの結果: CE付きFF32本 → 090のW_WDT2, 100/140のバイパス / EX result: 32 FFs with CE -> W_WDT2 in 090, bypass in 100/140
+   assign E_EX_CC_NEW = !E_INTLK ?  B_EX_CC  	: E_EX_CC; // EXのCC: CE付きFF2本 → 040のフォワード, 090のW_CC / EX CC: 2 FFs with CE -> forwarding in 040, W_CC in 090
+   assign E_TGT_NEW = !E_INTLK ?  B_TGT 		: E_TGT; // 分岐先: CE付きFF32本 / branch target: 32 FFs with CE
+   assign E_IS_SUPERSCALAR_NEW = !E_INTLK ?  B_IS_SUPERSCALAR : E_IS_SUPERSCALAR; // 2命令の組か: CE付きFF / pair?: FF with CE
+   assign E_LATTER_IS_JB_NEW = !E_INTLK ?  B_LATTER_IS_JB   : E_LATTER_IS_JB; // 後の命令が分岐か: CE付きFF / latter is a branch?: FF with CE
+   assign E_FIRST_IS_EX_NEW = !E_INTLK ?  B_FIRST_IS_EX    : E_FIRST_IS_EX; // 先の命令がEXか: CE付きFF / first is EX?: FF with CE
 
 // Change OPCODE depending on address when L/ST-byte/hfw
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
@@ -133,12 +133,12 @@
    //        (when the opcode is 16 or more):
    //          bit1 <- address bit1,  bit0 <- address bit0 (bytes only)
    //        e.g. LDB (16) at an address ending in 3 -> 19 (LDB3)
-   assign E_LS_OPCODE_NEW = !E_INTLK ?
-		(  B_LS_OPCODE
-               	    | ((B_LS_OPCODE & 16) ? (B_LS_LOG_AD & 2) : 0)
-		    | (((B_LS_OPCODE & 16) && (!(B_LS_OPCODE & 4))) ?
-				(B_LS_LOG_AD & 1) : 0)	)
-		: E_LS_OPCODE;
+   assign E_LS_OPCODE_NEW = !E_INTLK ?                  // ALUのopcode: CE=!E_INTLK, Dは次の式 ... / ALU opcode: CE = !E_INTLK, D is ...
+		(  B_LS_OPCODE                          // ...Bのopcodeに ... / ... B's opcode OR ...
+               	    | ((B_LS_OPCODE & 16) ? (B_LS_LOG_AD & 2) : 0) // ...サブワードなら番地bit1をbit1へOR ... / ... address bit 1 into bit 1 for sub-words ...
+		    | (((B_LS_OPCODE & 16) && (!(B_LS_OPCODE & 4))) ? // ...バイト(bit2=0)なら番地bit0をbit0へ ... / ... address bit 0 into bit 0 for bytes (bit2=0) ...
+				(B_LS_LOG_AD & 1) : 0)	) // ...(bit1,bit0にLUT3が1個ずつ, 他のbitは配線) / ... (one LUT3 each for bits 1,0; other bits are wires)
+		: E_LS_OPCODE;                          // ...Eが止まっていれば保持 (CE) / ... hold while E stalls (CE)
 // ---- #else (VHDL 版: 参考) ----
 //      (#else: the VHDL version, for reference)
 // E-LS-OPCODE    := !E-INTLK ? B-LS-OPCODE[0:3] . 

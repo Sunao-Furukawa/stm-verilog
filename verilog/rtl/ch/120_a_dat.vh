@@ -94,9 +94,9 @@
 //         現行版は 1 サイクル前の D → A の時点でバイパス済み。
 // [Note] Operands used in A. The old version (#if 0) bypassed here; the current version
 //        has already bypassed them one cycle earlier, on the way from D to A.
-assign AA_OPB = A_LS_OPB_DT;
-assign AA_OP1 = A_EX_OP1_DT;
-assign AA_OP2 = A_EX_OP2_DT;
+assign AA_OPB = A_LS_OPB_DT;                            // EAGのベース値: A_LS_OPB_DTのFFそのもの (Dの時点でバイパス済み) / EAG base: the A_LS_OPB_DT FFs (bypassed already in D)
+assign AA_OP1 = A_EX_OP1_DT;                            // EXUの第1オペランド: FFの別名 / EXU operand 1: alias of FFs
+assign AA_OP2 = A_EX_OP2_DT;                            // EXUの第2オペランド: FFの別名 / EXU operand 2: alias of FFs
 // ---- #endif ----
 
 
@@ -111,36 +111,36 @@ assign AA_OP2 = A_EX_OP2_DT;
 //         WSR の値の素通し (LDW) にも使う (150_d_act.vh の A_EX_OPCODE)。
 // [Note] The EXU of the EX pipe. Also used for branch compares (C), the link address (AU)
 //        and passing the WSR value through (LDW) (A_EX_OPCODE in 150_d_act.vh).
-stm_exu u_a_exu (
-  .opc  ({1'b0, A_EX_OPCODE}),
-  .x    (AA_OP1),
-  .y    (AA_OP2),
-  .cc   (AA_EXU_CC),
-  .z    (AA_EXU_OUTPUT),
-  .intr (AA_EXU_INT)
-);
+stm_exu u_a_exu (                                       // EXパイプのEXUのインスタンス: 合成ではstm_cntlの中に展開される / EX-pipe EXU instance: flattened into stm_cntl by synthesis
+  .opc  ({1'b0, A_EX_OPCODE}),                          // 4bitのopcodeに0を付けて5bit (bit4=0なのでサブワード回路は定数で消える) / 4-bit opcode padded to 5 (bit4=0, so the sub-word logic is removed)
+  .x    (AA_OP1),                                       // 第1オペランド ← FF / operand x <- FFs
+  .y    (AA_OP2),                                       // 第2オペランド ← FF / operand y <- FFs
+  .cc   (AA_EXU_CC),                                    // CC → 130のB_EX_CC, 210 (EXでBC解決) / CC -> B_EX_CC in 130, 210 (BC solved by EX)
+  .z    (AA_EXU_OUTPUT),                                // 演算結果 → AA_EX_RES / result -> AA_EX_RES
+  .intr (AA_EXU_INT)                                    // オーバーフロー → 130のB_INTCODE / overflow -> B_INTCODE in 130
+);                                                      // インスタンスの終わり / end of instance
 
 // 【解説】EAG (実効アドレス生成): ベースレジスタ + 符号拡張した 16bit 変位。
 //         レジスタ間接分岐の分岐先もここで計算する。
 // [Note] EAG (effective address generation): base register + sign-extended 16-bit displacement.
 //        The target of a register-indirect branch is computed here too.
-assign AA_EAG_OUTPUT = add_32_16(AA_OPB,A_DISP);
+assign AA_EAG_OUTPUT = add_32_16(AA_OPB,A_DISP);        // 実効アドレス = ベース + 符号拡張16bit変位: 32bit加算器 (CARRY4 x8). ファンアウト大 / effective address = base + sign-extended disp16: 32-bit adder (8 CARRY4s), large fan-out
 // ---- #endif ----
 
 // Read SR data
 
 // 【解説】RSR で読むシステムレジスタの値 (番号は R2 フィールド)。
 // [Note] Value of the system register read by RSR (the number is in the R2 field).
-assign A_SR_READ_DATA = 
-        (A_EX_RAD2 == SYSREG_PSW)   ? build_psw(PSW_CC,PSW_USER,PSW_TYPE) :
-        (A_EX_RAD2 == SYSREG_TBR)   ? TBR :
-        (A_EX_RAD2 == SYSREG_CMPR)  ? CMPR :
-        (A_EX_RAD2 == SYSREG_XPSW)  ? XPSW :
-        (A_EX_RAD2 == SYSREG_XPC)   ? XPC :
-        (A_EX_RAD2 == SYSREG_XLA)   ? XLA :
-        (A_EX_RAD2 == SYSREG_SVR0)  ? SVR0 :
-        (A_EX_RAD2 == SYSREG_SVR1)  ? SVR1 : 0;
+assign A_SR_READ_DATA =                                 // RSRで読むシステムレジスタ: A_EX_RAD2(4bit)で選ぶ32bit 9:1 MUX ... / system register read by RSR: 32-bit 9:1 mux on A_EX_RAD2 (4 bits) ...
+        (A_EX_RAD2 == SYSREG_PSW)   ? build_psw(PSW_CC,PSW_USER,PSW_TYPE) : // ...0: PSW (CC/USER/TYPEのFFを配線で組み立て, 他bitは0) / ... 0: PSW (CC/USER/TYPE FFs wired together, other bits 0)
+        (A_EX_RAD2 == SYSREG_TBR)   ? TBR :             // ...2: TBR / ... 2: TBR
+        (A_EX_RAD2 == SYSREG_CMPR)  ? CMPR :            // ...3: CMPR / ... 3: CMPR
+        (A_EX_RAD2 == SYSREG_XPSW)  ? XPSW :            // ...4: XPSW / ... 4: XPSW
+        (A_EX_RAD2 == SYSREG_XPC)   ? XPC :             // ...5: XPC / ... 5: XPC
+        (A_EX_RAD2 == SYSREG_XLA)   ? XLA :             // ...6: XLA / ... 6: XLA
+        (A_EX_RAD2 == SYSREG_SVR0)  ? SVR0 :            // ...8: SVR0 / ... 8: SVR0
+        (A_EX_RAD2 == SYSREG_SVR1)  ? SVR1 : 0;         // ...9: SVR1, 欠番は0 (LUT6+MUXF7の木 x32bit) / ... 9: SVR1, gaps give 0 (LUT6+MUXF7 tree x 32 bits)
 
 // 【解説】EX パイプの結果: RSR ならシステムレジスタの値, それ以外は EXU の出力。
 // [Note] Result of the EX pipe: the system register value for RSR, otherwise the EXU output.
-assign AA_EX_RES = (A_PRIVCODE==PRIVCODE_RSR) ? A_SR_READ_DATA : AA_EXU_OUTPUT;
+assign AA_EX_RES = (A_PRIVCODE==PRIVCODE_RSR) ? A_SR_READ_DATA : AA_EXU_OUTPUT; // EXの結果: RSRならSRの値, そうでなければEXU出力 (32bit 2:1 MUX) → 130, 140 / EX result: SR value for RSR, else EXU output (32-bit 2:1 mux) -> 130, 140

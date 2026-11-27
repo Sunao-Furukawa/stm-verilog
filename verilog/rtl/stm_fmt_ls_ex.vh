@@ -27,12 +27,12 @@
 //         そうでなければバイト)。150_d_act.vh で E サイクルの opcode に変換される。
 // [Note] LENG = 0 is a word, anything else a sub-word (halfword if bit1 (=2) is set,
 //        otherwise byte). 150_d_act.vh turns it into the E-cycle opcode.
-function [2:0]  ls_opc_h  (input [31:0] i); ls_opc_h   = i[31:29]; endfunction // bit_ext(i,0,3)
-function        ls_store  (input [31:0] i); ls_store   = i[28];    endfunction // bit_ext(i,3,1)
-function [3:0]  ls_leng   (input [31:0] i); ls_leng    = i[27:24]; endfunction // bit_ext(i,4,4)
-function [3:0]  ls_rd_rs  (input [31:0] i); ls_rd_rs   = i[23:20]; endfunction // bit_ext(i,8,4)
-function [3:0]  ls_rb     (input [31:0] i); ls_rb      = i[19:16]; endfunction // bit_ext(i,12,4)
-function [15:0] ls_disp16 (input [31:0] i); ls_disp16  = i[15:0];  endfunction // bit_ext(i,16,16)
+function [2:0]  ls_opc_h  (input [31:0] i); ls_opc_h   = i[31:29]; endfunction // bit_ext(i,0,3)  -- i[31:29] の配線だけ (ゲート0): LS形式の判定用 (100ならLS) / wires only (no gate): for the LS-format check (100 = LS)
+function        ls_store  (input [31:0] i); ls_store   = i[28];    endfunction // bit_ext(i,3,1)  -- i[28] の配線だけ (ゲート0): ストアか / wires only (no gate): store?
+function [3:0]  ls_leng   (input [31:0] i); ls_leng    = i[27:24]; endfunction // bit_ext(i,4,4)  -- i[27:24] の配線だけ (ゲート0): アクセス長 (0=語) / wires only (no gate): access length (0 = word)
+function [3:0]  ls_rd_rs  (input [31:0] i); ls_rd_rs   = i[23:20]; endfunction // bit_ext(i,8,4)  -- i[23:20] の配線だけ (ゲート0): ロード先/ストア元GR / wires only (no gate): load dest
+function [3:0]  ls_rb     (input [31:0] i); ls_rb      = i[19:16]; endfunction // bit_ext(i,12,4)  -- i[19:16] の配線だけ (ゲート0): ベースGR / wires only (no gate): base GR
+function [15:0] ls_disp16 (input [31:0] i); ls_disp16  = i[15:0];  endfunction // bit_ext(i,16,16)  -- i[15:0] の配線だけ (ゲート0): 16bit変位 / wires only (no gate): 16-bit displacement
 
 /*EX :
 #  Two concurrent executions are not allowed
@@ -61,18 +61,18 @@ function [15:0] ls_disp16 (input [31:0] i); ls_disp16  = i[15:0];  endfunction /
 // [Note] In the EX format RD / R1(RB) / R2(RS) are at the same places as RD/RS / RB of the LS format.
 //        So the register read numbers of 030_d_sec.vh (DD_RADB/RAD1/RAD2) can be taken from
 //        the same bits ([19:16], [15:12]) whatever the format.
-function        ex_opc_h   (input [31:0] i); ex_opc_h    = i[31];    endfunction // bit_ext(i,0,1)
-function [1:0]  ex_op2mode (input [31:0] i); ex_op2mode  = i[30:29]; endfunction // bit_ext(i,1,2)
-function        ex_setcc   (input [31:0] i); ex_setcc    = i[28];    endfunction // bit_ext(i,3,1)
-function [3:0]  ex_exu_opc (input [31:0] i); ex_exu_opc  = i[27:24]; endfunction // bit_ext(i,4,4)
-function [3:0]  ex_rd      (input [31:0] i); ex_rd       = i[23:20]; endfunction // bit_ext(i,8,4)
-function [3:0]  ex_rb1     (input [31:0] i); ex_rb1      = i[19:16]; endfunction // bit_ext(i,12,4)
-function [3:0]  ex_rs2     (input [31:0] i); ex_rs2      = i[15:12]; endfunction // bit_ext(i,16,4)
-function [11:0] ex_disp12  (input [31:0] i); ex_disp12   = i[11:0];  endfunction // bit_ext(i,20,12)
+function        ex_opc_h   (input [31:0] i); ex_opc_h    = i[31];    endfunction // bit_ext(i,0,1)  -- i[31] の配線だけ (ゲート0): 0ならEX形式の候補 / wires only (no gate): 0 = EX-format candidate
+function [1:0]  ex_op2mode (input [31:0] i); ex_op2mode  = i[30:29]; endfunction // bit_ext(i,1,2)  -- i[30:29] の配線だけ (ゲート0): 第2オペランドの種類 / wires only (no gate): operand-2 mode
+function        ex_setcc   (input [31:0] i); ex_setcc    = i[28];    endfunction // bit_ext(i,3,1)  -- i[28] の配線だけ (ゲート0): CCを更新するか / wires only (no gate): set CC?
+function [3:0]  ex_exu_opc (input [31:0] i); ex_exu_opc  = i[27:24]; endfunction // bit_ext(i,4,4)  -- i[27:24] の配線だけ (ゲート0): 演算の種類 / wires only (no gate): operation
+function [3:0]  ex_rd      (input [31:0] i); ex_rd       = i[23:20]; endfunction // bit_ext(i,8,4)  -- i[23:20] の配線だけ (ゲート0): 書き込み先GR / wires only (no gate): destination GR
+function [3:0]  ex_rb1     (input [31:0] i); ex_rb1      = i[19:16]; endfunction // bit_ext(i,12,4)  -- i[19:16] の配線だけ (ゲート0): 第1オペランド/ベースGR / wires only (no gate): operand-1
+function [3:0]  ex_rs2     (input [31:0] i); ex_rs2      = i[15:12]; endfunction // bit_ext(i,16,4)  -- i[15:12] の配線だけ (ゲート0): 第2オペランドGR / wires only (no gate): operand-2 GR
+function [11:0] ex_disp12  (input [31:0] i); ex_disp12   = i[11:0];  endfunction // bit_ext(i,20,12)  -- i[11:0] の配線だけ (ゲート0): メモリオペランドの12bit変位 / wires only (no gate): 12-bit mem-operand displacement
 
-function [15:0] ex_imm16   (input [31:0] i); ex_imm16    = i[15:0];  endfunction // bit_ext(i,16,16)
+function [15:0] ex_imm16   (input [31:0] i); ex_imm16    = i[15:0];  endfunction // bit_ext(i,16,16)  -- i[15:0] の配線だけ (ゲート0): 16bit即値 / wires only (no gate): 16-bit immediate
 
-function [3:0]  insn_opc   (input [31:0] i); insn_opc    = i[31:28]; endfunction // bit_ext(i,0,4)
+function [3:0]  insn_opc   (input [31:0] i); insn_opc    = i[31:28]; endfunction // bit_ext(i,0,4)  -- i[31:28] の配線だけ (ゲート0): 上位4bit (JB=1011, 特権=1100) / wires only (no gate): top 4 bits (JB 1011, priv 1100)
 
 // 命令が合法かどうか (C シミュレータ版 is_legal_opc をそのまま移植)
 //   i0 = 先頭 4bit, i1 = 次の 4bit
@@ -90,15 +90,15 @@ function [3:0]  insn_opc   (input [31:0] i); insn_opc    = i[31:28]; endfunction
 //      PRIV : i0 = 12    and i1 = 1..3 and not in user mode
 //   Note) the logic of the original #ifdef VHDL version ignores user and its ranges differ
 //         slightly; it was a simplified version, so this follows the C version used for testing.
-function is_legal_opc(input [31:0] i, input user);
-  reg [3:0] i0, i1;
-  begin
-    i0 = i[31:28];
-    i1 = i[27:24];
-    is_legal_opc =
-         (i0 >=  8 && i0 <=  9 && i1 <= 3)              // LS
-      || (i0 >=  2 && i0 <=  7 && i1 >= 1 && i1 <= 14)  // EX
-      || (i0 == 11)                                     // JB
-      || (i0 == 12 && i1 >= 1 && i1 <= 3 && !user);     // PRIV
-  end
-endfunction
+function is_legal_opc(input [31:0] i, input user);      // 命令語の上位8bitとユーザーモードから正当性を判定 / legality from the top 8 bits and user mode
+  reg [3:0] i0, i1;                                     // 関数内の作業変数: 合成では単なるネット名 (FFにならない) / work variables: just net names in synthesis (no FFs)
+  begin                                                 // 関数本体 / function body
+    i0 = i[31:28];                                      // 上位4bit (配線) / top 4 bits (wires)
+    i1 = i[27:24];                                      // 次の4bit (配線) / next 4 bits (wires)
+    is_legal_opc =                                      // 下の4条件のOR: 9入力の真理値表 → LUT6 2~3個 / OR of the 4 terms below: a 9-input truth table -> 2-3 LUT6s
+         (i0 >=  8 && i0 <=  9 && i1 <= 3)              // LS  -- i0=8,9 & i1<=3: ロード/ストア / loads and stores
+      || (i0 >=  2 && i0 <=  7 && i1 >= 1 && i1 <= 14)  // EX  -- i0=2..7 & i1=1..14: 演算 / arithmetic
+      || (i0 == 11)                                     // JB  -- i0=1011: 分岐 / branches
+      || (i0 == 12 && i1 >= 1 && i1 <= 3 && !user);     // PRIV  -- i0=1100 & i1=1..3 & 特権モード: RFE/RSR/WSR / i0=1100, i1=1..3, supervisor: RFE/RSR/WSR
+  end                                                   // 関数本体の終わり / end of body
+endfunction                                             // 関数の終わり / end of function

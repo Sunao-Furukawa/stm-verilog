@@ -63,7 +63,7 @@
 
 // 【解説】キューが満杯 (6 語とも有効で, まだ先頭付近を実行中)。
 // [Note] The queue is full (all 6 words valid, still executing near the front).
-assign IWQ_FULL = (NIP_0 | NIP_1) & V01 & V23 & V45;
+assign IWQ_FULL = (NIP_0 | NIP_1) & V01 & V23 & V45;    // キュー満杯: NIP<=1で6語すべて有効 (LUT5) → 続きのフェッチを止める / queue full: NIP<=1 and all 6 words valid (LUT5) -> stop sequential fetch
 
 // IF-REQ-V/AD/ID decision
 
@@ -71,35 +71,35 @@ assign IWQ_FULL = (NIP_0 | NIP_1) & V01 & V23 & V45;
 //         要求中のもの (IB) がこのキュー宛てならその番地から, なければキュー末尾の番地から。
 // [Note] Next fetch address = last requested address + 8.
 //        From the pending request (IB) if it is for this queue, otherwise from the address at the end of the queue.
-assign IF_INCR_1 = IB_V & (EID == IB_ID) ? IB_AD : EID ? D_IF_AD_B : D_IF_AD_A;
-assign IF_INCR_2 = IB_V & (EID == IB_ID)
-		 | NIP_0 | NIP_1 | NIP_2 | NIP_3 | NIP_4 | NIP_5  ? 8 : 0;
+assign IF_INCR_1 = IB_V & (EID == IB_ID) ? IB_AD : EID ? D_IF_AD_B : D_IF_AD_A; // 続きのフェッチの基準番地: 要求中IBの番地かキュー末尾の番地 (32bit 3:1 MUX) / base of the next sequential fetch: pending IB address or queue-tail address (32-bit 3:1 mux)
+assign IF_INCR_2 = IB_V & (EID == IB_ID)                // 増分: 要求中がこのキュー宛てか ... / increment: pending fetch is for this queue ...
+		 | NIP_0 | NIP_1 | NIP_2 | NIP_3 | NIP_4 | NIP_5  ? 8 : 0; // ...キューに命令が残っていれば+8, 空(NIP=6,7)なら+0 (分岐先の8バイトを読み直す) / ... or insns remain: +8; empty (NIP 6,7): +0 (refetch the target's 8 bytes)
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
 //      (#ifndef VHDL: the C-simulator version is used)
-assign IF_INCR_OUT = add_32_4(IF_INCR_1,IF_INCR_2);
+assign IF_INCR_OUT = add_32_4(IF_INCR_1,IF_INCR_2);     // 次のフェッチ番地 = 基準 + 0/8: 32bit加算器 (下位3bitは素通し, CARRY4 x8) / next fetch address = base + 0/8: 32-bit adder (low 3 bits pass through, 8 CARRY4s)
 // ---- #endif ----
 
 // 【解説】フェッチ要求の理由 (上の説明を参照)。
 // [Note] Reasons for a fetch request (see the explanation above).
-assign IF_CASE_START = START_TRIGGER;
-assign IF_CASE_J = A_V_NOCAN & A_SET_EAG_TO_TGT;
-assign IF_CASE_BA = DD_ISSUEING_TAKEN_BRANCH;
-assign IF_CASE_BC = DD_ISSUEING_UNSOLVED_BC;
-assign IF_CASE_NULL = IJB_IS_JA | IJB_IS_JL;
+assign IF_CASE_START = START_TRIGGER;                   // 理由1: 再スタート (PCから) / reason 1: restart (from PC)
+assign IF_CASE_J = A_V_NOCAN & A_SET_EAG_TO_TGT;        // 理由2: Aのレジスタ間接分岐 (EAGの番地へ) / reason 2: register-indirect branch in A (to the EAG address)
+assign IF_CASE_BA = DD_ISSUEING_TAKEN_BRANCH;           // 理由3: Dで成立が確定した分岐 (DD_TGTへ) / reason 3: branch known taken in D (to DD_TGT)
+assign IF_CASE_BC = DD_ISSUEING_UNSOLVED_BC;            // 理由4: 未解決BC (分岐先をもう一方のキューへ) / reason 4: unsolved BC (target into the other queue)
+assign IF_CASE_NULL = IJB_IS_JA | IJB_IS_JL;            // 理由5: JA/JL発行中 (分岐先がAで出るまで要求しない) / reason 5: JA/JL issuing (no request until A has the target)
 
 // 【解説】フェッチ要求を出すか (分岐系は D/A が進めるときだけ)。
 // [Note] Issue a fetch request? (branch cases only when D/A can move on)
-assign IF_REQ_V = IF_CASE_START ? 1 : IF_CASE_J ? A_FWD : IF_CASE_NULL ? 0 :
-	    IF_CASE_BA | IF_CASE_BC ? D_FWD : ! IWQ_FULL;
+assign IF_REQ_V = IF_CASE_START ? 1 : IF_CASE_J ? A_FWD : IF_CASE_NULL ? 0 : // フェッチ要求を出すか: 再スタートは必ず, Jは A_FWD ... / issue a fetch: always on restart, J needs A_FWD ...
+	    IF_CASE_BA | IF_CASE_BC ? D_FWD : ! IWQ_FULL; // ...分岐はD_FWD, それ以外はキューに空きがあれば (LUT6) / ... branches need D_FWD, else when the queue has room (LUT6)
 
 // 【解説】フェッチ番地。
 // [Note] Fetch address.
-assign IF_REQ_AD = IF_CASE_START ? PC : IF_CASE_J ? AA_EAG_OUTPUT :
-	    IF_CASE_BA | IF_CASE_BC ? DD_TGT : IF_INCR_OUT;
+assign IF_REQ_AD = IF_CASE_START ? PC : IF_CASE_J ? AA_EAG_OUTPUT : // フェッチ番地: PC / EAG出力 / ... / fetch address: PC / EAG output / ...
+	    IF_CASE_BA | IF_CASE_BC ? DD_TGT : IF_INCR_OUT; // ...DD_TGT / 続き: 32bit 4:1優先MUX, 加算器2つの後ろなのでフェッチ側の長い経路 / ... DD_TGT / sequential: 32-bit 4:1 priority mux behind two adders (a long fetch path)
 
 // 【解説】どちらのキューへ入れるか。未解決 BC の分岐先はもう一方のキューへ。
 // [Note] Which queue it goes into. The target of an unresolved BC goes into the other queue.
-assign IF_REQ_ID = IF_CASE_START ?  0 : IF_CASE_BC ? !EID  : EID;
+assign IF_REQ_ID = IF_CASE_START ?  0 : IF_CASE_BC ? !EID  : EID; // 入れるキュー: 再スタートはA(0), 未解決BCは反対側, それ以外は今のキュー (LUT3) / target queue: A (0) on restart, the other one for an unsolved BC, else current (LUT3)
 
 // 【解説】要求中のフェッチが無駄になったので取り消す (分岐した, 再スタート)。
 // [Note] Cancel the pending fetch because it became useless (branched, restarted).
@@ -122,5 +122,5 @@ assign IF_REQ_ID = IF_CASE_START ?  0 : IF_CASE_BC ? !EID  : EID;
 //        and from the next cycle the continuation of the old fetch (IB_AD) would be put into the target queue.
 //        Cancelling frees IB, and in the next cycle the request is made again from D_IF_AD (= the target).
 //        The data of the cancelled fetch is never used, because that queue is cleared (CLEAR_NIP).
-assign CANCEL_IB = IF_CASE_START | (IF_CASE_BA | IF_CASE_NULL) & (IB_ID == EID)
-		 | EXT_BUS & IF_CASE_BC & D_FWD & (IB_ID != EID);
+assign CANCEL_IB = IF_CASE_START | (IF_CASE_BA | IF_CASE_NULL) & (IB_ID == EID) // 要求中のフェッチを捨てる: 再スタート, または同じキュー宛てで分岐した ... / drop the pending fetch: restart, or a branch on the same queue ...
+		 | EXT_BUS & IF_CASE_BC & D_FWD & (IB_ID != EID); // ...外部バスでは未解決BCの反対側キュー宛ても (EXT_BUS=0なら項ごと消える) / ... with an external bus also a fetch for the BC's other queue (term removed when EXT_BUS=0)

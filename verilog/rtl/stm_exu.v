@@ -74,32 +74,32 @@
 //   - cc / intr are made in the same case as z, so a path z == 0 test -> cc hangs off the adder
 //     (add -> 32-input zero test -> cc).
 // =====================================================================
-module stm_exu (
-  input      [4:0]  opc,
-  input      [31:0] x,
-  input      [31:0] y,
-  output reg [1:0]  cc,
-  output reg [31:0] z,
-  output reg [2:0]  intr
-);
-`include "stm_const.vh"
+module stm_exu (                                        // 演算器 (組合せ回路のみ, FF無し): Aのu_a_exuとEのu_e_aluの2個がインスタンスされる / execution unit (combinational only, no FFs): instantiated twice, u_a_exu (A) and u_e_alu (E)
+  input      [4:0]  opc,                                // 演算の種類 (stm_const.vhのOPC_*) / operation (OPC_* in stm_const.vh)
+  input      [31:0] x,                                  // 第1オペランド (レジスタ / ストアデータ) / operand x (register / store data)
+  input      [31:0] y,                                  // 第2オペランド (レジスタ / 即値 / メモリの語) / operand y (register / immediate / memory word)
+  output reg [1:0]  cc,                                 // 条件コード 0=ゼロ 1=負(未満) 2=正(超) 3=オーバーフロー. regでもalways @*なので組合せ / condition code 0 zero, 1 neg/less, 2 pos/greater, 3 overflow. reg but combinational (always @*)
+  output reg [31:0] z,                                  // 結果 (組合せ) / result (combinational)
+  output reg [2:0]  intr                                // 割り込みコード (オーバーフローならINTCODE_OVF, 他は0) / interrupt code (INTCODE_OVF on overflow, else 0)
+);                                                      // ポート宣言の終わり / end of ports
+`include "stm_const.vh"                                 // opcode定数をモジュール内に取り込む (回路は増えない) / pull the opcode constants into the module (adds no logic)
 
   // 加減算: 下位 31bit と最上位ビットを分けて, bit31 へのキャリー(cry1)と
   //         bit31 からのキャリー(cry0)を求める (exu.h と同じ構成)
   // Add/subtract: the low 31 bits and the top bit are handled separately to get the carry
   //               into bit31 (cry1) and the carry out of bit31 (cry0) (same structure as exu.h)
-  wire        is_sub = (opc == OPC_S) || (opc == OPC_SU) ||
-                       (opc == OPC_C) || (opc == OPC_CU);
-  wire [31:0] yy     = is_sub ? ~y : y;
-  wire        cin    = is_sub;
-  wire [31:0] low    = {1'b0, x[30:0]} + {1'b0, yy[30:0]} + cin; // never overflows
-  wire        cry1   = low[31];                                  // carry-in to bit<0>
-  wire        sx     = x[31];
-  wire        sy     = yy[31];
-  wire        cry0   = (sx & sy) | (sy & cry1) | (cry1 & sx);     // carry-out of bit<0>
-  wire [31:0] sum    = {low[31] ^ sx ^ sy, low[30:0]};
-  wire        sz     = sum[31];
-  wire        ovf    = cry0 ^ cry1;
+  wire        is_sub = (opc == OPC_S) || (opc == OPC_SU) || // 減算系 (S/SU/C/CU) か: opcの5bit比較 → LUT5 1個 ... / subtract family (S/SU/C/CU)?: a compare of 5 opc bits -> one LUT5 ...
+                       (opc == OPC_C) || (opc == OPC_CU); // ...(C, CUも減算) / ... (C, CU subtract too)
+  wire [31:0] yy     = is_sub ? ~y : y;                 // 減算ならyを反転 (2の補数の -y = ~y + 1): XOR 32本, 加算器のLUTに吸収 / invert y for subtraction (-y = ~y + 1): 32 XORs absorbed into the adder LUTs
+  wire        cin    = is_sub;                          // 減算なら桁上げ入力1 (+1の部分) → CARRY4のCI / carry-in 1 for subtraction (the +1) -> CI of the CARRY4
+  wire [31:0] low    = {1'b0, x[30:0]} + {1'b0, yy[30:0]} + cin; // never overflows  -- 下位31bitの加算: CARRY4連鎖 (8個) が1本, 32bit目がbit31へのキャリー / add of the low 31 bits: one chain of 8 CARRY4s, bit 31 is the carry into bit 31
+  wire        cry1   = low[31];                                  // carry-in to bit<0>  -- (CHDLのbit<0>=Verilogのbit31) / (CHDL bit<0> = Verilog bit 31)
+  wire        sx     = x[31];                           // xの符号ビット / sign bit of x
+  wire        sy     = yy[31];                          // yyの符号ビット / sign bit of yy
+  wire        cry0   = (sx & sy) | (sy & cry1) | (cry1 & sx);     // carry-out of bit<0>  -- 多数決 (LUT3): bit31からのキャリー / majority (LUT3): carry out of bit 31
+  wire [31:0] sum    = {low[31] ^ sx ^ sy, low[30:0]};  // 和: bit31は3入力XOR (sx^sy^bit31へのキャリー), 下位31bitはlowそのもの / sum: bit 31 is a 3-input XOR, low 31 bits are low itself
+  wire        sz     = sum[31];                         // 結果の符号 / sign of the result
+  wire        ovf    = cry0 ^ cry1;                     // 符号付きオーバーフロー: bit31へ/からのキャリーが違う (XOR) / signed overflow: carry into and out of bit 31 differ (XOR)
 
   // 【解説】ovf = bit31 へのキャリーと bit31 からのキャリーが違う = 符号付きの桁あふれ。
   //         符号なし演算 (AU/SU/CU) の cc は cry0 (最上位からのキャリー) で決める。
@@ -112,58 +112,58 @@ module stm_exu (
   // [Note] The shift amount is the low 6 bits of y (0-63). From 32 up, as Verilog defines it,
   //        SL/SRL give 0 and SRA gives copies of the sign bit. The shifter becomes a barrel
   //        shifter with 6-bit select (6 levels of MUX).
-  wire [5:0]  amt    = y[5:0];
+  wire [5:0]  amt    = y[5:0];                          // シフト量 = yの下位6bit → バレルシフタの選択線 / shift amount = low 6 bits of y -> barrel shifter selects
 
-  always @* begin
-    z    = 32'd0;
-    cc   = 2'd0;
-    intr = 3'd0;
-    case (opc)
-      OPC_LDW : begin z = y; cc = 2'd0; end
-      OPC_STW : begin z = x; cc = 2'd0; end
+  always @* begin                                       // 組合せ回路 (ラッチを避けるため先に既定値を代入) / combinational block (defaults first to avoid latches)
+    z    = 32'd0;                                       // 既定値: 結果0 (未定義opcodeでもラッチにならない) / default: result 0 (no latch even for undefined opcodes)
+    cc   = 2'd0;                                        // 既定値: CC=0 / default: CC = 0
+    intr = 3'd0;                                        // 既定値: 割り込み無し / default: no interrupt
+    case (opc)                                          // opcで結果を選ぶ: 合成では各演算器の出力を選ぶ大きなMUX (opcが選択線) / select by opc: a big mux over every unit's output (opc is the select)
+      OPC_LDW : begin z = y; cc = 2'd0; end             // ロード: yを素通し (MUXの入力の1本) / load: pass y (one mux input)
+      OPC_STW : begin z = x; cc = 2'd0; end             // ストア: xを素通し / store: pass x
 
-      OPC_A, OPC_S, OPC_C : begin
-        z = sum;
-        if (ovf && (opc != OPC_C)) begin cc = 2'd3; intr = INTCODE_OVF; end
-        else if (sum == 32'd0)                   cc = 2'd0;
-        else if ((!sz && !ovf) || (sz && ovf))   cc = 2'd2;
-        else                                     cc = 2'd1;
-      end
-      OPC_AU, OPC_SU, OPC_CU : begin
-        z = sum;
-        if ((sum == 32'd0) && cry0) cc = 2'd0;
-        else if (!cry0)             cc = 2'd1;
-        else                        cc = 2'd2;
-      end
+      OPC_A, OPC_S, OPC_C : begin                       // 符号付き加減算と比較 / signed add, subtract, compare
+        z = sum;                                        // 結果は加算器の出力 / result is the adder output
+        if (ovf && (opc != OPC_C)) begin cc = 2'd3; intr = INTCODE_OVF; end // オーバーフロー (比較以外): cc=3と割り込み / overflow (not compare): cc=3 and interrupt
+        else if (sum == 32'd0)                   cc = 2'd0; // ゼロなら cc=0: 32bitのNOR (LUT6 6個+1段) / zero -> cc=0: a 32-bit NOR (6 LUT6s + one level)
+        else if ((!sz && !ovf) || (sz && ovf))   cc = 2'd2; // 真の符号が正なら cc=2 (結果の符号をovfで補正) / true sign positive -> cc=2 (result sign corrected by ovf)
+        else                                     cc = 2'd1; // それ以外 (負) は cc=1 / otherwise (negative) cc=1
+      end                                               // 加減算の終わり / end of add/sub
+      OPC_AU, OPC_SU, OPC_CU : begin                    // 符号なし加減算と比較 (オーバーフロー例外なし) / unsigned add, subtract, compare (no overflow trap)
+        z = sum;                                        // 同じ加算器を共有 (加算器は1個だけ) / shares the same adder (only one adder)
+        if ((sum == 32'd0) && cry0) cc = 2'd0;          // 等しい (ゼロでbit31から桁上げ) → cc=0 / equal (zero with carry out) -> cc=0
+        else if (!cry0)             cc = 2'd1;          // 桁上げ無し = 借りあり = 未満 → cc=1 / no carry = borrow = less -> cc=1
+        else                        cc = 2'd2;          // それ以外 (超) → cc=2 / otherwise (greater) -> cc=2
+      end                                               // 符号なし演算の終わり / end of unsigned ops
 
-      OPC_N   : begin z = x & y; cc = (z == 0) ? 2'd0 : 2'd1; end
-      OPC_O   : begin z = x | y; cc = (z == 0) ? 2'd0 : 2'd1; end
-      OPC_X   : begin z = x ^ y; cc = (z == 0) ? 2'd0 : 2'd1; end
+      OPC_N   : begin z = x & y; cc = (z == 0) ? 2'd0 : 2'd1; end // AND: 32本のAND (LUT2), ゼロならcc=0 そうでなければ1 / AND: 32 AND gates (LUT2), cc 0 if zero else 1
+      OPC_O   : begin z = x | y; cc = (z == 0) ? 2'd0 : 2'd1; end // OR: 32本のOR / OR: 32 OR gates
+      OPC_X   : begin z = x ^ y; cc = (z == 0) ? 2'd0 : 2'd1; end // XOR: 32本のXOR (加算器のXORとは別) / XOR: 32 XOR gates (separate from the adder's)
 
-      OPC_SL  : begin z = x << amt;                    cc = (z == 0) ? 2'd0 : 2'd1; end
-      OPC_SRA : begin z = $signed(x) >>> amt;          cc = (z == 0) ? 2'd0 : 2'd1; end
-      OPC_SRL : begin z = x >> amt;                    cc = (z == 0) ? 2'd0 : 2'd1; end
-      OPC_SETHI:begin z = {y[15:0], 16'h0000};         cc = (z == 0) ? 2'd0 : 2'd1; end
+      OPC_SL  : begin z = x << amt;                    cc = (z == 0) ? 2'd0 : 2'd1; end // 左シフト: 6段のMUXのバレルシフタ (32以上で0) / shift left: 6-level mux barrel shifter (0 for 32+)
+      OPC_SRA : begin z = $signed(x) >>> amt;          cc = (z == 0) ? 2'd0 : 2'd1; end // 算術右シフト: 上から符号ビットを詰めるシフタ / arithmetic right: shifter filling with the sign bit
+      OPC_SRL : begin z = x >> amt;                    cc = (z == 0) ? 2'd0 : 2'd1; end // 論理右シフト: 上から0を詰める (SRAと回路を共有することが多い) / logical right: fills with 0 (often shared with SRA)
+      OPC_SETHI:begin z = {y[15:0], 16'h0000};         cc = (z == 0) ? 2'd0 : 2'd1; end // 上位16bitに即値, 下位はGND (配線だけ) / immediate into the top 16 bits, low bits to GND (wires only)
 
       // バイト/ハーフワード・ロード (ビッグエンディアン: バイト0 が最上位)
       // byte/halfword loads (big-endian: byte 0 is the most significant)
-      OPC_LDB0: z = {24'd0, y[31:24]};
-      OPC_LDB1: z = {24'd0, y[23:16]};
-      OPC_LDB2: z = {24'd0, y[15:8]};
-      OPC_LDB3: z = {24'd0, y[7:0]};
-      OPC_LDH0: z = {16'd0, y[31:16]};
-      OPC_LDH2: z = {16'd0, y[15:0]};
+      OPC_LDB0: z = {24'd0, y[31:24]};                  // バイト0 (最上位) を下位8bitへ, 上位は0: 配線+MUX入力 / byte 0 (MSB) to the low 8 bits, rest 0: wires + mux input
+      OPC_LDB1: z = {24'd0, y[23:16]};                  // バイト1を下位へ / byte 1 to the low bits
+      OPC_LDB2: z = {24'd0, y[15:8]};                   // バイト2を下位へ / byte 2 to the low bits
+      OPC_LDB3: z = {24'd0, y[7:0]};                    // バイト3 (最下位) をそのまま / byte 3 (LSB) as is
+      OPC_LDH0: z = {16'd0, y[31:16]};                  // 上位ハーフワードを下位へ / upper halfword to the low bits
+      OPC_LDH2: z = {16'd0, y[15:0]};                   // 下位ハーフワード / lower halfword
 
       // バイト/ハーフワード・ストア (メモリ語 y の一部を x で置き換える)
       // byte/halfword stores (replace part of the memory word y with x)
-      OPC_STB0: z = {x[7:0],  y[23:0]};
-      OPC_STB1: z = {y[31:24], x[7:0], y[15:0]};
-      OPC_STB2: z = {y[31:16], x[7:0], y[7:0]};
-      OPC_STB3: z = {y[31:8],  x[7:0]};
-      OPC_STH0: z = {x[15:0], y[15:0]};
-      OPC_STH2: z = {y[31:16], x[15:0]};
+      OPC_STB0: z = {x[7:0],  y[23:0]};                 // メモリ語のバイト0をxの下位8bitで置換 (書き戻す語を作る) / replace byte 0 of the memory word with x[7:0] (builds the word to write back)
+      OPC_STB1: z = {y[31:24], x[7:0], y[15:0]};        // バイト1を置換 / replace byte 1
+      OPC_STB2: z = {y[31:16], x[7:0], y[7:0]};         // バイト2を置換 / replace byte 2
+      OPC_STB3: z = {y[31:8],  x[7:0]};                 // バイト3を置換 / replace byte 3
+      OPC_STH0: z = {x[15:0], y[15:0]};                 // 上位ハーフワードを置換 / replace the upper halfword
+      OPC_STH2: z = {y[31:16], x[15:0]};                // 下位ハーフワードを置換 / replace the lower halfword
 
-      default : ;
-    endcase
-  end
-endmodule
+      default : ;                                       // 未使用のopcode (15,21,23,29,31): 既定値のまま (合成ではdon't careにならず0) / unused opcodes: defaults stay (0, not don't-care)
+    endcase                                             // caseの終わり / end of case
+  end                                                   // always の終わり / end of always
+endmodule                                               // モジュールの終わり / end of module

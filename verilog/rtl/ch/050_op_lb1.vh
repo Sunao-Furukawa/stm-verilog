@@ -98,10 +98,10 @@
 
 // 【解説】W サイクルにある特権命令の種類と、割り込みの有無 (本来は IU 側の信号)。
 // [Note] Kind of privileged instruction in the W cycle, and whether there is an interrupt (really IU signals).
-assign WW_WSR = (W_PRIVCODE == PRIVCODE_WSR);
-assign WW_RFE = (W_PRIVCODE == PRIVCODE_RFE);
-assign WW_LS_INT_V = (W_LS_INTCODE != 0);
-assign WW_EX_INT_V = (W_EX_INTCODE != 0);
+assign WW_WSR = (W_PRIVCODE == PRIVCODE_WSR);           // WにWSRがある: 2bit一致 (W_PRIVCODE==3, AND2) / WSR in W: 2-bit match (W_PRIVCODE==3, AND2)
+assign WW_RFE = (W_PRIVCODE == PRIVCODE_RFE);           // WにRFEがある: 2bit一致 (==1) / RFE in W: 2-bit match (==1)
+assign WW_LS_INT_V = (W_LS_INTCODE != 0);               // LSパイプ側の割り込みあり: 3bitのOR / LS-side interrupt: OR of 3 bits
+assign WW_EX_INT_V = (W_EX_INTCODE != 0);               // EXパイプ側の割り込みあり: 3bitのOR / EX-side interrupt: OR of 3 bits
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
 //      (#ifndef VHDL: the C-simulator version is used)
 // 【解説】WSR で PSW / TBR / CMPR (システムレジスタ 0〜3 番) を書いたら、
@@ -110,15 +110,15 @@ assign WW_EX_INT_V = (W_EX_INTCODE != 0);
 // [Note] When WSR writes PSW / TBR / CMPR (system registers 0-3), the operating state changes,
 //        so the whole pipeline is restarted.
 //        (the VHDL version had the condition reversed, so the C version is used)
-assign WW_STATECHANGE = WW_WSR & ((W_WAD2 & 12) == 0);
+assign WW_STATECHANGE = WW_WSR & ((W_WAD2 & 12) == 0);  // WSRでSR0~3を書いた: WAD2[3:2]==0 & WSR (LUT4) / WSR to SR 0-3: WAD2[3:2]==0 & WSR (LUT4)
 // ---- #else (VHDL 版: 参考) ----
 //      (#else: the VHDL version, for reference)
 // WW-STATECHANGE  = WW-WSR & (W-WAD2[0] | W-WAD2[1])
 // ---- #endif ----
-assign WW_INTERRUPTION = WW_LS_INT_V | WW_EX_INT_V;
+assign WW_INTERRUPTION = WW_LS_INT_V | WW_EX_INT_V;     // Wで割り込みが起きる → 080/190/210 / an interrupt happens in W -> 080/190/210
 // 【解説】割り込み・RFE・状態変更のときは、パイプライン中の全命令を取り消す。
 // [Note] On an interrupt, RFE or state change, every instruction in the pipeline is cancelled.
-assign CANCEL_BY_INT = WW_INTERRUPTION | WW_RFE | WW_STATECHANGE;
+assign CANCEL_BY_INT = WW_INTERRUPTION | WW_RFE | WW_STATECHANGE; // 全命令の取り消し: W段FFから2段程度のOR, 全ステージのNOCANへ巨大ファンアウト / cancel everything: ~2 OR levels from W FFs, huge fan-out to every NOCAN
 
 // Means that branch prediction failed.
 // All insns with SUBJECT-TO-BC shall be cancelled by this.
@@ -128,7 +128,7 @@ assign CANCEL_BY_INT = WW_INTERRUPTION | WW_RFE | WW_STATECHANGE;
 // [Note] Branch misprediction. If the outcome of the conditional branch resolved in the previous cycle
 //        differs from the prediction, the instructions issued speculatively on the predicted side
 //        (those with SUBJECT_TO_BC = 1) are cancelled.
-assign CANCEL_BY_BC =  G_BC_JUST_SOLVED & (G_BC_JUST_TAKEN ^ G_BC_TKN_PREDICTED);
+assign CANCEL_BY_BC =  G_BC_JUST_SOLVED & (G_BC_JUST_TAKEN ^ G_BC_TKN_PREDICTED); // 予測ミス: G_BCのFF3本から XOR+AND (LUT3 1個), 投機命令を消す / misprediction: XOR+AND of 3 G_BC FFs (one LUT3), kills speculative insns
 
 // Cancel and Valid-after-cancel
 
@@ -136,15 +136,15 @@ assign CANCEL_BY_BC =  G_BC_JUST_SOLVED & (G_BC_JUST_TAKEN ^ G_BC_TKN_PREDICTED)
 //         割り込みでも取り消さない。
 // [Note] Cancelling requests inside the S unit. ST2 (the actual write of a committed store)
 //        is not cancelled even by an interrupt.
-assign OP_B_CANCELLED = (OP_B_OPC != SU_OPC_ST2) & CANCEL_BY_INT
-		 | OP_B_SUBJECT_TO_BC & CANCEL_BY_BC;
-assign OP_WAIT_CANCELLED = (OP_WAIT_OPC != SU_OPC_ST2) & CANCEL_BY_INT
-		 | OP_WAIT_SUBJECT_TO_BC & CANCEL_BY_BC;
+assign OP_B_CANCELLED = (OP_B_OPC != SU_OPC_ST2) & CANCEL_BY_INT // OP-Bの要求を取り消す: ST2以外は割り込みで ... / cancel the OP-B request: non-ST2 by interrupt ...
+		 | OP_B_SUBJECT_TO_BC & CANCEL_BY_BC;                 // ...投機中なら予測ミスで (LUT5 1個) / ... speculative ones by misprediction (one LUT5)
+assign OP_WAIT_CANCELLED = (OP_WAIT_OPC != SU_OPC_ST2) & CANCEL_BY_INT // OP-WAITの要求を取り消す (OP-Bと同じ形) ... / cancel the OP-WAIT request (same as OP-B) ...
+		 | OP_WAIT_SUBJECT_TO_BC & CANCEL_BY_BC;              // ...予測ミスでも (LUT5) / ... also by misprediction (LUT5)
 
 // 【解説】取り消されずに有効な要求。
 // [Note] Requests that are valid and not cancelled.
-assign OP_B_V_NOCAN = OP_B_V & !OP_B_CANCELLED;
-assign OP_WAIT_V_NOCAN = OP_WAIT_V & !OP_WAIT_CANCELLED;
+assign OP_B_V_NOCAN = OP_B_V & !OP_B_CANCELLED;         // OP-Bに有効で取り消されない要求 (AND) → 160, OP_B_BUSREQ / live OP-B request (AND) -> 160, OP_B_BUSREQ
+assign OP_WAIT_V_NOCAN = OP_WAIT_V & !OP_WAIT_CANCELLED; // OP-WAITに有効で取り消されない要求 → 160 / live OP-WAIT request -> 160
 
 //# Lvl-1. No TLB miss exception yet. Only address-compare exception (which
 //# in fact should belong to IU)
@@ -153,19 +153,19 @@ assign OP_WAIT_V_NOCAN = OP_WAIT_V & !OP_WAIT_CANCELLED;
 //         INTCODE_CMP を出す (デバッグ用のブレークポイント)。TLB 例外は未実装。
 // [Note] Address-compare interrupt: if the address of an L/ST equals the CMPR register,
 //        raise INTCODE_CMP (a breakpoint for debugging). TLB exceptions are not implemented.
-assign OP_B_CMP_INT = OP_B_V & ((OP_B_OPC == SU_OPC_LD)|(OP_B_OPC == SU_OPC_ST))
-			  & (LBS_AD == CMPR);
+assign OP_B_CMP_INT = OP_B_V & ((OP_B_OPC == SU_OPC_LD)|(OP_B_OPC == SU_OPC_ST)) // アドレス比較割り込み: LD/STで ... / address-compare interrupt: LD/ST and ...
+			  & (LBS_AD == CMPR);                                // ...LBS_AD==CMPR: 32bit一致比較器 (LUT6 x11 + CARRY4連鎖) / ... LBS_AD==CMPR: 32-bit equality comparator (11 LUT6s + CARRY4 chain)
 // 【解説】(Verilog 版で追加, EXT_BUS=1) バスがエラー応答 (SLVERR/DECERR) を返した
 //         L/ST の読み出しは、データアクセス例外にする。コードは未実装だった
 //         INTCODE_TLB を使うので、W で XLA に番地が保存される (090_e_act.vh)。
 // [Note] (added in the Verilog version, EXT_BUS=1) An L/ST read that got an error response from the bus
 //        (SLVERR/DECERR) becomes a data access exception. It uses INTCODE_TLB, the code that
 //        was unimplemented, so W saves the address in XLA (090_e_act.vh).
-assign OP_B_BUS_ERR = EXT_BUS & OP_B_V
-		  & ((OP_B_OPC == SU_OPC_LD)|(OP_B_OPC == SU_OPC_ST))
-		  & RANDOM_FOR_OPCLH & MEM_OP_ERR;
-assign OP_B_INTCODE = OP_B_CMP_INT ? INTCODE_CMP :
-		      OP_B_BUS_ERR ? INTCODE_TLB : 0;
+assign OP_B_BUS_ERR = EXT_BUS & OP_B_V                  // バスのエラー応答: EXT_BUS=0なら定数0で回路ごと消える ... / bus error response: constant 0 (removed) when EXT_BUS=0 ...
+		  & ((OP_B_OPC == SU_OPC_LD)|(OP_B_OPC == SU_OPC_ST)) // ...LD/STの読み出しで ... / ... on an LD/ST read ...
+		  & RANDOM_FOR_OPCLH & MEM_OP_ERR;                    // ...応答が来てエラーなら (ポート入力) / ... when the response came with an error (port inputs)
+assign OP_B_INTCODE = OP_B_CMP_INT ? INTCODE_CMP :      // Sユニットの例外コード: 比較一致はCMP(2) ... / S-unit exception code: CMP (2) on a match ...
+		      OP_B_BUS_ERR ? INTCODE_TLB : 0;                 // ...バスエラーはTLB(3), なければ0 (3bitの小さなLUT) / ... TLB (3) on a bus error, else 0 (small 3-bit LUT)
 
 // From the cycle ST passes B-cyc to the cyc its ST2 passes, access to the
 // same address will never  miss-hit, because cache line is held during that
@@ -207,8 +207,8 @@ assign OP_B_INTCODE = OP_B_CMP_INT ? INTCODE_CMP :
 //        (BB_MEM_DATA in 100_b_dat.vh). On the external bus a request may wait many cycles
 //        in OP-B, so the instruction is not necessarily in B, and the B-cycle bypass is too late.
 //        So the data is selected directly by the OP-B address (LBS_AD).
-assign OP_FWD_E   = E_LS_ST_V & E_OPCLH_LCH & (LBS_AD == E_LS_LOG_AD);
-assign OP_FWD_STB = STB_V & (LBS_AD == STB_AD);
+assign OP_FWD_E   = E_LS_ST_V & E_OPCLH_LCH & (LBS_AD == E_LS_LOG_AD); // EのストアとLBS_ADが一致: 32bit比較器, Eのデータをロードへ転送 / E store matches LBS_AD: 32-bit comparator, forward E data to the load
+assign OP_FWD_STB = STB_V & (LBS_AD == STB_AD);         // STBのストアと一致: 32bit比較器, STB_DTを転送 / STB store matches: 32-bit comparator, forward STB_DT
 // 【解説】(Verilog 版で追加, EXT_BUS=1) I/O 領域へのストアは B サイクルの読み出しを
 //         しない (読むと状態が変わるデバイスがあるため)。読んだことにしてすぐ
 //         ヒットを返し、データは 0。I/O 領域へはワード単位でストアすること
@@ -218,10 +218,10 @@ assign OP_FWD_STB = STB_V & (LBS_AD == STB_AD);
 //        (some devices change state when read). It pretends to have read and returns a hit at once,
 //        with data 0. Store to the I/O region in whole words
 //        (a sub-word store would set the other bytes to 0).
-assign OP_B_IO_ST = OP_B_V & (OP_B_OPC == SU_OPC_ST) & is_io(LBS_AD);
-assign B_OPCLH = OP_B_V & ((OP_B_OPC==SU_OPC_LD)|(OP_B_OPC==SU_OPC_ST))
-	   & ( RANDOM_FOR_OPCLH | OP_FWD_STB | OP_FWD_E | OP_B_IO_ST
-	      | (OP_B_INTCODE != 0)  );
+assign OP_B_IO_ST = OP_B_V & (OP_B_OPC == SU_OPC_ST) & is_io(LBS_AD); // I/O領域へのストア (読まずにヒット): is_ioは上位ビットのマスク比較 / store to I/O space (hit without reading): is_io is a masked compare
+assign B_OPCLH = OP_B_V & ((OP_B_OPC==SU_OPC_LD)|(OP_B_OPC==SU_OPC_ST)) // キャッシュの応答(ヒット): LD/STで ... / cache response (hit): LD/ST and ...
+	   & ( RANDOM_FOR_OPCLH | OP_FWD_STB | OP_FWD_E | OP_B_IO_ST // ...読み出し完了, フォワード, I/Oストア ... / ... read done, forward, I/O store ...
+	      | (OP_B_INTCODE != 0)  );                        // ...または例外. LUT2~3段 → 100のB_*_DT FFとOP-Bの進行 / ... or exception. 2-3 LUT levels -> B data FFs in 100 and OP-B progress
 // 【解説】OP-B の要求にバスアクセスが要るか (stm_axi_master へ)。
 //         ST2 は書き込み, LD/ST は読み出し。フォワーディングで済む場合,
 //         アドレス比較割り込みの場合, I/O 領域へのストアの読み出し,
@@ -231,14 +231,14 @@ assign B_OPCLH = OP_B_V & ((OP_B_OPC==SU_OPC_LD)|(OP_B_OPC==SU_OPC_ST))
 //        ST2 is a write, LD/ST are reads. Not needed when forwarding is enough,
 //        on an address-compare interrupt, for the read of a store to the I/O region,
 //        or when the request was cancelled.
-assign OP_B_BUSREQ = OP_B_V_NOCAN
-	   & ( (OP_B_OPC == SU_OPC_ST2)
-	     | ((OP_B_OPC==SU_OPC_LD)|(OP_B_OPC==SU_OPC_ST))
-	       & !OP_FWD_STB & !OP_FWD_E & !OP_B_IO_ST & !OP_B_CMP_INT );
+assign OP_B_BUSREQ = OP_B_V_NOCAN                       // バスアクセス要求 → stm_axi_masterのreq: 生きた要求で ... / bus request -> req of stm_axi_master: a live request ...
+	   & ( (OP_B_OPC == SU_OPC_ST2)                        // ...ST2(書き込み) ... / ... ST2 (write) ...
+	     | ((OP_B_OPC==SU_OPC_LD)|(OP_B_OPC==SU_OPC_ST))   // ...またはLD/ST(読み出し)で ... / ... or LD/ST (read) ...
+	       & !OP_FWD_STB & !OP_FWD_E & !OP_B_IO_ST & !OP_B_CMP_INT ); // ...フォワード/I/Oストア/比較割り込みでないとき / ... unless forwarded / I/O store / compare interrupt
 // 【解説】S ユニットが新しい要求を受け付けられるか (待ち行列 OP-WAIT が空き)。
 // [Note] Can the S unit accept a new request (the waiting slot OP-WAIT is free)?
-assign SU_OP_RDY = !OP_WAIT_V;
-assign SU_ST_RDY = !OP_WAIT_V;
+assign SU_OP_RDY = !OP_WAIT_V;                          // 新規L/STを受け付けられる = OP-WAITが空 (NOT 1個) / can accept a new L/ST = OP-WAIT empty (one NOT)
+assign SU_ST_RDY = !OP_WAIT_V;                          // ST2を受け付けられる (同じ信号, 合成で1本にまとまる) / can accept ST2 (same signal, merged by synthesis)
 
 // LD-DT : set DT, maybe SLB
 
@@ -252,8 +252,8 @@ assign SU_ST_RDY = !OP_WAIT_V;
 //         (E のストアの方が STB より新しいので優先)。
 // [Note] With EXT_BUS=1 the forwarding explained above is also done here
 //        (the store in E is newer than the STB, so it has priority).
-assign OP_LBS_DATA =  !B_OPCLH ? 32'hdead0a0a :
-		 !EXT_BUS   ? MEM_DT_OP     :
-		 OP_B_IO_ST ? 32'd0         :
-		 OP_FWD_E   ? EE_ALU_OUTPUT :
-		 OP_FWD_STB ? STB_DT        : MEM_DT_OP;
+assign OP_LBS_DATA =  !B_OPCLH ? 32'hdead0a0a :         // ロードデータ: ミスなら目印0xdead0a0a ... / load data: marker 0xdead0a0a on a miss ...
+		 !EXT_BUS   ? MEM_DT_OP     :                         // ...EXT_BUS=0はメモリの値で終わり (以下は定数伝搬で消える) / ... EXT_BUS=0 stops at memory data (rest removed by constant propagation)
+		 OP_B_IO_ST ? 32'd0         :                         // ...I/Oストアの読み出しは0 ... / ... I/O-store read gives 0 ...
+		 OP_FWD_E   ? EE_ALU_OUTPUT :                         // ...Eのストアデータ(ALU出力)を優先 ... / ... E store data (ALU output) first ...
+		 OP_FWD_STB ? STB_DT        : MEM_DT_OP;              // ...次にSTB, 最後にバスの値: 32bit 5:1優先MUX → 100のB_LS_LBS_DT / ... then STB, else bus data: 32-bit 5:1 priority mux -> B_LS_LBS_DT in 100

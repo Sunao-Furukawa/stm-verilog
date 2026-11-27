@@ -75,33 +75,33 @@
 // [Note] System registers WSR can write:
 //          TBR  : address of the interrupt handler   CMPR : address for the address-compare interrupt
 //          SVR0, SVR1 : general registers for saving values
-assign TBR_NEW = (WW_WSR & (W_WAD2 == SYSREG_TBR)) ? W_WDT2 		: TBR;
-assign CMPR_NEW = (WW_WSR & (W_WAD2 == SYSREG_CMPR)) ? W_WDT2 		: CMPR;
-assign SVR0_NEW = (WW_WSR & (W_WAD2 == SYSREG_SVR0)) ? W_WDT2 		: SVR0;
-assign SVR1_NEW = (WW_WSR & (W_WAD2 == SYSREG_SVR1)) ? W_WDT2 		: SVR1;
+assign TBR_NEW = (WW_WSR & (W_WAD2 == SYSREG_TBR)) ? W_WDT2 		: TBR; // WSRでTBR(2番)を書く: W_WAD2の4bit比較→FF32本のCE, D=W_WDT2 / WSR to TBR (#2): 4-bit compare of W_WAD2 -> CE of 32 FFs, D = W_WDT2
+assign CMPR_NEW = (WW_WSR & (W_WAD2 == SYSREG_CMPR)) ? W_WDT2 		: CMPR; // WSRでCMPR(3番)を書く (同じ形: CE付きFF x32) / WSR to CMPR (#3) (same: 32 FFs with CE)
+assign SVR0_NEW = (WW_WSR & (W_WAD2 == SYSREG_SVR0)) ? W_WDT2 		: SVR0; // WSRでSVR0(8番)を書く / WSR to SVR0 (#8)
+assign SVR1_NEW = (WW_WSR & (W_WAD2 == SYSREG_SVR1)) ? W_WDT2 		: SVR1; // WSRでSVR1(9番)を書く / WSR to SVR1 (#9)
 
 //  Compute new PC
 // 【解説】PC の増分。2 命令同時に完了すれば 8, 1 命令なら 4。
 //         割り込みを起こした命令は完了しないので、その分は進めない (0 または 4)。
 // [Note] PC increment: 8 if two instructions complete together, 4 for one.
 //        An instruction that raised an interrupt does not complete, so it is not counted (0 or 4).
-assign PC_INCR_AMOUNT = ( W_IS_SUPERSCALAR & !W_JB_V & !WW_INTERRUPTION) ? 8 :
-	       (  WW_LS_INT_V & (!W_IS_SUPERSCALAR | !W_FIRST_IS_EX)
-	       |  WW_EX_INT_V & (!W_IS_SUPERSCALAR |  W_FIRST_IS_EX) ) ? 0 : 4;
+assign PC_INCR_AMOUNT = ( W_IS_SUPERSCALAR & !W_JB_V & !WW_INTERRUPTION) ? 8 : // PCの増分: 2命令完了(分岐・割り込み無し)なら8 ... / PC increment: 8 when two insns complete (no branch / interrupt) ...
+	       (  WW_LS_INT_V & (!W_IS_SUPERSCALAR | !W_FIRST_IS_EX) // ...先の命令が割り込みを起こしたら0 ... / ... 0 when the earlier insn interrupts ...
+	       |  WW_EX_INT_V & (!W_IS_SUPERSCALAR |  W_FIRST_IS_EX) ) ? 0 : 4; // ...それ以外は4. 値は0/4/8なのでbit2,bit3の2本のLUTだけ / ... else 4. Values 0/4/8, so only bits 2 and 3 (2 LUTs)
 
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
 //      (#ifndef VHDL: the C-simulator version is used)
-assign INCREMENTED_PC = add_32_4(PC,PC_INCR_AMOUNT);
+assign INCREMENTED_PC = add_32_4(PC,PC_INCR_AMOUNT);    // PC+増分: 32bit加算器 (下位2bitは0のまま, CARRY4 x8) / PC + increment: 32-bit adder (low 2 bits stay 0, 8 CARRY4s)
 // ---- #endif ----
 
 // 【解説】taken の分岐が完了したら分岐先, そうでなければ次の命令。
 // [Note] When a taken branch completes, the branch target; otherwise the next instruction.
-assign MODIFIED_PC = ( W_JB_V & !WW_INTERRUPTION )  ? W_TGT : INCREMENTED_PC;
+assign MODIFIED_PC = ( W_JB_V & !WW_INTERRUPTION )  ? W_TGT : INCREMENTED_PC; // 分岐が完了したらW_TGT, そうでなければ次の番地: 32bit 2:1 MUX / W_TGT when a branch completes, else the next address: 32-bit 2:1 mux
 
 //  Compute new CC
 // 【解説】CC を変える命令が完了したらその値。
 // [Note] When an instruction that changes CC completes, its value.
-assign MODIFIED_CC = W_SETCC ? W_CC : PSW_CC;
+assign MODIFIED_CC = W_SETCC ? W_CC : PSW_CC;           // Wの命令がCCを変えたらW_CC, そうでなければPSW_CC: 2bit 2:1 MUX / W_CC if the W insn sets CC, else PSW_CC: 2-bit 2:1 mux
 
 //  Modify PC,PSW-CC/USER/TYPE
 
@@ -109,52 +109,52 @@ assign MODIFIED_CC = W_SETCC ? W_CC : PSW_CC;
 //         (EX が先の命令なら LS 側の割り込みは隠す)。
 // [Note] If both pipes raise an interrupt at the same time, take the one of the instruction that is
 //        earlier in program order (if EX is the earlier instruction, the LS interrupt is hidden).
-assign WW_HIDE_LS = W_FIRST_IS_EX & WW_EX_INT_V;
-assign WW_INTCODE = (WW_LS_INT_V & !WW_HIDE_LS) ? W_LS_INTCODE : W_EX_INTCODE;
+assign WW_HIDE_LS = W_FIRST_IS_EX & WW_EX_INT_V;        // 先の命令(EX)が割り込むならLS側の割り込みを隠す (AND) / hide the LS interrupt when the earlier EX insn interrupts (AND)
+assign WW_INTCODE = (WW_LS_INT_V & !WW_HIDE_LS) ? W_LS_INTCODE : W_EX_INTCODE; // 採用する割り込みコード: 3bit 2:1 MUX / interrupt code taken: 3-bit 2:1 mux
 
 // 【解説】PSW の各フィールドの更新。優先順は
 //           割り込み (0 クリア / 種別を記録) > RFE (XPSW から復帰) > WSR で PSW へ書く > 通常
 // [Note] Update of each PSW field. The priority is
 //          interrupt (clear to 0 / record the type) > RFE (restore from XPSW) > WSR writing PSW > normal
-assign PSW_CC_NEW = 	WW_INTERRUPTION 		? 0 :
-		WW_RFE          		? pickup_cc(XPSW) :
-		WW_WSR & (W_WAD2 == SYSREG_PSW) ? pickup_cc(W_WDT2) :
-						  MODIFIED_CC;
+assign PSW_CC_NEW = 	WW_INTERRUPTION 		? 0 :            // PSWのCC: 割り込みで0 ... / PSW CC: 0 on an interrupt ...
+		WW_RFE          		? pickup_cc(XPSW) :                 // ...RFEでXPSWから戻す ... / ... restored from XPSW on RFE ...
+		WW_WSR & (W_WAD2 == SYSREG_PSW) ? pickup_cc(W_WDT2) : // ...WSRでPSWへ書く ... / ... written by WSR to PSW ...
+						  MODIFIED_CC;                                    // ...通常は命令の結果: 2bit 4:1優先MUX → PSW_CCのFF / ... else the insn result: 2-bit 4:1 priority mux -> PSW_CC FFs
 
-assign PSW_USER_NEW =   WW_INTERRUPTION 		? 0 :
-		WW_RFE          		? pickup_user(XPSW) :
-		WW_WSR & (W_WAD2 == SYSREG_PSW) ? pickup_user(W_WDT2) :
-						  PSW_USER;
+assign PSW_USER_NEW =   WW_INTERRUPTION 		? 0 :         // ユーザーモードビット: 割り込みで0 (特権モードへ) ... / user bit: 0 on an interrupt (to supervisor) ...
+		WW_RFE          		? pickup_user(XPSW) :               // ...RFEでXPSWのUSERへ戻す ... / ... RFE restores XPSW's USER ...
+		WW_WSR & (W_WAD2 == SYSREG_PSW) ? pickup_user(W_WDT2) : // ...WSRでPSWへ書く ... / ... WSR to PSW ...
+						  PSW_USER;                                       // ...それ以外は保持 (保持はFFのCEになる): 1bit / ... else hold (hold becomes CE): 1 bit
 
-assign PSW_TYPE_NEW =   WW_INTERRUPTION 		? zero_ext_5(WW_INTCODE) :
-		WW_RFE          		? pickup_type(XPSW) :
-		WW_WSR & (W_WAD2 == SYSREG_PSW) ? pickup_type(W_WDT2) :
-						  PSW_TYPE;
+assign PSW_TYPE_NEW =   WW_INTERRUPTION 		? zero_ext_5(WW_INTCODE) : // 割り込み種別8bit: 割り込みでWW_INTCODEを0拡張 ... / 8-bit interrupt type: zero-extended WW_INTCODE on an interrupt ...
+		WW_RFE          		? pickup_type(XPSW) :               // ...RFEでXPSWから ... / ... from XPSW on RFE ...
+		WW_WSR & (W_WAD2 == SYSREG_PSW) ? pickup_type(W_WDT2) : // ...WSRでPSWへ書く ... / ... WSR to PSW ...
+						  PSW_TYPE;                                       // ...保持: 8bit 3:1 MUX + CE (上位5bitは0か保持なので小さい) / ... hold: 8-bit 3:1 mux + CE (top 5 bits are 0 or held, so small)
 
 // 【解説】PC の更新: 割り込み → TBR, RFE → XPC (退避した PC), 命令完了 → MODIFIED_PC。
 // [Note] PC update: interrupt -> TBR, RFE -> XPC (the saved PC), instruction completed -> MODIFIED_PC.
-assign PC_NEW =   WW_INTERRUPTION 		? TBR :
-		WW_RFE          		? XPC :
-		W_COMPLETE          		? MODIFIED_PC :
-						  PC;
+assign PC_NEW =   WW_INTERRUPTION 		? TBR :             // PCの更新: 割り込みでTBR(ハンドラ) ... / PC update: TBR (handler) on an interrupt ...
+		WW_RFE          		? XPC :                             // ...RFEでXPC (戻り番地) ... / ... XPC (return address) on RFE ...
+		W_COMPLETE          		? MODIFIED_PC :                 // ...命令が完了したらMODIFIED_PC ... / ... MODIFIED_PC when an insn completes ...
+						  PC;                                             // ...保持: 32bit 3:1 MUX+CE. リセット時はRESET_PC (stm_cntl.v) / ... hold: 32-bit 3:1 mux + CE. Reset loads RESET_PC (stm_cntl.v)
 // 【解説】割り込み時に、割り込み直前の PSW を保存。
 // [Note] On an interrupt, save the PSW from just before it.
-assign XPSW_NEW =   WW_INTERRUPTION ? build_psw(MODIFIED_CC,PSW_USER,PSW_TYPE) :
-		WW_WSR & (W_WAD2 == SYSREG_XPSW) ? W_WDT2 :
-						   XPSW;
+assign XPSW_NEW =   WW_INTERRUPTION ? build_psw(MODIFIED_CC,PSW_USER,PSW_TYPE) : // 割り込み時に直前のPSWを退避: build_pswは配線だけ ... / save the PSW on an interrupt: build_psw is only wiring ...
+		WW_WSR & (W_WAD2 == SYSREG_XPSW) ? W_WDT2 :           // ...WSRでXPSW(4番)へ書く ... / ... WSR to XPSW (#4) ...
+						   XPSW;                                          // ...保持: 32bit 2:1 MUX+CE (CC/USER/TYPE以外のビットは割り込みで0) / ... hold: 32-bit 2:1 mux + CE (other bits become 0 on an interrupt)
 
 // 【解説】割り込み時に、戻り番地 (割り込んだ命令の番地) を保存。
 // [Note] On an interrupt, save the return address (the address of the interrupted instruction).
-assign XPC_NEW =   WW_INTERRUPTION 		? MODIFIED_PC :
-		WW_WSR & (W_WAD2 == SYSREG_XPC) ? W_WDT2 :
-						  XPC;
+assign XPC_NEW =   WW_INTERRUPTION 		? MODIFIED_PC :    // 割り込み時に戻り番地(MODIFIED_PC)を退避 ... / save the return address (MODIFIED_PC) on an interrupt ...
+		WW_WSR & (W_WAD2 == SYSREG_XPC) ? W_WDT2 :            // ...WSRでXPC(5番)へ書く ... / ... WSR to XPC (#5) ...
+						  XPC;                                            // ...保持: 32bit 2:1 MUX+CE / ... hold: 32-bit 2:1 mux + CE
 
 // 【解説】TLB 例外時にアクセス番地を保存 (TLB は未実装)。
 // [Note] On a TLB exception, save the accessed address (the TLB is not implemented).
-assign XLA_NEW =   WW_INTERRUPTION & (W_LS_INTCODE == INTCODE_TLB) & !WW_HIDE_LS
-	 		? W_WDT1 :
-		WW_WSR & (W_WAD2 == SYSREG_XLA) ? W_WDT2 :
-						  XLA;
+assign XLA_NEW =   WW_INTERRUPTION & (W_LS_INTCODE == INTCODE_TLB) & !WW_HIDE_LS // データアクセス例外(INTCODE_TLB)のとき ... / on a data access exception (INTCODE_TLB) ...
+	 		? W_WDT1 :                                          // ...その番地(W_WDT1に入れてある)を退避 ... / ... save its address (carried in W_WDT1) ...
+		WW_WSR & (W_WAD2 == SYSREG_XLA) ? W_WDT2 :            // ...WSRでXLA(6番)へ書く ... / ... WSR to XLA (#6) ...
+						  XLA;                                            // ...保持: 32bit 2:1 MUX+CE / ... hold: 32-bit 2:1 mux + CE
 
 
 // 【解説】割り込み・RFE・状態変更の次のサイクルで、命令フェッチを PC から
@@ -163,5 +163,5 @@ assign XLA_NEW =   WW_INTERRUPTION & (W_LS_INTCODE == INTCODE_TLB) & !WW_HIDE_LS
 // [Note] START_TRIGGER: the signal to restart instruction fetch from PC in the cycle after an interrupt,
 //        RFE or state change. It is stored inverted in the FF, so right after reset
 //        (FF=0) START_TRIGGER=1 too, and the first fetch starts.
-assign START_TRIGGER_BAR_NEW = !( WW_INTERRUPTION | WW_RFE | WW_STATECHANGE );
-assign START_TRIGGER = !START_TRIGGER_BAR;
+assign START_TRIGGER_BAR_NEW = !( WW_INTERRUPTION | WW_RFE | WW_STATECHANGE ); // 割り込み/RFE/状態変更で0にする (反転で格納, リセット0→再開1) / 0 on interrupt / RFE / state change (stored inverted: reset 0 -> restart 1)
+assign START_TRIGGER = !START_TRIGGER_BAR;              // フェッチをPCからやり直す合図: FFのQのNOT → 170/180/190 / restart-fetch-from-PC strobe: NOT of the FF -> 170/180/190

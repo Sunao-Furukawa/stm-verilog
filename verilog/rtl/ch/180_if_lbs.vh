@@ -46,13 +46,13 @@
 
 // 【解説】要求中 (IB_V) の命令データが届いた。
 // [Note] The instruction data of the pending request (IB_V) has arrived.
-assign SU_IF_CLH = IB_V     & RANDOM_FOR_IFCLH;
+assign SU_IF_CLH = IB_V     & RANDOM_FOR_IFCLH;         // 要求中の命令データが届いた: IB_V & ポート入力 (AND) → 190, 200 / pending fetch data arrived: IB_V & port input (AND) -> 190, 200
 // 【解説】新しいフェッチ要求を受け付けられるか (要求中のものが無いか, ちょうど届いた)。
 // [Note] Can a new fetch request be accepted (nothing pending, or it just arrived)?
-assign SU_IF_RDY = IF_REQ_V & RANDOM_FOR_IFRDY & (!IB_V | SU_IF_CLH)
-		 | START_TRIGGER;
+assign SU_IF_RDY = IF_REQ_V & RANDOM_FOR_IFRDY & (!IB_V | SU_IF_CLH) // 新しいフェッチを受け付ける: 要求があり, IBが空か今届いた ... / accept a new fetch: a request, and IB empty or just arrived ...
+		 | START_TRIGGER;                       // ...再スタートなら必ず (LUT5) / ... always on restart (LUT5)
 
   // 【解説】届いた 2 命令 (上位 = 先の命令)。届いていないときは目印のダミー値。
   // [Note] The 2 instructions that arrived (upper = the earlier one). A marker dummy value when nothing arrived.
-  assign I_LBS_H = SU_IF_CLH ? MEM_DT_IF_H : 32'hf0f0f0f0;
-  assign I_LBS_L = SU_IF_CLH ? MEM_DT_IF_L : 32'hff0f0f0f;
+  assign I_LBS_H = SU_IF_CLH ? MEM_DT_IF_H : 32'hf0f0f0f0; // 届いた8バイトの前半(先の命令): 届いていなければ0xf0f0f0f0 (32bit 2:1 MUX, 定数側はLUT内に吸収) / first word of the 8 bytes (earlier insn): 0xf0f0f0f0 if none (32-bit 2:1 mux, constant folded into the LUT)
+  assign I_LBS_L = SU_IF_CLH ? MEM_DT_IF_L : 32'hff0f0f0f; // 後半(後の命令): 届いていなければ0xff0f0f0f → 200のIWQ_x_4/5 / second word (later insn): 0xff0f0f0f if none -> IWQ_x_4/5 in 200

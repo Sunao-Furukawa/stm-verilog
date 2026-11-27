@@ -94,9 +94,9 @@
 //          PART2 : the position relative to it (6 bits, signed)
 //                    = -(V45 ? 16 : 8) + 4 * NIP + (+4 if the branch is the second instruction)
 //                   (if entries 4,5 are filled the last 8 bytes are in 4,5, if empty in 2,3)
-assign DD_JB_INSN_AD_PART1 = EID ? D_IF_AD_B & 32'hfffffff8 : D_IF_AD_A & 32'hfffffff8;
+assign DD_JB_INSN_AD_PART1 = EID ? D_IF_AD_B & 32'hfffffff8 : D_IF_AD_A & 32'hfffffff8; // 最後に入れた8バイトのフェッチ番地(下位3bitを0): 29bit 2:1 MUX, 下位3bitはGND / fetch address of the last 8 bytes (low 3 bits 0): 29-bit 2:1 mux, low 3 bits tied to GND
 //DD-JB-INSN-AD-PART2 = MINUS1*(V45 ? 16 : 8) + 4*NIP + (DD-FIRST-IS-JB ? 0 : 4)
-assign DD_JB_INSN_AD_PART2 = add_4_5_3(V45,NIP,DD_FIRST_IS_JB);
+assign DD_JB_INSN_AD_PART2 = add_4_5_3(V45,NIP,DD_FIRST_IS_JB); // 相対位置(6bit) = -(16|8)+4*NIP+(2命令目なら4): 入力5本だけなのでLUT5 x6の真理値表 (加算器にならない) / relative offset (6 bits): only 5 inputs, so a truth table of 6 LUT5s (no adder)
 
 // Kind of JB-insn (BA/JA/BL/JL/BC)
 
@@ -109,11 +109,11 @@ assign DD_JB_INSN_AD_PART2 = add_4_5_3(V45,NIP,DD_FIRST_IS_JB);
 //          BA : unconditional, PC-relative      JA : unconditional, register-indirect
 //          BL : with link, PC-relative          JL : with link, register-indirect
 //          BC : conditional branch
-assign IJB_IS_BA = IJB_V & !IJB_COND & !IJB_LINK & !IJB_REG;
-assign IJB_IS_JA = IJB_V & !IJB_COND & !IJB_LINK &  IJB_REG;
-assign IJB_IS_BL = IJB_V &   IJB_LINK & !IJB_REG;
-assign IJB_IS_JL = IJB_V &   IJB_LINK &  IJB_REG;
-assign IJB_IS_BC = IJB_V &   IJB_COND;
+assign IJB_IS_BA = IJB_V & !IJB_COND & !IJB_LINK & !IJB_REG; // 無条件・PC相対 (BA): 4入力AND → 170 / unconditional, PC-relative (BA): 4-input AND -> 170
+assign IJB_IS_JA = IJB_V & !IJB_COND & !IJB_LINK &  IJB_REG; // 無条件・レジスタ間接 (JA): 4入力AND → 170 (分岐先はAのEAGで計算) / unconditional, register-indirect (JA): 4-input AND -> 170 (target from the EAG in A)
+assign IJB_IS_BL = IJB_V &   IJB_LINK & !IJB_REG;       // リンク付き・PC相対 (BL): 3入力AND / with link, PC-relative (BL): 3-input AND
+assign IJB_IS_JL = IJB_V &   IJB_LINK &  IJB_REG;       // リンク付き・レジスタ間接 (JL): 3入力AND / with link, register-indirect (JL): 3-input AND
+assign IJB_IS_BC = IJB_V &   IJB_COND;                  // 条件分岐 (BC): 2入力AND / conditional branch (BC): 2-input AND
 //###  IJB-IS-CMP = ...  !!!!!
 
 // If BC, has it been solved?  Which stage decides CC ?
@@ -124,7 +124,7 @@ assign IJB_IS_BC = IJB_V &   IJB_COND;
 //             |       |       |       |  sol                       #
 //   EX        |   +   |  sol  |  sol  |                            #
 
-assign DD_SETCC = DD_FIRST_SETCC;
+assign DD_SETCC = DD_FIRST_SETCC;                       // 同時発行する1命令目がCCを変えるか: 別名 (ゲート無し) / does the co-issued first insn set CC: alias (no gate)
 // 			 | IJB-IS-CMP !!!!!
 // 【解説】発行しようとしている BC の CC がもう確定しているか。
 //         A (EX/LS), B (LS), E (LS) に CC を変える命令が残っていなければ確定済み。
@@ -132,22 +132,22 @@ assign DD_SETCC = DD_FIRST_SETCC;
 // [Note] Is the CC for the BC being issued already settled?
 //        It is if no instruction that changes CC is left in A (EX/LS), B (LS) or E (LS).
 //        The EX result in B, the EX result in E and W are already computed, so the forwarding below can use them.
-assign DD_ISSUEING_SOLVED_BC = !(A_EX_SETCC | A_LS_SETCC | B_LS_SETCC | E_LS_SETCC
-			   | DD_FIRST_SETCC & DD_SECOND_IS_JB) & IJB_IS_BC;
+assign DD_ISSUEING_SOLVED_BC = !(A_EX_SETCC | A_LS_SETCC | B_LS_SETCC | E_LS_SETCC // BCのCCが確定済み: A/B/EのSETCC FF 4本と... / BC's CC already known: 4 SETCC FFs of A/B/E and ...
+			   | DD_FIRST_SETCC & DD_SECOND_IS_JB) & IJB_IS_BC;  // ...同時発行の1命令目のNOR, IJB_IS_BCとAND (LUT2段) / ... the co-issued first insn, NORed, ANDed with IJB_IS_BC (2 LUT levels)
 // 【解説】確定済みの最新 CC (新しい順に B の EX 結果 → E → W → PSW)。
 // [Note] The latest settled CC (newest first: EX result in B -> E -> W -> PSW).
-assign DD_CC_FOR_SOLVED_BC = (B_EX_SETCC ? B_EX_CC :
-			  (E_EX_SETCC ? E_EX_CC : (W_SETCC ? W_CC : PSW_CC) ) );
-assign DD_SOLVED_BC_TAKEN = cc_match(DD_CC_FOR_SOLVED_BC,IJB_RD_MASK);
+assign DD_CC_FOR_SOLVED_BC = (B_EX_SETCC ? B_EX_CC :    // CCのフォワーディング: B(EX)の結果を最優先 ... / CC forwarding: B (EX) result first ...
+			  (E_EX_SETCC ? E_EX_CC : (W_SETCC ? W_CC : PSW_CC) ) ); // ...次にE, W, 最後にPSW. 2bit x 4:1 優先MUX (FFの出力を選ぶだけ) / ... then E, W, finally PSW. 2-bit 4:1 priority mux over FF outputs
+assign DD_SOLVED_BC_TAKEN = cc_match(DD_CC_FOR_SOLVED_BC,IJB_RD_MASK); // mask[3-cc]: CC(2bit)でマスク4bitの1本を選ぶ4:1 MUX → LUT6 1個 / mask[3-cc]: CC picks 1 of 4 mask bits, a 4:1 mux in one LUT6
 // 【解説】D サイクルで taken が確定する分岐 (解決済み BC で成立, BA, BL)。
 // [Note] Branches known to be taken in the D cycle (a resolved BC that holds, BA, BL).
-assign DD_ISSUEING_TAKEN_BRANCH = DD_SOLVED_BC_TAKEN & DD_ISSUEING_SOLVED_BC
-               | IJB_IS_BA | IJB_IS_BL;
-assign DD_ISSUEING_UNTAKEN_BC = !DD_SOLVED_BC_TAKEN & DD_ISSUEING_SOLVED_BC;
+assign DD_ISSUEING_TAKEN_BRANCH = DD_SOLVED_BC_TAKEN & DD_ISSUEING_SOLVED_BC // Dで成立が確定する分岐: 解決済みBCで成立 ... / branch known taken in D: solved BC taken ...
+               | IJB_IS_BA | IJB_IS_BL;                 // ...またはBA/BL → 170でフェッチ先をDD_TGTへ切り替える / ... or BA/BL -> 170 switches the fetch address to DD_TGT
+assign DD_ISSUEING_UNTAKEN_BC = !DD_SOLVED_BC_TAKEN & DD_ISSUEING_SOLVED_BC; // 解決済みで不成立のBC (そのまま次の命令へ) / solved BC not taken (go straight on)
 
 // 【解説】未解決の条件分岐 (予測で進める)。
 // [Note] An unresolved conditional branch (goes on by prediction).
-assign DD_ISSUEING_UNSOLVED_BC =  !DD_ISSUEING_SOLVED_BC & IJB_IS_BC;
+assign DD_ISSUEING_UNSOLVED_BC =  !DD_ISSUEING_SOLVED_BC & IJB_IS_BC; // 未解決のBC: 予測で進め, 210のG_BCで答え合わせ / unsolved BC: proceed by prediction, checked by G_BC in 210
 
 // 【解説】未解決 BC の CC を作る命令がどこにいるか (そこで解決される):
 //           ON_D_EX / ON_D_LS : 同時発行した 1 命令目 (EX / LS パイプ)
@@ -155,31 +155,31 @@ assign DD_ISSUEING_UNSOLVED_BC =  !DD_ISSUEING_SOLVED_BC & IJB_IS_BC;
 // [Note] Where is the instruction that makes the CC of the unresolved BC (it is resolved there):
 //          ON_D_EX / ON_D_LS : the first instruction issued together with it (EX / LS pipe)
 //          ON_A_EX / ON_A_LS / ON_B_LS / ON_E_LS : an earlier instruction in that stage
-assign DD_ISSUEING_UNSOLVED_BC_ON_D_EX =  DD_FIRST_SETCC & DD_SECOND_IS_JB
-				  & DD_FIRST_IS_EX & IJB_IS_BC;
+assign DD_ISSUEING_UNSOLVED_BC_ON_D_EX =  DD_FIRST_SETCC & DD_SECOND_IS_JB // CCを作るのは同時発行の1命令目(EX) ... / CC comes from the co-issued first insn (EX) ...
+				  & DD_FIRST_IS_EX & IJB_IS_BC;                     // ...→ AでEXUのCCが出た所で解決 (5入力AND) / ... -> resolved when the EXU CC appears in A (5-input AND)
 // 				 | IJB-IS-CMP  !!!!!
-assign DD_ISSUEING_UNSOLVED_BC_ON_D_LS =  DD_FIRST_SETCC & DD_SECOND_IS_JB
-				  & DD_FIRST_IS_LS & IJB_IS_BC;
-assign DD_ISSUEING_UNSOLVED_BC_ON_A_EX =  !DD_SETCC & A_EX_SETCC & IJB_IS_BC;
-assign DD_ISSUEING_UNSOLVED_BC_ON_A_LS =  !DD_SETCC & A_LS_SETCC & IJB_IS_BC;
-assign DD_ISSUEING_UNSOLVED_BC_ON_B_LS =  !DD_SETCC & !A_LS_SETCC & !A_EX_SETCC
-					& B_LS_SETCC & IJB_IS_BC;
-assign DD_ISSUEING_UNSOLVED_BC_ON_E_LS =  !DD_SETCC & !A_LS_SETCC & !A_EX_SETCC
-					& !B_LS_SETCC & E_LS_SETCC & IJB_IS_BC;
+assign DD_ISSUEING_UNSOLVED_BC_ON_D_LS =  DD_FIRST_SETCC & DD_SECOND_IS_JB // CCを作るのは同時発行の1命令目(LS) ... / CC comes from the co-issued first insn (LS) ...
+				  & DD_FIRST_IS_LS & IJB_IS_BC;                     // ...→ EのALUで解決 (5入力AND) / ... -> resolved in the E ALU (5-input AND)
+assign DD_ISSUEING_UNSOLVED_BC_ON_A_EX =  !DD_SETCC & A_EX_SETCC & IJB_IS_BC; // AのEX命令がCCを作る / the EX insn in A makes the CC
+assign DD_ISSUEING_UNSOLVED_BC_ON_A_LS =  !DD_SETCC & A_LS_SETCC & IJB_IS_BC; // AのLS命令がCCを作る / the LS insn in A makes the CC
+assign DD_ISSUEING_UNSOLVED_BC_ON_B_LS =  !DD_SETCC & !A_LS_SETCC & !A_EX_SETCC // BのLS命令が最新のCCを作る (A側は無し) ... / the LS insn in B makes the latest CC (none in A) ...
+					& B_LS_SETCC & IJB_IS_BC;                          // ...(6入力AND = LUT6 1個) / ... (6-input AND = one LUT6)
+assign DD_ISSUEING_UNSOLVED_BC_ON_E_LS =  !DD_SETCC & !A_LS_SETCC & !A_EX_SETCC // EのLS命令が最新のCCを作る ... / the LS insn in E makes the latest CC ...
+					& !B_LS_SETCC & E_LS_SETCC & IJB_IS_BC;            // ...(7入力なのでLUT2個) / ... (7 inputs, so 2 LUTs)
 // branch prediction : backward branch <-> TKN predicted
 // 【解説】静的分岐予測: 後方分岐 (変位が負) なら taken と予測する (ループ向け)。
 // [Note] Static branch prediction: a backward branch (negative displacement) is predicted taken (good for loops).
-assign DD_PREDICTING_TAKEN = DD_ISSUEING_UNSOLVED_BC & IJB_BACKWARD;
+assign DD_PREDICTING_TAKEN = DD_ISSUEING_UNSOLVED_BC & IJB_BACKWARD; // 静的予測: 後方分岐(IJB[19]=1)なら成立と予測 (AND) / static prediction: taken if backward (IJB[19]=1) (AND)
 // 【解説】A サイクルのアドレス加算器 (EAG) に渡す変位 16bit。
 //         LS 命令は DISP16, EX-RM は DISP12 を符号拡張, レジスタ間接分岐は IMM16。
 // [Note] The 16-bit displacement given to the address adder (EAG) of the A cycle.
 //        DISP16 for LS instructions, DISP12 sign-extended for EX-RM, IMM16 for register-indirect branches.
-assign DD_DISP = ILS_LS_FMT   ? ILS_DISP16 :
-		ILS_EXRM_FMT ? sign_ext_12(ILS_DISP12) : IJB_IMM16;
+assign DD_DISP = ILS_LS_FMT   ? ILS_DISP16 :            // EAGへの16bit変位: LSはDISP16 ... / 16-bit displacement to the EAG: LS uses DISP16 ...
+		ILS_EXRM_FMT ? sign_ext_12(ILS_DISP12) : IJB_IMM16;   // ...EX-RMはDISP12を符号拡張, 分岐はIMM16: 16bit 3:1 MUX → 140のA_DISP / ... EX-RM sign-extends DISP12, branch uses IMM16: 16-bit 3:1 mux -> A_DISP in 140
 // ---- #ifndef VHDL (C シミュレータ版を採用) ----
 //      (#ifndef VHDL: the C-simulator version is used)
 // 【解説】PC 相対分岐の分岐先 = 分岐命令のアドレス (PART1+PART2) + IMM20 (符号拡張)。
 // [Note] Target of a PC-relative branch = address of the branch (PART1+PART2) + IMM20 (sign-extended).
-assign DD_TGT = add_32_5_20(DD_JB_INSN_AD_PART1,DD_JB_INSN_AD_PART2,IJB_IMM20);
+assign DD_TGT = add_32_5_20(DD_JB_INSN_AD_PART1,DD_JB_INSN_AD_PART2,IJB_IMM20); // 分岐先 = PART1+PART2+IMM20: 32bit 3入力加算 (CARRY4の連鎖2本 or 3:2圧縮+CARRY4) / target = PART1+PART2+IMM20: 32-bit 3-input add (CARRY4 chains)
 //# + (IJB-CMP ? sign-ext(12,IJB-IMM12) : sign-ext(20,jb-imm20(IJB)))
 // ---- #endif ----

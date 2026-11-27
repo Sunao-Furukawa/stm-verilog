@@ -86,14 +86,14 @@
 //     edge, and values are printed after waiting #1, so what is printed is "just before it goes
 //     into the FFs on the next rising edge" = the settled value of the cycle's combinational logic.
 // =====================================================================
-module tb_stm;
+module tb_stm;                                          // 実験用テストベンチ (tb_stm.vと同じモジュール名なので片方だけをコンパイルする, 合成されない) / experimental testbench (same module name as tb_stm.v, so compile only one; never synthesized)
   reg         clk = 1'b0;                // クロック (always #5 で反転, 周期 10)
                                          // clock (toggled by always #5, period 10)
   reg         rst = 1'b1;                // 同期リセット (1 でリセット中)
                                          // synchronous reset (1 = in reset)
   reg  [31:0] reset_pc;                  // リセット後に実行を始める番地 (+PC=)
                                          // address where execution starts after reset (+PC=)
-  reg         rnd_opclh = 1'b1, rnd_ifrdy = 1'b1, rnd_ifclh = 1'b1;
+  reg         rnd_opclh = 1'b1, rnd_ifrdy = 1'b1, rnd_ifclh = 1'b1; // キャッシュミス模擬の3入力 (既定は常時1) / the 3 cache-miss inputs (default always 1)
                                          // キャッシュのデータが揃った (0 でミスを模擬)
                                          // cache data ready (0 simulates a miss)
   wire [31:0] pc;                        // 完了した命令の次の番地 (080_w_act.vh)
@@ -110,90 +110,90 @@ module tb_stm;
 
   // 【解説】DUT。stm_sys は stm_cntl + stm_regfile + stm_memory をつないだもの。
   // [Note] The DUT. stm_sys connects stm_cntl + stm_regfile + stm_memory.
-  stm_sys u_sys (
-    .clk              (clk),
-    .rst              (rst),
-    .RESET_PC         (reset_pc),
+  stm_sys u_sys (                                       // DUT: CPU+レジスタファイル+メモリ / DUT: CPU + register file + memory
+    .clk              (clk),                            // クロック / clock
+    .rst              (rst),                            // リセット / reset
+    .RESET_PC         (reset_pc),                       // 開始番地 / start address
     .RANDOM_FOR_OPCLH (rnd_opclh),       // オペランドのデータが揃った
                                          // operand data ready
     .RANDOM_FOR_IFRDY (rnd_ifrdy),       // 命令フェッチの要求を受け付けられる
                                          // a fetch request can be accepted
     .RANDOM_FOR_IFCLH (rnd_ifclh),       // フェッチした命令が揃った
                                          // fetched instructions ready
-    .PC               (pc)
-  );
+    .PC               (pc)                              // PCを観測 / observe PC
+  );                                                    // u_sysの終わり / end of u_sys
 
   always #5 clk = ~clk;                  // 周期 10 のクロック
                                          // clock with period 10
 
-  initial begin
+  initial begin                                         // テストの手順 (1回だけ実行) / the test sequence (runs once)
     // --- plusargs を読む ---
     // --- read the plusargs ---
-    if (!$value$plusargs("HEX=%s", hexfile)) begin
-      $display("usage: vvp sim +HEX=mem.hex +PC=300 +CYCLES=250 [+RANDOM] [+SEED=n]");
-      $finish;
-    end
-    if (!$value$plusargs("PC=%h", reset_pc))   reset_pc = 32'h300;
-    if (!$value$plusargs("CYCLES=%d", maxcyc)) maxcyc   = 250;
-    if (!$value$plusargs("SEED=%d", seed))     seed     = 1;
-    use_random = $test$plusargs("RANDOM");
-    trace      = $test$plusargs("TRACE");
-    ctrace     = $test$plusargs("CTRACE");
+    if (!$value$plusargs("HEX=%s", hexfile)) begin      // +HEX=が無ければ使い方を表示 / print usage without +HEX=
+      $display("usage: vvp sim +HEX=mem.hex +PC=300 +CYCLES=250 [+RANDOM] [+SEED=n]"); // 使い方 / usage
+      $finish;                                          // 終了 / finish
+    end                                                 // if の終わり / end of if
+    if (!$value$plusargs("PC=%h", reset_pc))   reset_pc = 32'h300; // 開始番地 (既定0x300) / start address (default 0x300)
+    if (!$value$plusargs("CYCLES=%d", maxcyc)) maxcyc   = 250; // サイクル上限 (既定250) / cycle limit (default 250)
+    if (!$value$plusargs("SEED=%d", seed))     seed     = 1; // 乱数の種 (既定1) / random seed (default 1)
+    use_random = $test$plusargs("RANDOM");              // キャッシュミス模擬を使うか / use the miss simulation?
+    trace      = $test$plusargs("TRACE");               // 毎サイクルの表示 / per-cycle trace
+    ctrace     = $test$plusargs("CTRACE");              // C版と比べる形式の表示 / trace in the C comparison format
 
     // メモリイメージを stm_memory の配列に直接読み込む
     // load the memory image directly into the array of stm_memory
-    $readmemh(hexfile, u_sys.u_mem.mem);
+    $readmemh(hexfile, u_sys.u_mem.mem);                // プログラムをメモリの配列へ直接読み込む (階層参照) / load the program straight into the memory array (hierarchical reference)
 
     // 立ち上がり 2 回の間リセットし, 立ち下がりで解除する
     // hold reset for 2 rising edges and release it on a falling edge
-    repeat (2) @(posedge clk);
-    @(negedge clk) rst = 1'b0;
+    repeat (2) @(posedge clk);                          // リセットを2クロック / hold reset 2 clocks
+    @(negedge clk) rst = 1'b0;                          // 立ち下がりで解除 / release on the falling edge
 
-    for (cycles = 1; cycles <= maxcyc; cycles = cycles + 1) begin
+    for (cycles = 1; cycles <= maxcyc; cycles = cycles + 1) begin // 1サイクルずつ進める / step one cycle at a time
       // 立ち下がりで乱数入力を更新 (C 版は 1 サイクルごとに random())
       // update the random inputs on the falling edge (the C version calls random() once per cycle)
       // 【解説】この実験版ではオペランド側だけを 3/4 の確率でミスにし, 命令フェッチは
       //         いつもヒットにする (tb/tb_stm.v は 3 本とも 1/2)。
       // [Note] This experimental version makes only the operand side miss with probability 3/4 and
       //        lets instruction fetch always hit (tb/tb_stm.v uses 1/2 for all three).
-      if (use_random) begin
-        rnd_opclh = (($random(seed) & 15) >= 12);
-        rnd_ifrdy = 1;
-        rnd_ifclh = 1;
-      end
-      #1;
+      if (use_random) begin                             // 乱数モードなら / in random mode
+        rnd_opclh = (($random(seed) & 15) >= 12);       // オペランドは1/4だけヒット (3/4でミス) / operands hit only 1/4 of the time (miss 3/4)
+        rnd_ifrdy = 1;                                  // フェッチは常に受け付け / fetch always ready
+        rnd_ifclh = 1;                                  // フェッチは常にヒット / fetch always hits
+      end                                               // if の終わり / end of if
+      #1;                                               // 組合せ回路が落ち着くのを待つ / let the logic settle
       // 【解説】PC は「完了した命令の次の番地」(080_w_act.vh)。その番地の命令が
       //         診断命令 (上位 4bit = 0xD) なら, テストプログラムの終わりに着いた。
       // [Note] PC is "the address after the completed instructions" (080_w_act.vh). If the instruction at that
       //        address is a diagnostic instruction (top 4 bits = 0xD), the test program has reached its end.
-      insn = u_sys.u_mem.mem[pc[11:2]];
-      if (trace)
-        $display("%4d PC=%h D_FWD=%b A_FWD=%b B_FWD=%b E_FWD=%b W_COMPLETE=%b I0=%h I1=%h",
-                 cycles, pc, u_sys.u_cntl.D_FWD, u_sys.u_cntl.A_FWD,
-                 u_sys.u_cntl.B_FWD, u_sys.u_cntl.E_FWD,
-                 u_sys.u_cntl.W_COMPLETE, u_sys.u_cntl.I0, u_sys.u_cntl.I1);
+      insn = u_sys.u_mem.mem[pc[11:2]];                 // PCの命令語をメモリから直接読む / read the insn at PC from memory
+      if (trace)                                        // +TRACEなら / with +TRACE
+        $display("%4d PC=%h D_FWD=%b A_FWD=%b B_FWD=%b E_FWD=%b W_COMPLETE=%b I0=%h I1=%h", // 各ステージが進んだか等を表示 / show which stages moved etc.
+                 cycles, pc, u_sys.u_cntl.D_FWD, u_sys.u_cntl.A_FWD, // サイクル, PC, D/A段のFWD (内部ネットの階層参照) / cycle, PC, D/A FWD (hierarchical refs)
+                 u_sys.u_cntl.B_FWD, u_sys.u_cntl.E_FWD, // B/E段のFWD / B/E FWD
+                 u_sys.u_cntl.W_COMPLETE, u_sys.u_cntl.I0, u_sys.u_cntl.I1); // 完了と発行候補 / completion and issue candidates
       if (ctrace)   // C 版 siml.res と同じ並び (比較用 form.dat: tools/form_cmp.dat)
                     // same order as siml.res of the C version (form.dat for comparison: tools/form_cmp.dat)
-        $display("%h%h%h%h%h%h%h%h%h%h%h%h%h%h%h",
-                 pc, u_sys.u_cntl.D_FWD, u_sys.u_cntl.A_FWD, u_sys.u_cntl.B_FWD,
-                 u_sys.u_cntl.E_FWD, u_sys.u_cntl.W_COMPLETE,
-                 u_sys.u_cntl.I0, u_sys.u_cntl.I1, u_sys.u_cntl.IB_AD,
-                 u_sys.u_cntl.LBS_AD, u_sys.u_cntl.W_WDT1, u_sys.u_cntl.W_WDT2,
-                 u_sys.u_cntl.PSW_CC, u_sys.u_cntl.NIP_A, u_sys.u_cntl.NIP_B);
+        $display("%h%h%h%h%h%h%h%h%h%h%h%h%h%h%h",      // C版siml.resと同じ並びの16進表示 / hex dump in the C version's siml.res order
+                 pc, u_sys.u_cntl.D_FWD, u_sys.u_cntl.A_FWD, u_sys.u_cntl.B_FWD, // PCと各段のFWD / PC and stage FWDs
+                 u_sys.u_cntl.E_FWD, u_sys.u_cntl.W_COMPLETE, // E段とW / E stage and W
+                 u_sys.u_cntl.I0, u_sys.u_cntl.I1, u_sys.u_cntl.IB_AD, // 発行候補とフェッチ番地 / issue candidates and fetch address
+                 u_sys.u_cntl.LBS_AD, u_sys.u_cntl.W_WDT1, u_sys.u_cntl.W_WDT2, // オペランド番地とWの書き込みデータ / operand address and W write data
+                 u_sys.u_cntl.PSW_CC, u_sys.u_cntl.NIP_A, u_sys.u_cntl.NIP_B); // CCと両キューのNIP / CC and both queues' NIP
       // 終了判定: SUCCESS (0x3F0) なら OK, DEAD (0x3D0) なら NG, それ以外は STOP
       // stop check: OK at SUCCESS (0x3F0), DEAD at 0x3D0, otherwise STOP
-      if (insn[31:28] == 4'hD) begin
-        if (pc == 32'h3f0)
-          $display("RESULT: stop at PC=%h after %0d cycles -> OK", pc, cycles);
-        else if (pc == 32'h3d0)
-          $display("RESULT: stop at PC=%h after %0d cycles -> DEAD", pc, cycles);
-        else
-          $display("RESULT: stop at PC=%h after %0d cycles -> STOP", pc, cycles);
-        $finish;
-      end
-      @(negedge clk);
-    end
-    $display("RESULT: timeout PC=%h after %0d cycles -> TIMEOUT", pc, maxcyc);
-    $finish;
-  end
-endmodule
+      if (insn[31:28] == 4'hD) begin                    // 診断命令に着いたら止める / stop at a diagnostic insn
+        if (pc == 32'h3f0)                              // 0x3f0 = 成功 / 0x3f0 = pass
+          $display("RESULT: stop at PC=%h after %0d cycles -> OK", pc, cycles); // 成功を表示 / report success
+        else if (pc == 32'h3d0)                         // 0x3d0 = 失敗 / 0x3d0 = fail
+          $display("RESULT: stop at PC=%h after %0d cycles -> DEAD", pc, cycles); // 失敗を表示 / report failure
+        else                                            // その他の番地 / anywhere else
+          $display("RESULT: stop at PC=%h after %0d cycles -> STOP", pc, cycles); // 停止を表示 / report a stop
+        $finish;                                        // 終了 / finish
+      end                                               // if の終わり / end of if
+      @(negedge clk);                                   // 次のサイクルへ / next cycle
+    end                                                 // for の終わり / end of for
+    $display("RESULT: timeout PC=%h after %0d cycles -> TIMEOUT", pc, maxcyc); // 上限まで止まらなかった / did not stop within the limit
+    $finish;                                            // 終了 / finish
+  end                                                   // initial の終わり / end of initial
+endmodule                                               // モジュールの終わり / end of module
