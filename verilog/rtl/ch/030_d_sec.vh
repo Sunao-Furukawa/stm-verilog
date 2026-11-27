@@ -84,8 +84,8 @@
 //         A サイクルへ渡し、W サイクルで割り込みになる。
 // [Note] Is the first instruction valid and legal? An illegal instruction passes an instruction
 //        exception (INTCODE_OP) to the A cycle, and it becomes an interrupt in the W cycle.
-assign I0_V_NOINT = I0_V & I0_IS_LEGAL;
-assign DD_INTCODE = (I0_IS_LEGAL ? 0 : INTCODE_OP);
+assign I0_V_NOINT = I0_V & I0_IS_LEGAL;                 // I0が有効かつ合法 (AND 1個): 発行してよい1命令目 / I0 valid and legal (one AND): first insn may issue
+assign DD_INTCODE = (I0_IS_LEGAL ? 0 : INTCODE_OP);     // 不正ならINTCODE_OP(=1): 3bitのうちbit0だけがNOT(I0_IS_LEGAL), 残りは0固定 / INTCODE_OP (=1) if illegal: only bit 0 = NOT legal, the rest tied to 0
 
 // 【解説】2 命令目も発行する条件。次のどれか 1 つでもあると 1 命令だけ発行:
 //           ・2 命令とも CC を変える
@@ -102,13 +102,13 @@ assign DD_INTCODE = (I0_IS_LEGAL ? 0 : INTCODE_OP);
 //          - EX + branch with link (both use the EX pipe)
 //          - a conditional branch arrives while one is still unresolved
 //          - the first is a branch, both are LS, both are EX, privileged, or illegal
-assign DD_ISSUE_SECOND_INSN = 
-       I1_V
+assign DD_ISSUE_SECOND_INSN =                           // 2命令目も発行するか: 下の全条件のAND (Dサイクルで最も深い論理, LUT 3~4段) / dual issue?: AND of all terms below (deepest D-cycle logic, 3-4 LUT levels)
+       I1_V                                             // I1が存在する / I1 exists
     & !(DD_FIRST_SETCC & DD_SECOND_SETCC)   // CC dependency
-    & !(DD_FIRST_WAD_V &((DD_SECOND_WAD_V  & (DD_FIRST_WAD == DD_SECOND_WAD ))
-	                |(DD_SECOND_RADB_V & (DD_FIRST_WAD == DD_SECOND_RADB1))
-	                |(DD_SECOND_RAD1_V & (DD_FIRST_WAD == DD_SECOND_RADB1))
-	                |(DD_SECOND_RAD2_V & (DD_FIRST_WAD == DD_SECOND_RAD2)) )
+    & !(DD_FIRST_WAD_V &((DD_SECOND_WAD_V  & (DD_FIRST_WAD == DD_SECOND_WAD )) // I0の書き先をI1も書く (WAW): 4bit一致比較器(XNOR4+AND) / I1 writes I0's destination (WAW): 4-bit equality comparator
+	                |(DD_SECOND_RADB_V & (DD_FIRST_WAD == DD_SECOND_RADB1)) // I0の書き先をI1がベースとして読む (RAW) / I1 reads I0's destination as base (RAW)
+	                |(DD_SECOND_RAD1_V & (DD_FIRST_WAD == DD_SECOND_RADB1)) // I1がR1として読む (R1とRBは同じ[19:16]なので比較器を共有) / I1 reads it as R1 (R1 and RB share bits [19:16], so the comparator is shared)
+	                |(DD_SECOND_RAD2_V & (DD_FIRST_WAD == DD_SECOND_RAD2)) ) // I1がR2として読む (2つ目の4bit比較器) / I1 reads it as R2 (second 4-bit comparator)
        )   // REG dependency
     & !(DD_FIRST_IS_LS & DD_SECOND_IS_JB & I1_JB_REG)   // EAG conflict
     & !(DD_FIRST_IS_EX & DD_SECOND_IS_JB & I1_JB_LINK)   // EX/LINK conflict
@@ -130,9 +130,9 @@ assign DD_ISSUE_SECOND_INSN =
 // [Note] Read addresses of the register file (3 ports: RADB, RAD1, RAD2).
 //        If the first instruction uses a port, its number; otherwise the second's.
 //        (original comment: this may be timing-critical)
-assign DD_RADB = (DD_FIRST_RADB_V ? I0_LS_RB : I1_LS_RB);
-assign DD_RAD1 = (DD_FIRST_RAD1_V ? I0_EX_RB1 : I1_EX_RB1);
-assign DD_RAD2 = ((DD_FIRST_RAD2_V | (DD_PRIVCODE != 0)) ? I0_EX_RS2 : I1_EX_RS2);
+assign DD_RADB = (DD_FIRST_RADB_V ? I0_LS_RB : I1_LS_RB); // RBの読み出し番号→stm_regfileのradb: 4bit 2:1 MUX / RB read number -> radb of stm_regfile: 4-bit 2:1 mux
+assign DD_RAD1 = (DD_FIRST_RAD1_V ? I0_EX_RB1 : I1_EX_RB1); // R1の読み出し番号→rad1: 4bit 2:1 MUX / R1 read number -> rad1: 4-bit 2:1 mux
+assign DD_RAD2 = ((DD_FIRST_RAD2_V | (DD_PRIVCODE != 0)) ? I0_EX_RS2 : I1_EX_RS2); // R2の読み出し番号→rad2 (特権命令はI0固定): 4bit 2:1 MUX, 選択はLUT1個 / R2 read number -> rad2 (I0 for priv ops): 4-bit 2:1 mux, select in 1 LUT
 
 // IXX   : XX-insn (XX = LS,EX,JB)
 // IXX-V : XX-insn is being issued
@@ -141,12 +141,12 @@ assign DD_RAD2 = ((DD_FIRST_RAD2_V | (DD_PRIVCODE != 0)) ? I0_EX_RS2 : I1_EX_RS2
 //         1 命令目を優先し、2 命令目は同時発行するときだけ選ぶ。
 // [Note] Sorting into the pipes. _V is the valid bit, ILS/IEX/IJB the instruction word itself.
 //        The first instruction has priority; the second is chosen only when dual-issued.
-assign ILS_V = I0_V_NOINT & DD_FIRST_IS_LS | DD_ISSUE_SECOND_INSN & DD_SECOND_IS_LS;
-assign ILS = ( I0_V_NOINT & DD_FIRST_IS_LS ? I0 :
-		     (DD_ISSUE_SECOND_INSN & DD_SECOND_IS_LS ? I1 : 0) );
-assign IEX_V = I0_V_NOINT & DD_FIRST_IS_EX | DD_ISSUE_SECOND_INSN & DD_SECOND_IS_EX;
-assign IEX = ( I0_V_NOINT & DD_FIRST_IS_EX ? I0 :
-		     (DD_ISSUE_SECOND_INSN & DD_SECOND_IS_EX ? I1 : 0) );
-assign IJB_V = I0_V_NOINT & DD_FIRST_IS_JB | DD_ISSUE_SECOND_INSN & DD_SECOND_IS_JB;
-assign IJB = ( I0_V_NOINT & DD_FIRST_IS_JB ? I0 :
-		     (DD_ISSUE_SECOND_INSN & DD_SECOND_IS_JB ? I1 : 0) );
+assign ILS_V = I0_V_NOINT & DD_FIRST_IS_LS | DD_ISSUE_SECOND_INSN & DD_SECOND_IS_LS; // LSパイプへ発行する命令がある: AND-OR (LUT1個) → 150のA_LS_V / an insn issues to the LS pipe: AND-OR (1 LUT) -> A_LS_V in 150
+assign ILS = ( I0_V_NOINT & DD_FIRST_IS_LS ? I0 :       // LSパイプの命令語: I0優先 ... / LS-pipe insn word: I0 first ...
+		     (DD_ISSUE_SECOND_INSN & DD_SECOND_IS_LS ? I1 : 0) ); // ...次にI1, どちらでもなければ0: 32bit 3:1 MUX (LUT 32~64個) / ... then I1, else 0: 32-bit 3:1 mux (32-64 LUTs)
+assign IEX_V = I0_V_NOINT & DD_FIRST_IS_EX | DD_ISSUE_SECOND_INSN & DD_SECOND_IS_EX; // EXパイプへ発行する命令がある → 150のA_EX_V / an insn issues to the EX pipe -> A_EX_V in 150
+assign IEX = ( I0_V_NOINT & DD_FIRST_IS_EX ? I0 :       // EXパイプの命令語: I0優先 ... / EX-pipe insn word: I0 first ...
+		     (DD_ISSUE_SECOND_INSN & DD_SECOND_IS_EX ? I1 : 0) ); // ...次にI1, なければ0: 32bit 3:1 MUX / ... then I1, else 0: 32-bit 3:1 mux
+assign IJB_V = I0_V_NOINT & DD_FIRST_IS_JB | DD_ISSUE_SECOND_INSN & DD_SECOND_IS_JB; // 分岐命令を発行する → 040/150/210 / a branch issues -> 040/150/210
+assign IJB = ( I0_V_NOINT & DD_FIRST_IS_JB ? I0 :       // 分岐の命令語: I0優先 ... / branch insn word: I0 first ...
+		     (DD_ISSUE_SECOND_INSN & DD_SECOND_IS_JB ? I1 : 0) ); // ...次にI1: 32bit 3:1 MUX. この後040の加算器へ続く長い経路 / ... then I1: 32-bit 3:1 mux, feeding the long path into the 040 adder

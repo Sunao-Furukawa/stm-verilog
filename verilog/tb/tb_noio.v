@@ -129,113 +129,113 @@
 //   - n_if counts ARs with arid == 0 (IF_ID of stm_axi_top). With the instruction cache
 //     enabled, this is the number of cache misses (line fills).
 // =====================================================================
-module tb_stm_axi;
-  parameter BYTE_SWAP = 0;
-  parameter ICACHE    = 1;
-  parameter IC_LINE_W = 5;
-  parameter IC_SET_W  = 7;
-  localparam ID_W = 4;
+module tb_stm_axi;                                      // I/O領域を無効 (IO_EN=0) にした実験用テストベンチ (tb_stm_axi.vと同名なので片方だけコンパイル, 合成されない) / experimental testbench with the I/O region disabled (IO_EN=0); same name as tb_stm_axi.v, so compile only one; never synthesized
+  parameter BYTE_SWAP = 0;                              // バス上のバイト順 (-Pで上書き可) / byte order on the bus (overridable with -P)
+  parameter ICACHE    = 1;                              // 命令キャッシュの有無 / instruction cache on/off
+  parameter IC_LINE_W = 5;                              // キャッシュのライン長 (2^5=32バイト) / cache line length (2^5 = 32 bytes)
+  parameter IC_SET_W  = 7;                              // キャッシュのライン数 (2^7=128) / number of cache lines (2^7 = 128)
+  localparam ID_W = 4;                                  // AXIのIDの幅 / AXI ID width
 
-  reg         clk = 1'b0;
-  reg         aresetn = 1'b0;
-  reg  [31:0] reset_pc;
-  reg         rnd = 1'b0;
-  wire [31:0] pc;
-  wire        bus_error;
+  reg         clk = 1'b0;                               // クロック / clock
+  reg         aresetn = 1'b0;                           // 負論理リセット: 0で始める / active-low reset: starts at 0
+  reg  [31:0] reset_pc;                                 // 開始番地 / start address
+  reg         rnd = 1'b0;                               // スレーブの応答を乱数で遅らせるか (+RANDOM) / delay slave responses randomly? (+RANDOM)
+  wire [31:0] pc;                                       // DUTのPC / the DUT's PC
+  wire        bus_error;                                // DUTのエラー表示 / the DUT's error flag
 
   reg  [8*1024-1:0] hexfile;     // +HEX= のファイル名 (最大 1024 文字)
                                  // file name from +HEX= (up to 1024 characters)
-  integer       cycles, maxcyc, seed, k;
-  reg           trace;
-  reg  [31:0]   insn, w;
+  integer       cycles, maxcyc, seed, k;                // サイクル数, 上限, 種, ループ変数 / cycle count, limit, seed, loop variable
+  reg           trace;                                  // +TRACEの有無 / +TRACE given?
+  reg  [31:0]   insn, w;                                // PCの命令語 (wはバス上の語, insnはCPUから見た語) / insn at PC (w = bus word, insn = CPU view)
 
-  wire [ID_W-1:0] awid, bid, arid, rid;
-  wire [31:0]     awaddr, wdata, araddr, rdata;
-  wire [7:0]      awlen, arlen;
-  wire [2:0]      awsize, arsize, awprot, arprot;
-  wire [1:0]      awburst, arburst, bresp, rresp;
-  wire [3:0]      awcache, arcache, awqos, arqos, wstrb;
-  wire            awlock, arlock;
-  wire            awvalid, awready, wlast, wvalid, wready, bvalid, bready;
-  wire            arvalid, arready, rlast, rvalid, rready;
+  wire [ID_W-1:0] awid, bid, arid, rid;                 // AXIのIDのネット (DUT⇔スレーブ) / AXI ID nets (DUT <-> slave)
+  wire [31:0]     awaddr, wdata, araddr, rdata;         // 番地とデータのネット / address and data nets
+  wire [7:0]      awlen, arlen;                         // バースト長のネット / burst length nets
+  wire [2:0]      awsize, arsize, awprot, arprot;       // サイズと保護属性のネット / size and protection nets
+  wire [1:0]      awburst, arburst, bresp, rresp;       // バーストの種類と応答のネット / burst type and response nets
+  wire [3:0]      awcache, arcache, awqos, arqos, wstrb; // キャッシュ属性, QoS, ストローブのネット / cache attribute, QoS, strobe nets
+  wire            awlock, arlock;                       // 排他アクセスのネット / exclusive-access nets
+  wire            awvalid, awready, wlast, wvalid, wready, bvalid, bready; // 書き込み側のハンドシェイクのネット / write-side handshake nets
+  wire            arvalid, arready, rlast, rvalid, rready; // 読み出し側のハンドシェイクのネット / read-side handshake nets
 
   // 【解説】tb_stm_axi.v との違いはここだけ: IO_EN(0) で CPU 側の I/O 領域を無くす。
   // [Note] The only difference from tb_stm_axi.v: IO_EN(0) removes the I/O region on the CPU side.
-  stm_axi_top #(.IO_EN(0), .ID_W(ID_W), .BYTE_SWAP(BYTE_SWAP), .ICACHE(ICACHE),
-                .IC_LINE_W(IC_LINE_W), .IC_SET_W(IC_SET_W)) u_dut (
-    .aclk(clk), .aresetn(aresetn), .RESET_PC(reset_pc), .PC(pc),
-    .bus_error(bus_error),
-    .m_axi_awid(awid), .m_axi_awaddr(awaddr), .m_axi_awlen(awlen),
-    .m_axi_awsize(awsize), .m_axi_awburst(awburst), .m_axi_awlock(awlock),
-    .m_axi_awcache(awcache), .m_axi_awprot(awprot), .m_axi_awqos(awqos),
-    .m_axi_awvalid(awvalid), .m_axi_awready(awready),
-    .m_axi_wdata(wdata), .m_axi_wstrb(wstrb), .m_axi_wlast(wlast),
-    .m_axi_wvalid(wvalid), .m_axi_wready(wready),
-    .m_axi_bid(bid), .m_axi_bresp(bresp), .m_axi_bvalid(bvalid),
-    .m_axi_bready(bready),
-    .m_axi_arid(arid), .m_axi_araddr(araddr), .m_axi_arlen(arlen),
-    .m_axi_arsize(arsize), .m_axi_arburst(arburst), .m_axi_arlock(arlock),
-    .m_axi_arcache(arcache), .m_axi_arprot(arprot), .m_axi_arqos(arqos),
-    .m_axi_arvalid(arvalid), .m_axi_arready(arready),
-    .m_axi_rid(rid), .m_axi_rdata(rdata), .m_axi_rresp(rresp),
-    .m_axi_rlast(rlast), .m_axi_rvalid(rvalid), .m_axi_rready(rready)
-  );
+  stm_axi_top #(.IO_EN(0), .ID_W(ID_W), .BYTE_SWAP(BYTE_SWAP), .ICACHE(ICACHE), // DUT: IO_EN=0なのでis_io()は定数0, I/O用の回路 (投機ロード抑止など) が丸ごと消える / DUT: IO_EN=0 makes is_io() constant 0, so all I/O logic (e.g. holding speculative loads) disappears
+                .IC_LINE_W(IC_LINE_W), .IC_SET_W(IC_SET_W)) u_dut ( // キャッシュの大きさを渡す / pass the cache size
+    .aclk(clk), .aresetn(aresetn), .RESET_PC(reset_pc), .PC(pc), // クロック, リセット, 開始番地, PC / clock, reset, start address, PC
+    .bus_error(bus_error),                              // エラー表示 / error flag
+    .m_axi_awid(awid), .m_axi_awaddr(awaddr), .m_axi_awlen(awlen), // AWチャネル (ID, 番地, 長さ) / AW channel (ID, address, length)
+    .m_axi_awsize(awsize), .m_axi_awburst(awburst), .m_axi_awlock(awlock), // AWチャネル (サイズ, バースト, ロック) / AW channel (size, burst, lock)
+    .m_axi_awcache(awcache), .m_axi_awprot(awprot), .m_axi_awqos(awqos), // AWチャネル (属性) / AW channel (attributes)
+    .m_axi_awvalid(awvalid), .m_axi_awready(awready),   // AWのハンドシェイク / AW handshake
+    .m_axi_wdata(wdata), .m_axi_wstrb(wstrb), .m_axi_wlast(wlast), // Wチャネル (データ, ストローブ, LAST) / W channel (data, strobes, last)
+    .m_axi_wvalid(wvalid), .m_axi_wready(wready),       // Wのハンドシェイク / W handshake
+    .m_axi_bid(bid), .m_axi_bresp(bresp), .m_axi_bvalid(bvalid), // Bチャネル (ID, 応答, VALID) / B channel (ID, response, valid)
+    .m_axi_bready(bready),                              // BのREADY / B ready
+    .m_axi_arid(arid), .m_axi_araddr(araddr), .m_axi_arlen(arlen), // ARチャネル (ID, 番地, 長さ) / AR channel (ID, address, length)
+    .m_axi_arsize(arsize), .m_axi_arburst(arburst), .m_axi_arlock(arlock), // ARチャネル (サイズ, バースト, ロック) / AR channel (size, burst, lock)
+    .m_axi_arcache(arcache), .m_axi_arprot(arprot), .m_axi_arqos(arqos), // ARチャネル (属性) / AR channel (attributes)
+    .m_axi_arvalid(arvalid), .m_axi_arready(arready),   // ARのハンドシェイク / AR handshake
+    .m_axi_rid(rid), .m_axi_rdata(rdata), .m_axi_rresp(rresp), // Rチャネル (ID, データ, 応答) / R channel (ID, data, response)
+    .m_axi_rlast(rlast), .m_axi_rvalid(rvalid), .m_axi_rready(rready) // Rチャネル (LAST, ハンドシェイク) / R channel (last, handshake)
+  );                                                    // u_dutの終わり / end of u_dut
 
-  axi4_mem_slave #(.AW(10), .ID_W(ID_W), .SWAP(BYTE_SWAP)) u_mem (
-    .aclk(clk), .aresetn(aresetn), .rnd(rnd),
-    .s_axi_awid(awid), .s_axi_awaddr(awaddr), .s_axi_awlen(awlen),
-    .s_axi_awsize(awsize), .s_axi_awburst(awburst),
-    .s_axi_awvalid(awvalid), .s_axi_awready(awready),
-    .s_axi_wdata(wdata), .s_axi_wstrb(wstrb), .s_axi_wlast(wlast),
-    .s_axi_wvalid(wvalid), .s_axi_wready(wready),
-    .s_axi_bid(bid), .s_axi_bresp(bresp), .s_axi_bvalid(bvalid),
-    .s_axi_bready(bready),
-    .s_axi_arid(arid), .s_axi_araddr(araddr), .s_axi_arlen(arlen),
-    .s_axi_arsize(arsize), .s_axi_arburst(arburst),
-    .s_axi_arvalid(arvalid), .s_axi_arready(arready),
-    .s_axi_rid(rid), .s_axi_rdata(rdata), .s_axi_rresp(rresp),
-    .s_axi_rlast(rlast), .s_axi_rvalid(rvalid), .s_axi_rready(rready)
-  );
+  axi4_mem_slave #(.AW(10), .ID_W(ID_W), .SWAP(BYTE_SWAP)) u_mem ( // AXI4スレーブのメモリモデル (1024語, 乱数で遅延) / AXI4 slave memory model (1024 words, random delays)
+    .aclk(clk), .aresetn(aresetn), .rnd(rnd),           // クロック, リセット, 乱数モード / clock, reset, random mode
+    .s_axi_awid(awid), .s_axi_awaddr(awaddr), .s_axi_awlen(awlen), // AWチャネル / AW channel
+    .s_axi_awsize(awsize), .s_axi_awburst(awburst),     // AWチャネル (サイズ, バースト) / AW channel (size, burst)
+    .s_axi_awvalid(awvalid), .s_axi_awready(awready),   // AWのハンドシェイク / AW handshake
+    .s_axi_wdata(wdata), .s_axi_wstrb(wstrb), .s_axi_wlast(wlast), // Wチャネル / W channel
+    .s_axi_wvalid(wvalid), .s_axi_wready(wready),       // Wのハンドシェイク / W handshake
+    .s_axi_bid(bid), .s_axi_bresp(bresp), .s_axi_bvalid(bvalid), // Bチャネル / B channel
+    .s_axi_bready(bready),                              // BのREADY / B ready
+    .s_axi_arid(arid), .s_axi_araddr(araddr), .s_axi_arlen(arlen), // ARチャネル / AR channel
+    .s_axi_arsize(arsize), .s_axi_arburst(arburst),     // ARチャネル (サイズ, バースト) / AR channel (size, burst)
+    .s_axi_arvalid(arvalid), .s_axi_arready(arready),   // ARのハンドシェイク / AR handshake
+    .s_axi_rid(rid), .s_axi_rdata(rdata), .s_axi_rresp(rresp), // Rチャネル / R channel
+    .s_axi_rlast(rlast), .s_axi_rvalid(rvalid), .s_axi_rready(rready) // Rチャネル (LAST, ハンドシェイク) / R channel (last, handshake)
+  );                                                    // u_memの終わり / end of u_mem
 
-  always #5 clk = ~clk;
+  always #5 clk = ~clk;                                 // 周期10のクロック / clock with period 10
 
   // 命令フェッチの AR を数える (キャッシュのミス回数)
   // count the ARs of instruction fetches (the number of cache misses)
-  integer n_if = 0;
-  always @(posedge clk) if (arvalid && arready && arid == 0) n_if = n_if + 1;
+  integer n_if = 0;                                     // 命令フェッチのAR回数 / number of fetch ARs
+  always @(posedge clk) if (arvalid && arready && arid == 0) n_if = n_if + 1; // ID=0 (IF) のARが受け付けられたら数える (キャッシュミス数) / count accepted ARs with ID 0 (IF) = cache misses
 
-  function [31:0] bswap;
-    input [31:0] d;
-    bswap = {d[7:0], d[15:8], d[23:16], d[31:24]};
-  endfunction
+  function [31:0] bswap;                                // 語のバイト順を反転する関数 / reverse the bytes of a word
+    input [31:0] d;                                     // 入力の語 / input word
+    bswap = {d[7:0], d[15:8], d[23:16], d[31:24]};      // バイトの並べ替え / reorder the bytes
+  endfunction                                           // 関数の終わり / end of function
 
-  task finish_with;
-    input [8*8-1:0] verdict;
-    begin
-      if (u_mem.errors != 0) verdict = "AXIERR";
-      $display("RESULT: stop at PC=%h after %0d cycles -> %0s", pc, cycles, verdict);
-      $display("AXI: reads=%0d (fetch %0d) writes=%0d protocol_errors=%0d bus_error=%b",
-               u_mem.n_rd, n_if, u_mem.n_wr, u_mem.errors, bus_error);
-      $display("DEV: reads=%0d dev_a=%0d dev_b=%h read_errors=%0d write_errors=%0d",
-               u_mem.dev_rd, u_mem.dev_a, u_mem.dev_b, u_mem.n_rd_err, u_mem.n_wr_err);
-      $finish;
-    end
-  endtask
+  task finish_with;                                     // 結果と統計を表示して終わるタスク / task: print the verdict and statistics, then finish
+    input [8*8-1:0] verdict;                            // 判定の文字列 (最大8文字) / verdict string (up to 8 chars)
+    begin                                               // タスク本体 / task body
+      if (u_mem.errors != 0) verdict = "AXIERR";        // スレーブがプロトコル違反を見つけていたらAXIERRにする / AXIERR if the slave found protocol violations
+      $display("RESULT: stop at PC=%h after %0d cycles -> %0s", pc, cycles, verdict); // run_bup_axi.shが見る結果行 / the result line run_bup_axi.sh greps
+      $display("AXI: reads=%0d (fetch %0d) writes=%0d protocol_errors=%0d bus_error=%b", // バスの統計: 読み出し数, フェッチ数, 書き込み数, 違反数 / bus statistics: reads, fetches, writes, violations
+               u_mem.n_rd, n_if, u_mem.n_wr, u_mem.errors, bus_error); // 表示する値 (スレーブの内部カウンタを階層参照) / values (hierarchical refs to the slave's counters)
+      $display("DEV: reads=%0d dev_a=%0d dev_b=%h read_errors=%0d write_errors=%0d", // I/Oデバイスの統計 / I/O device statistics
+               u_mem.dev_rd, u_mem.dev_a, u_mem.dev_b, u_mem.n_rd_err, u_mem.n_wr_err); // 表示する値 / values
+      $finish;                                          // 終了 / finish
+    end                                                 // タスク本体の終わり / end of task body
+  endtask                                               // タスクの終わり / end of task
 
-  initial begin
-    if (!$value$plusargs("HEX=%s", hexfile)) begin
-      $display("usage: vvp sim +HEX=mem.hex +PC=300 +CYCLES=2500 [+RANDOM] [+SEED=n]");
-      $finish;
-    end
-    if (!$value$plusargs("PC=%h", reset_pc))   reset_pc = 32'h300;
-    if (!$value$plusargs("CYCLES=%d", maxcyc)) maxcyc   = 2500;
-    if (!$value$plusargs("SEED=%d", seed))     seed     = 1;
-    rnd   = $test$plusargs("RANDOM");
-    trace = $test$plusargs("TRACE");
-    if ($test$plusargs("VCD")) begin
-      $dumpfile("tb_stm_axi.vcd");
-      $dumpvars(0, tb_stm_axi);
-    end
+  initial begin                                         // テストの手順 / the test sequence
+    if (!$value$plusargs("HEX=%s", hexfile)) begin      // +HEX=が無ければ使い方 / usage when +HEX= is missing
+      $display("usage: vvp sim +HEX=mem.hex +PC=300 +CYCLES=2500 [+RANDOM] [+SEED=n]"); // 使い方の表示 / print usage
+      $finish;                                          // 終了 / finish
+    end                                                 // if の終わり / end of if
+    if (!$value$plusargs("PC=%h", reset_pc))   reset_pc = 32'h300; // 開始番地 (既定0x300) / start address (default 0x300)
+    if (!$value$plusargs("CYCLES=%d", maxcyc)) maxcyc   = 2500; // サイクル上限 (既定2500: バスが遅いので多め) / cycle limit (default 2500: the bus is slower)
+    if (!$value$plusargs("SEED=%d", seed))     seed     = 1; // 乱数の種 / random seed
+    rnd   = $test$plusargs("RANDOM");                   // スレーブの乱数遅延を使うか / use the slave's random delays?
+    trace = $test$plusargs("TRACE");                    // 毎サイクルの表示 / per-cycle trace
+    if ($test$plusargs("VCD")) begin                    // +VCDなら波形を記録 / with +VCD, record waveforms
+      $dumpfile("tb_stm_axi.vcd");                      // 波形ファイル名 / waveform file name
+      $dumpvars(0, tb_stm_axi);                         // 全階層の全信号を記録 / dump every signal of every level
+    end                                                 // if の終わり / end of if
 
     #1;   // スレーブの initial (メモリのクリア) の後で読み込む
           // load after the slave's initial block (memory clear)
@@ -243,32 +243,32 @@ module tb_stm_axi;
     //         メモリにも反転した語を入れておく (CPU から見える内容は同じになる)。
     // [Note] With BYTE_SWAP=1 the byte order of the words on the bus is reversed, so reversed words
     //        are put into the slave's memory too (the contents seen by the CPU stay the same).
-    u_mem.seed = seed;
-    $readmemh(hexfile, u_mem.mem);
-    if (BYTE_SWAP)
-      for (k = 0; k < 1024; k = k + 1) u_mem.mem[k] = bswap(u_mem.mem[k]);
+    u_mem.seed = seed;                                  // スレーブの乱数の種を設定 / set the slave's seed
+    $readmemh(hexfile, u_mem.mem);                      // プログラムをスレーブのメモリへ / load the program into the slave memory
+    if (BYTE_SWAP)                                      // バイト順を入れ替える設定なら / when byte swapping
+      for (k = 0; k < 1024; k = k + 1) u_mem.mem[k] = bswap(u_mem.mem[k]); // 全語を反転して入れ直す / reverse every word
 
-    repeat (2) @(posedge clk);
-    @(negedge clk) aresetn = 1'b1;
+    repeat (2) @(posedge clk);                          // リセットを2クロック / hold reset 2 clocks
+    @(negedge clk) aresetn = 1'b1;                      // 立ち下がりでリセット解除 / release reset on the falling edge
 
-    for (cycles = 1; cycles <= maxcyc; cycles = cycles + 1) begin
-      #1;
-      w    = u_mem.mem[pc[11:2]];
-      insn = BYTE_SWAP ? bswap(w) : w;
-      if (trace)
-        $display("%4d PC=%h D_FWD=%b A_FWD=%b B_FWD=%b E_FWD=%b W_COMPLETE=%b I0=%h I1=%h AR=%b%b AW=%b W=%b R=%b B=%b",
-                 cycles, pc, u_dut.u_cntl.D_FWD, u_dut.u_cntl.A_FWD,
-                 u_dut.u_cntl.B_FWD, u_dut.u_cntl.E_FWD,
-                 u_dut.u_cntl.W_COMPLETE, u_dut.u_cntl.I0, u_dut.u_cntl.I1,
-                 arvalid, arready, awvalid, wvalid, rvalid, bvalid);
-      if (insn[31:28] == 4'hD) begin
-        if (pc == 32'h3f0)      finish_with("OK");
-        else if (pc == 32'h3d0) finish_with("DEAD");
-        else                    finish_with("STOP");
-      end
-      @(negedge clk);
-    end
-    $display("RESULT: timeout PC=%h after %0d cycles -> TIMEOUT", pc, maxcyc);
-    $finish;
-  end
-endmodule
+    for (cycles = 1; cycles <= maxcyc; cycles = cycles + 1) begin // 1サイクルずつ / one cycle at a time
+      #1;                                               // 信号が落ち着くのを待つ / let signals settle
+      w    = u_mem.mem[pc[11:2]];                       // PCの語をスレーブのメモリから直接読む / read the word at PC straight from the slave memory
+      insn = BYTE_SWAP ? bswap(w) : w;                  // CPUから見た命令語に直す / convert to the CPU's view
+      if (trace)                                        // +TRACEなら / with +TRACE
+        $display("%4d PC=%h D_FWD=%b A_FWD=%b B_FWD=%b E_FWD=%b W_COMPLETE=%b I0=%h I1=%h AR=%b%b AW=%b W=%b R=%b B=%b", // パイプラインとAXIのハンドシェイクを表示 / show the pipeline and AXI handshakes
+                 cycles, pc, u_dut.u_cntl.D_FWD, u_dut.u_cntl.A_FWD, // サイクル, PC, D/A段 (DUT内部を階層参照) / cycle, PC, D/A (hierarchical refs into the DUT)
+                 u_dut.u_cntl.B_FWD, u_dut.u_cntl.E_FWD, // B/E段 / B/E stages
+                 u_dut.u_cntl.W_COMPLETE, u_dut.u_cntl.I0, u_dut.u_cntl.I1, // 完了と発行候補 / completion and issue candidates
+                 arvalid, arready, awvalid, wvalid, rvalid, bvalid); // AXIの各チャネルのVALID/READY / VALID / READY of the AXI channels
+      if (insn[31:28] == 4'hD) begin                    // 診断命令に着いたら止める / stop at a diagnostic insn
+        if (pc == 32'h3f0)      finish_with("OK");      // 0x3f0 = 成功 / 0x3f0 = pass
+        else if (pc == 32'h3d0) finish_with("DEAD");    // 0x3d0 = 失敗 / 0x3d0 = fail
+        else                    finish_with("STOP");    // その他 = 停止 / otherwise = stop
+      end                                               // if の終わり / end of if
+      @(negedge clk);                                   // 次のサイクルへ / next cycle
+    end                                                 // for の終わり / end of for
+    $display("RESULT: timeout PC=%h after %0d cycles -> TIMEOUT", pc, maxcyc); // 上限まで止まらなかった / did not stop within the limit
+    $finish;                                            // 終了 / finish
+  end                                                   // initial の終わり / end of initial
+endmodule                                               // モジュールの終わり / end of module

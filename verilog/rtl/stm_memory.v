@@ -41,37 +41,37 @@
 //   - The bypass on ifdth / ifdtl is for fetching a word that is being stored in the same
 //     cycle, and it reproduces the evaluation order of the C version (read after write).
 // =====================================================================
-module stm_memory #(
+module stm_memory #(                                    // シミュレーション用メモリ (非同期読み出し3ポート+書き込み1ポート) / simulation memory (3 async read ports + 1 write port)
   parameter AW       = 10,          // 語アドレス幅 (2^AW 語)
                                     // word address width (2^AW words)
   parameter INIT_HEX = ""           // $readmemh で読む初期化ファイル
                                     // init file read with $readmemh
-) (
-  input             clk,
-  input             we,
-  input      [31:0] opad,           // LBS-AD
-  input      [31:0] stdt,           // LBS-DT
-  input      [31:0] ifad,           // IB-AD
-  output     [31:0] opdt,           // MEM-DT-OP
-  output     [31:0] ifdth,          // MEM-DT-IF-H
-  output     [31:0] ifdtl           // MEM-DT-IF-L
-);
-  reg [31:0] mem [0:(1<<AW)-1];
+) (                                                     // パラメータの終わり, ポートの始まり / end of parameters, start of ports
+  input             clk,                                // クロック (書き込みだけが同期) / clock (only writes are synchronous)
+  input             we,                                 // 書き込み許可 ← LBS_WE (160のFF) / write enable <- LBS_WE (FF in 160)
+  input      [31:0] opad,           // LBS-AD  -- オペランドのバイト番地 (160のFF) / operand byte address (FF in 160)
+  input      [31:0] stdt,           // LBS-DT  -- 書き込みデータ (160のFF) / write data (FF in 160)
+  input      [31:0] ifad,           // IB-AD  -- フェッチ番地 (190のFF, 8バイト単位) / fetch address (FF in 190, 8-byte unit)
+  output     [31:0] opdt,           // MEM-DT-OP  -- オペランドの読み出しデータ → 050 / operand read data -> 050
+  output     [31:0] ifdth,          // MEM-DT-IF-H  -- 8n番地の語 (先の命令) → 180 / word at 8n (earlier insn) -> 180
+  output     [31:0] ifdtl           // MEM-DT-IF-L  -- 8n+4番地の語 (後の命令) → 180 / word at 8n+4 (later insn) -> 180
+);                                                      // ポート宣言の終わり / end of ports
+  reg [31:0] mem [0:(1<<AW)-1];                         // 2^AW語x32bitの配列 (非同期読み出しなのでFPGAではLUTRAM/FFになる) / 2^AW x 32-bit array (async reads -> LUTRAM / FFs on an FPGA)
 
-  integer k;
-  initial begin
-    for (k = 0; k < (1<<AW); k = k + 1) mem[k] = 32'd0;
-    if (INIT_HEX != "") $readmemh(INIT_HEX, mem);
-  end
+  integer k;                                            // 初期化ループの変数 / init loop variable
+  initial begin                                         // シミュレーション開始時の初期化 / initialization at simulation start
+    for (k = 0; k < (1<<AW); k = k + 1) mem[k] = 32'd0; // まず全語を0に / first clear every word
+    if (INIT_HEX != "") $readmemh(INIT_HEX, mem);       // ファイル名があればプログラムを読み込む (mem2hex.pyの出力) / load the program if a file is given (mem2hex.py output)
+  end                                                   // initial の終わり / end of initial
 
-  wire [AW-1:0] op_w = opad[AW+1:2];                 // LBS-AD >> 2
-  wire [AW-1:0] ih_w = {ifad[AW+1:3], 1'b0};         // (IB-AD >> 2) & ~1
-  wire [AW-1:0] il_w = {ifad[AW+1:3], 1'b1};         // (IB-AD >> 2) |  1
+  wire [AW-1:0] op_w = opad[AW+1:2];                 // LBS-AD >> 2  -- 語番地: バイト番地の[AW+1:2]を取り出す配線 / word address: wires of byte-address bits [AW+1:2]
+  wire [AW-1:0] ih_w = {ifad[AW+1:3], 1'b0};         // (IB-AD >> 2) & ~1  -- 偶数語: 最下位を0に固定 (GND) / even word: lowest bit tied to 0 (GND)
+  wire [AW-1:0] il_w = {ifad[AW+1:3], 1'b1};         // (IB-AD >> 2) |  1  -- 奇数語: 最下位を1に固定 (VCC) / odd word: lowest bit tied to 1 (VCC)
 
-  always @(posedge clk)
-    if (we) mem[op_w] <= stdt;
+  always @(posedge clk)                                 // 書き込み: クロックの立ち上がりで / writes on the rising edge
+    if (we) mem[op_w] <= stdt;                          // LBS_ADの語へLBS_DTを書く (語単位, サブワードは090のALUで合成済み) / write LBS_DT to the word at LBS_AD (word only; sub-words built by the ALU in 090)
 
-  assign opdt  = we ? stdt : mem[op_w];
-  assign ifdth = (we && op_w == ih_w) ? stdt : mem[ih_w];
-  assign ifdtl = (we && op_w == il_w) ? stdt : mem[il_w];
-endmodule
+  assign opdt  = we ? stdt : mem[op_w];                 // オペランド読み出し: 書き込み中はそのデータ (write-through), そうでなければ配列 / operand read: the write data while writing (write-through), else the array
+  assign ifdth = (we && op_w == ih_w) ? stdt : mem[ih_w]; // フェッチの1語目 (8n番地): 同じ語に書いていればバイパス / first fetch word (address 8n): bypass if that word is being written
+  assign ifdtl = (we && op_w == il_w) ? stdt : mem[il_w]; // フェッチの2語目 (8n+4番地): 同じくバイパス / second fetch word (8n+4): same bypass
+endmodule                                               // モジュールの終わり / end of module

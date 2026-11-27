@@ -81,37 +81,37 @@
 // [Note] Is a BC resolved in this cycle: when the instruction making the CC moves on from E (LS pipe)
 //        or A (EX pipe). This includes the case where that instruction is in A/E in the same cycle
 //        the BC is issued in D.
-assign GG_SOLVING_CASE_ON_E = 
-     E_FWD & (E_LS_SOLVING_BC | D_FWD & DD_ISSUEING_UNSOLVED_BC_ON_E_LS);
-assign GG_SOLVING_CASE_ON_A = 
-     A_FWD & (A_EX_SOLVING_BC | D_FWD & DD_ISSUEING_UNSOLVED_BC_ON_A_EX);
-assign GG_SOLVING_CASE = GG_SOLVING_CASE_ON_E | GG_SOLVING_CASE_ON_A;
+assign GG_SOLVING_CASE_ON_E =                           // EでBCが解決する: Eが進み ... / BC solved in E: E moves on ...
+     E_FWD & (E_LS_SOLVING_BC | D_FWD & DD_ISSUEING_UNSOLVED_BC_ON_E_LS); // ...EのLS命令がCCの作り手 (今発行したBCの作り手がEの場合も) (LUT4) / ... and the E LS insn makes the CC (also for a BC issued now) (LUT4)
+assign GG_SOLVING_CASE_ON_A =                           // AでBCが解決する: Aが進み ... / BC solved in A: A moves on ...
+     A_FWD & (A_EX_SOLVING_BC | D_FWD & DD_ISSUEING_UNSOLVED_BC_ON_A_EX); // ...AのEX命令がCCの作り手 (LUT4) / ... and the A EX insn makes the CC (LUT4)
+assign GG_SOLVING_CASE = GG_SOLVING_CASE_ON_E | GG_SOLVING_CASE_ON_A; // このサイクルにBCが解決する (OR) / a BC is solved this cycle (OR)
 
 // 【解説】解決に使うマスクと CC (同じサイクルに発行した BC なら IJB のマスク)。
 // [Note] Mask and CC used for the resolution (the mask of IJB for a BC issued in the same cycle).
-assign GG_MASK_FOR_BC = (E_LS_SOLVING_BC | A_EX_SOLVING_BC) ? G_BC_MASK : IJB_RD_MASK;
-assign GG_CC_FOR_BC = (GG_SOLVING_CASE_ON_E ? EE_ALU_CC : AA_EXU_CC );
+assign GG_MASK_FOR_BC = (E_LS_SOLVING_BC | A_EX_SOLVING_BC) ? G_BC_MASK : IJB_RD_MASK; // 判定に使うマスク: 発行済みBCは覚えたG_BC_MASK, 今発行するBCはIJBのマスク (4bit 2:1 MUX) / mask: stored G_BC_MASK for an issued BC, IJB's mask for one issuing now (4-bit 2:1 mux)
+assign GG_CC_FOR_BC = (GG_SOLVING_CASE_ON_E ? EE_ALU_CC : AA_EXU_CC ); // 判定に使うCC: EのALUかAのEXUの出力 (2bit 2:1 MUX, 演算器の直後) / CC used: E ALU or A EXU output (2-bit 2:1 mux right after the units)
 
 // 【解説】D で未解決の BC を発行した。
 // [Note] An unresolved BC was issued in D.
-assign GG_ISSUEING_CASE = D_FWD & DD_ISSUEING_UNSOLVED_BC;
+assign GG_ISSUEING_CASE = D_FWD & DD_ISSUEING_UNSOLVED_BC; // Dで未解決BCを発行した (AND) / an unsolved BC issued in D (AND)
 
 
 
 // 【解説】未解決 BC の有無: 発行で 1, 解決か割り込みで 0。
 // [Note] Is there an unresolved BC: 1 on issue, 0 on resolution or interrupt.
-assign G_BC_PENDING_NEW = WW_INTERRUPTION | GG_SOLVING_CASE ? 0 : GG_ISSUEING_CASE ? 1 :
-							G_BC_PENDING;
+assign G_BC_PENDING_NEW = WW_INTERRUPTION | GG_SOLVING_CASE ? 0 : GG_ISSUEING_CASE ? 1 : // 未解決BCあり: 割り込みか解決で0, 発行で1 ... / BC pending: 0 on interrupt or solve, 1 on issue ...
+							G_BC_PENDING; // ...それ以外は保持 (FF1本+LUT4) → 030, 070, 150 / ... else hold (1 FF + LUT4) -> 030, 070, 150
 // 【解説】解決したサイクルの次に 1 サイクルだけ 1。taken かどうかも記録。
 // [Note] 1 for one cycle only, the cycle after resolution. Whether it was taken is recorded too.
-assign G_BC_JUST_SOLVED_NEW = WW_INTERRUPTION ? 0 : GG_SOLVING_CASE ? 1 : 0;
+assign G_BC_JUST_SOLVED_NEW = WW_INTERRUPTION ? 0 : GG_SOLVING_CASE ? 1 : 0; // 解決した次の1サイクルだけ1 (FF1本, ファンアウト大) / 1 for one cycle after a solve (1 FF, large fan-out)
 
-assign G_BC_JUST_TAKEN_NEW = WW_INTERRUPTION ? 0 :
-		GG_SOLVING_CASE ? cc_match(GG_CC_FOR_BC , GG_MASK_FOR_BC) : 0;
+assign G_BC_JUST_TAKEN_NEW = WW_INTERRUPTION ? 0 :      // 解決したBCが成立か: ... / was the solved BC taken: ...
+		GG_SOLVING_CASE ? cc_match(GG_CC_FOR_BC , GG_MASK_FOR_BC) : 0; // ...mask[3-cc]の4:1 MUX. E FF→ALU→CC→このFFがEサイクルの長い経路 / ... the mask[3-cc] 4:1 mux. E FF -> ALU -> CC -> this FF is a long E-cycle path
 
 // 【解説】発行時の予測とマスクを覚えておく。
 // [Note] Remember the prediction and the mask at issue.
-assign G_BC_TKN_PREDICTED_NEW = 
-		GG_ISSUEING_CASE ? DD_PREDICTING_TAKEN : G_BC_TKN_PREDICTED;
+assign G_BC_TKN_PREDICTED_NEW =                         // 発行時の予測を記憶 ... / remember the prediction at issue ...
+		GG_ISSUEING_CASE ? DD_PREDICTING_TAKEN : G_BC_TKN_PREDICTED; // ...(CE付きFF1本) → 010のEID, 050のCANCEL_BY_BC / ... (1 FF with CE) -> EID in 010, CANCEL_BY_BC in 050
 
-assign G_BC_MASK_NEW = 	GG_ISSUEING_CASE ? IJB_RD_MASK         : G_BC_MASK;
+assign G_BC_MASK_NEW = 	GG_ISSUEING_CASE ? IJB_RD_MASK         : G_BC_MASK; // 発行時のCCマスクを記憶 (CE付きFF4本) → 090, 210 / remember the CC mask at issue (4 FFs with CE) -> 090, 210

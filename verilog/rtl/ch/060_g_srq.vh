@@ -56,9 +56,9 @@
 //         SUBJECT_TO_BC (未解決分岐の後に投機的に発行された) の命令だけ。
 // [Note] Valid and not cancelled. A branch misprediction only removes instructions with
 //        SUBJECT_TO_BC (issued speculatively after an unresolved branch).
-assign E_V_NOCAN = E_V & (!CANCEL_BY_BC | !E_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT;
-assign B_V_NOCAN = B_V & (!CANCEL_BY_BC | !B_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT;
-assign A_V_NOCAN = A_V & (!CANCEL_BY_BC | !A_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT;
+assign E_V_NOCAN = E_V & (!CANCEL_BY_BC | !E_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT; // Eの命令が生きている: V & 予測ミスで消えない & 割り込みで消えない (LUT4) / E insn alive: V & not killed by mispredict & not by interrupt (LUT4)
+assign B_V_NOCAN = B_V & (!CANCEL_BY_BC | !B_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT; // Bの命令が生きている (同じ形のLUT4) / B insn alive (same LUT4)
+assign A_V_NOCAN = A_V & (!CANCEL_BY_BC | !A_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT; // Aの命令が生きている → 070, 170 / A insn alive -> 070, 170
 // W: no intlk
 // EAB : A-cyc is trying to use regs that are not yet ready, i.e.
 //       reg data made by B-LS or E-LS(with EXU).
@@ -72,17 +72,17 @@ assign A_V_NOCAN = A_V & (!CANCEL_BY_BC | !A_JB_SUBJECT_TO_BC) & !CANCEL_BY_INT;
 //          - an LS-pipe instruction in E that goes through the ALU (sub-word / RM operation), or whose load data has not arrived
 //          - an LS-pipe instruction in B (load data comes at the end of B at the earliest)
 //        Then A cannot move on.
-assign A_EAB = 
-     E_V & E_WE1 & ((E_LS_OPCODE != 0) | E_LS_LD_V & !E_OPCLH_LCH) & (
-    	  (E_WAD1 == A_LS_RADB) & (A_WE1 | A_LS_SETCC)
-	| (E_WAD1 == A_EX_RAD1) & (A_WE2 | A_EX_SETCC)
-	| (E_WAD1 == A_EX_RAD2) & (A_WE2 | A_EX_SETCC) & A_EX_OP2_IS_GR
-      )
-  |  B_V & B_WE1 & (
-    	  (B_WAD1 == A_LS_RADB) & (A_WE1 | A_LS_SETCC)
-	| (B_WAD1 == A_EX_RAD1) & (A_WE2 | A_EX_SETCC)
-	| (B_WAD1 == A_EX_RAD2) & (A_WE2 | A_EX_SETCC) & A_EX_OP2_IS_GR
-      );
+assign A_EAB =                                          // Aが読むGRがまだ出来ていない (データハザード) = 下の2項のOR / a GR read in A is not ready yet (data hazard) = OR of the two terms below
+     E_V & E_WE1 & ((E_LS_OPCODE != 0) | E_LS_LD_V & !E_OPCLH_LCH) & ( // 項1: EのLS命令がGRを書き, ALUを通すかロードデータ未着で ... / term 1: E LS insn writes a GR and goes through the ALU or its load data is missing ...
+    	  (E_WAD1 == A_LS_RADB) & (A_WE1 | A_LS_SETCC)     // ...その番号をAのLSがベースとして読む (4bit比較器) / ... and A's LS reads it as base (4-bit comparator)
+	| (E_WAD1 == A_EX_RAD1) & (A_WE2 | A_EX_SETCC)         // ...AのEXがR1として読む (4bit比較器) / ... A's EX reads it as R1 (4-bit comparator)
+	| (E_WAD1 == A_EX_RAD2) & (A_WE2 | A_EX_SETCC) & A_EX_OP2_IS_GR // ...AのEXがR2(GRの場合)として読む (4bit比較器) / ... A's EX reads it as R2 when a GR (4-bit comparator)
+      )                                                 // 項1の終わり / end of term 1
+  |  B_V & B_WE1 & (                                    // 項2: BのLS命令がGRを書く (ロードデータは早くてもBの終わり) ... / term 2: B LS insn writes a GR (load data at end of B at best) ...
+    	  (B_WAD1 == A_LS_RADB) & (A_WE1 | A_LS_SETCC)     // ...AのLSがベースとして読む (4bit比較器) / ... A's LS reads it as base (4-bit comparator)
+	| (B_WAD1 == A_EX_RAD1) & (A_WE2 | A_EX_SETCC)         // ...AのEXがR1として読む / ... A's EX reads it as R1
+	| (B_WAD1 == A_EX_RAD2) & (A_WE2 | A_EX_SETCC) & A_EX_OP2_IS_GR // ...AのEXがR2として読む. 全体で比較器6個+AND/OR (LUT 10個程度) / ... A's EX reads it as R2. 6 comparators + AND/OR in all (~10 LUTs)
+      );                                                // A_EABの終わり → 070のA_INTLK / end of A_EAB -> A_INTLK in 070
 
 // SU priority signals
 
@@ -107,9 +107,9 @@ assign A_EAB =
 // [Note] Access request from the L/ST in the A cycle to the S unit
 //        (original comment: a provisional implementation for level 0).
 //        No request is made when ST2 is stuck and it could not proceed anyway.
-assign AA_LD_REQ_VAL = A_V_NOCAN & !A_EAB & (A_LS_LD_V | A_LS_ST_V)
-	 & !( STB_V & E_V_NOCAN & E_LS_ST_V & B_V_NOCAN )
-	 & !AA_IO_LD_HOLD;
+assign AA_LD_REQ_VAL = A_V_NOCAN & !A_EAB & (A_LS_LD_V | A_LS_ST_V) // AのL/STがSユニットへ要求: 生きていてハザード無しで ... / A's L/ST requests the S unit: alive, no hazard ...
+	 & !( STB_V & E_V_NOCAN & E_LS_ST_V & B_V_NOCAN )      // ...ST2が詰まってどうせ進めない場合を除き ... / ... except when ST2 is stuck and it could not move anyway ...
+	 & !AA_IO_LD_HOLD;                                     // ...I/Oロード待ちでもない (LUT2段程度) / ... and not holding an I/O load (~2 LUT levels)
 
 // 【解説】(Verilog 版で追加, EXT_BUS=1) I/O 領域へのロードは、確定するまで
 //         S ユニットに渡さない (A サイクルで待たせる)。待つ条件:
@@ -130,16 +130,16 @@ assign AA_LD_REQ_VAL = A_V_NOCAN & !A_EAB & (A_LS_LD_V | A_LS_ST_V)
 //        The waiting load does not depend on the earlier instructions, so there is no deadlock.
 //        An interrupt of the instruction in W cancels A in the same cycle through CANCEL_BY_INT.
 //        Only an overflow of the EX instruction issued first in the same pair cannot be prevented.
-assign AA_IO_LD_HOLD = A_LS_LD_V & is_io(AA_EAG_OUTPUT)
-	 & ( A_JB_SUBJECT_TO_BC | B_V | E_V | STB_V
-	   | OP_B_V & (OP_B_OPC == SU_OPC_ST2)
-	   | OP_WAIT_V & (OP_WAIT_OPC == SU_OPC_ST2) );
+assign AA_IO_LD_HOLD = A_LS_LD_V & is_io(AA_EAG_OUTPUT) // I/Oロードを確定まで待たせる: Aのロード番地がI/O (加算器出力の比較) で ... / hold an I/O load until certain: A's load address is I/O (compare on adder output) ...
+	 & ( A_JB_SUBJECT_TO_BC | B_V | E_V | STB_V            // ...投機中か, B/Eに先行命令, STBにストアがある ... / ... speculative, or older insns in B/E, or a store in STB ...
+	   | OP_B_V & (OP_B_OPC == SU_OPC_ST2)                 // ...SユニットのOP-BにST2がある ... / ... an ST2 in OP-B ...
+	   | OP_WAIT_V & (OP_WAIT_OPC == SU_OPC_ST2) );        // ...OP-WAITにST2がある (EXT_BUS=0なら全体が0で消える) / ... an ST2 in OP-WAIT (whole thing is 0 and removed when EXT_BUS=0)
 
 // 【解説】ストアバッファ STB からの実書き込み (ST2) の要求。
 // [Note] Request for the actual write (ST2) from the store buffer STB.
-assign WW_ST_REQ_VAL = STB_V;
+assign WW_ST_REQ_VAL = STB_V;                           // STBにデータがあればST2を要求: 別名 (ゲート無し) / request ST2 when STB holds data: alias (no gate)
 
 // 【解説】要求の受け付け。A からの L/ST を優先し、空いていれば ST2 を通す。
 // [Note] Accepting requests. The L/ST from A has priority; ST2 goes through if free.
-assign AA_LD_GO = SU_OP_RDY & AA_LD_REQ_VAL;
-assign WW_ST_GO = SU_ST_RDY & WW_ST_REQ_VAL & !AA_LD_GO;
+assign AA_LD_GO = SU_OP_RDY & AA_LD_REQ_VAL;            // AのL/STが受け付けられた (AND) → 070, 160 / A's L/ST accepted (AND) -> 070, 160
+assign WW_ST_GO = SU_ST_RDY & WW_ST_REQ_VAL & !AA_LD_GO; // ST2が受け付けられた (Aを優先する調停, AND3) → 070, 090, 160 / ST2 accepted (arbitration favouring A, AND3) -> 070, 090, 160

@@ -62,14 +62,14 @@
 //         EXT_BUS=1 では ST2 もバスの書き込み完了 (RANDOM_FOR_OPCLH) を待つ。
 // [Note] The OP-B request finishes (ST2 finishes in 1 cycle, L/ST on a cache hit).
 //        With EXT_BUS=1, ST2 also waits for the bus write to complete (RANDOM_FOR_OPCLH).
-assign OP_B_FORWARDING = (OP_B_OPC == SU_OPC_ST2) & (!EXT_BUS | RANDOM_FOR_OPCLH)
-		| B_OPCLH;
+assign OP_B_FORWARDING = (OP_B_OPC == SU_OPC_ST2) & (!EXT_BUS | RANDOM_FOR_OPCLH) // OP-Bの要求が終わる: ST2は1サイクル (外部バスなら書き込み完了待ち) ... / the OP-B request finishes: ST2 in 1 cycle (with an external bus, wait for the write) ...
+		| B_OPCLH;                              // ...L/STはキャッシュの応答で (LUT4) / ... L/ST on the cache response (LUT4)
 // 【解説】このサイクルに受け付ける要求 (A からの L/ST か, STB からの ST2) の種類と番地。
 // [Note] Kind and address of the request accepted in this cycle (L/ST from A, or ST2 from the STB).
-assign GO_SU = AA_LD_GO|WW_ST_GO;
+assign GO_SU = AA_LD_GO|WW_ST_GO;                       // このサイクルに新しい要求を受け付ける (OR) / a new request is accepted this cycle (OR)
 
-assign ACCEPTING_OPC = (WW_ST_GO ? SU_OPC_ST2 : (A_LS_ST_V?SU_OPC_ST:SU_OPC_LD));
-assign ACCEPTING_AD = (WW_ST_GO ? STB_AD : AA_EAG_OUTPUT);
+assign ACCEPTING_OPC = (WW_ST_GO ? SU_OPC_ST2 : (A_LS_ST_V?SU_OPC_ST:SU_OPC_LD)); // 受け付ける要求の種類: ST2 / ST / LD (2bit, LUT3 x2) / kind of the accepted request: ST2 / ST / LD (2 bits, two LUT3s)
+assign ACCEPTING_AD = (WW_ST_GO ? STB_AD : AA_EAG_OUTPUT); // 受け付ける番地: ST2ならSTB_AD, それ以外はAのEAG出力 (32bit 2:1 MUX) / accepted address: STB_AD for ST2, else the A EAG output (32-bit 2:1 mux)
 
 // WAIT state : stay/accept from IU/clear
 
@@ -79,21 +79,21 @@ assign ACCEPTING_AD = (WW_ST_GO ? STB_AD : AA_EAG_OUTPUT);
 // [Note] What OP-WAIT does:
 //          STAYS  : OP-B has not finished, and the waiting request keeps waiting
 //          ACCEPT : a new request was accepted before OP-B finished -> put it in OP-WAIT
-assign OP_WAIT_STAYS = OP_B_V_NOCAN & !OP_B_FORWARDING & OP_WAIT_V_NOCAN;
-assign OP_WAIT_ACCEPT = OP_B_V_NOCAN & !OP_B_FORWARDING & GO_SU;
+assign OP_WAIT_STAYS = OP_B_V_NOCAN & !OP_B_FORWARDING & OP_WAIT_V_NOCAN; // OP-WAITが留まる: OP-Bが終わらず待ち要求がある (AND3) / OP-WAIT stays: OP-B not done and a waiting request (AND3)
+assign OP_WAIT_ACCEPT = OP_B_V_NOCAN & !OP_B_FORWARDING & GO_SU; // 新要求をOP-WAITへ入れる: OP-Bが終わらないうちに来た (AND3) / put the new request into OP-WAIT: it came while OP-B is busy (AND3)
 
 
-assign OP_WAIT_V_NEW = OP_WAIT_STAYS ? OP_WAIT_V   : OP_WAIT_ACCEPT ? 1 : 0;
-assign OP_WAIT_OPC_NEW = OP_WAIT_STAYS ? OP_WAIT_OPC : ACCEPTING_OPC;
-assign OP_WAIT_WE_NEW = OP_WAIT_STAYS ? OP_WAIT_WE  : OP_WAIT_ACCEPT ? WW_ST_GO : 0;
-assign OP_WAIT_AD_NEW = OP_WAIT_STAYS ? OP_WAIT_AD  : ACCEPTING_AD;
-assign OP_WAIT_DT_NEW = OP_WAIT_STAYS ? OP_WAIT_DT  : STB_DT;
+assign OP_WAIT_V_NEW = OP_WAIT_STAYS ? OP_WAIT_V   : OP_WAIT_ACCEPT ? 1 : 0; // OP-WAITの有効ビット: 留まる/受け付け/空 (FF+LUT) / OP-WAIT valid: stay / accept / empty (FF + LUT)
+assign OP_WAIT_OPC_NEW = OP_WAIT_STAYS ? OP_WAIT_OPC : ACCEPTING_OPC; // 要求の種類: 留まるなら保持 (CE), そうでなければ新要求 (2bit) / kind: hold (CE) if staying, else the new one (2 bits)
+assign OP_WAIT_WE_NEW = OP_WAIT_STAYS ? OP_WAIT_WE  : OP_WAIT_ACCEPT ? WW_ST_GO : 0; // 書き込みか (ST2なら1) / write? (1 for ST2)
+assign OP_WAIT_AD_NEW = OP_WAIT_STAYS ? OP_WAIT_AD  : ACCEPTING_AD; // 番地: CE付きFF32本, D=ACCEPTING_AD / address: 32 FFs with CE, D = ACCEPTING_AD
+assign OP_WAIT_DT_NEW = OP_WAIT_STAYS ? OP_WAIT_DT  : STB_DT; // 書き込みデータ: CE付きFF32本, D=STB_DT (LUT無し) / write data: 32 FFs with CE, D = STB_DT (no LUT)
 
 // 【解説】投機的な (予測ミスで取り消される) 要求かどうか。
 // [Note] Is the request speculative (cancelled on a misprediction)?
-assign OP_WAIT_SUBJECT_TO_BC_NEW = OP_WAIT_STAYS ?
-				OP_WAIT_SUBJECT_TO_BC & !G_BC_JUST_SOLVED :
-	OP_WAIT_ACCEPT ?  AA_LD_GO & A_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED : 0;
+assign OP_WAIT_SUBJECT_TO_BC_NEW = OP_WAIT_STAYS ?      // 投機的な要求か: 留まるなら保持し解決で0 ... / speculative request: held, 0 once solved ...
+				OP_WAIT_SUBJECT_TO_BC & !G_BC_JUST_SOLVED : // ...(留まる場合) / ... (when staying)
+	OP_WAIT_ACCEPT ?  AA_LD_GO & A_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED : 0; // ...受け付けたAのL/STが投機中なら1 (LUT6) / ... 1 if the accepted A L/ST is speculative (LUT6)
 
 
 //  OP-B state : stay/accept from IU/shift from WAIT/clear
@@ -102,27 +102,27 @@ assign OP_WAIT_SUBJECT_TO_BC_NEW = OP_WAIT_STAYS ?
 //         新しく受け付けた要求を入れる。
 // [Note] What OP-B does: stays if not finished / takes the one from OP-WAIT /
 //        takes the newly accepted request.
-assign OP_B_STAYS = OP_B_V_NOCAN & !OP_B_FORWARDING;
+assign OP_B_STAYS = OP_B_V_NOCAN & !OP_B_FORWARDING;    // OP-Bが留まる: 有効で終わらない (AND) / OP-B stays: valid and not finished (AND)
 //OP-B-ACCEPT	= GO-SU
-assign OP_B_SHIFT = OP_WAIT_V_NOCAN;
+assign OP_B_SHIFT = OP_WAIT_V_NOCAN;                    // OP-WAITからOP-Bへ移す (別名) / move OP-WAIT into OP-B (alias)
 
 
-assign OP_B_V_NEW = OP_B_STAYS ? OP_B_V   : OP_B_SHIFT ? 1           : GO_SU;
-assign OP_B_OPC_NEW = OP_B_STAYS ? OP_B_OPC : OP_B_SHIFT ? OP_WAIT_OPC : ACCEPTING_OPC;
+assign OP_B_V_NEW = OP_B_STAYS ? OP_B_V   : OP_B_SHIFT ? 1           : GO_SU; // OP-Bの有効ビット: 留まる/移す/新要求 (FF+LUT) / OP-B valid: stay / shift / new (FF + LUT)
+assign OP_B_OPC_NEW = OP_B_STAYS ? OP_B_OPC : OP_B_SHIFT ? OP_WAIT_OPC : ACCEPTING_OPC; // OP-Bの種類: 保持はCEに, 残りがLUT4 (NETLIST.mdの例) / OP-B kind: hold goes to CE, the rest is a LUT4 (the NETLIST.md example)
 // 【解説】メモリ (キャッシュ) への書き込み許可・番地・データ。
 // [Note] Write enable, address and data to the memory (cache).
-assign LBS_WE_NEW = OP_B_STAYS ? LBS_WE   : OP_B_SHIFT ? OP_WAIT_WE  : WW_ST_GO;
-assign LBS_AD_NEW = OP_B_STAYS ? LBS_AD   : OP_B_SHIFT ? OP_WAIT_AD  :
-	    GO_SU      ? ACCEPTING_AD : 0;
-assign LBS_DT_NEW = OP_B_STAYS ? LBS_DT   : OP_B_SHIFT ? OP_WAIT_DT  : STB_DT;
+assign LBS_WE_NEW = OP_B_STAYS ? LBS_WE   : OP_B_SHIFT ? OP_WAIT_WE  : WW_ST_GO; // メモリ書き込み許可 → stm_memory / stm_axi_master (FF) / memory write enable -> stm_memory / stm_axi_master (FF)
+assign LBS_AD_NEW = OP_B_STAYS ? LBS_AD   : OP_B_SHIFT ? OP_WAIT_AD  : // メモリ番地: 保持 / OP-WAITから / ... / memory address: hold / from OP-WAIT / ...
+	    GO_SU      ? ACCEPTING_AD : 0;              // ...新要求の番地 / 0 (32bit 3:1 MUX+CE). AのEAG→このFF→Bでメモリへ / ... new address / 0 (32-bit 3:1 mux + CE). A EAG -> this FF -> memory in B
+assign LBS_DT_NEW = OP_B_STAYS ? LBS_DT   : OP_B_SHIFT ? OP_WAIT_DT  : STB_DT; // メモリ書き込みデータ: 32bit 2:1 MUX (OP-WAIT/STB) + CE / memory write data: 32-bit 2:1 mux (OP-WAIT / STB) + CE
 
-assign OP_B_SUBJECT_TO_BC_NEW = 
-	    OP_B_STAYS ? OP_B_SUBJECT_TO_BC & !G_BC_JUST_SOLVED    :
-	    OP_B_SHIFT ? OP_WAIT_SUBJECT_TO_BC & !G_BC_JUST_SOLVED :
-			 AA_LD_GO & A_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED;
+assign OP_B_SUBJECT_TO_BC_NEW =                         // OP-Bの要求が投機的か: ... / is the OP-B request speculative: ...
+	    OP_B_STAYS ? OP_B_SUBJECT_TO_BC & !G_BC_JUST_SOLVED    : // ...留まるなら保持 (解決で0) ... / ... held while staying (0 once solved) ...
+	    OP_B_SHIFT ? OP_WAIT_SUBJECT_TO_BC & !G_BC_JUST_SOLVED : // ...OP-WAITから移すならその値 ... / ... OP-WAIT's value when shifting ...
+			 AA_LD_GO & A_JB_SUBJECT_TO_BC & !G_BC_JUST_SOLVED; // ...新要求ならAの投機フラグ (LUT6) / ... A's speculative flag for a new one (LUT6)
 
 // 【解説】(Verilog 版で追加) OP-B に新しい要求が入る (留まる以外で有効になる)。
 //         stm_axi_master はこれで要求の切れ目を知る。
 // [Note] (added in the Verilog version) A new request enters OP-B (becomes valid other than by staying).
 //        stm_axi_master uses this to know where one request ends and the next begins.
-assign OP_B_NEW_NEW = OP_B_V_NEW & !OP_B_STAYS;
+assign OP_B_NEW_NEW = OP_B_V_NEW & !OP_B_STAYS;         // OP-Bに新しい要求が入った (1サイクルのパルス) → stm_axi_masterの開始合図 / a new request entered OP-B (1-cycle pulse) -> start strobe of stm_axi_master

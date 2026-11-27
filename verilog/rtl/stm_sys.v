@@ -59,82 +59,82 @@
 //   RANDOM_FOR_* come straight from tb_stm.v and simulate cache misses.
 //   If they are always 1, the memory is an ideal one that "answers in the same cycle".
 // =====================================================================
-module stm_sys #(
-  parameter MEM_AW   = 10,
-  parameter INIT_HEX = ""
-) (
-  input         clk,
-  input         rst,
-  input  [31:0] RESET_PC,
-  input         RANDOM_FOR_OPCLH,
-  input         RANDOM_FOR_IFRDY,
-  input         RANDOM_FOR_IFCLH,
-  output [31:0] PC
-);
-  wire [3:0]  dd_rad1, dd_rad2, dd_radb, b_ls_rads;
-  wire [31:0] gr_dt_1, gr_dt_2, gr_dt_b, gr_dt_s;
-  wire        w_we1, w_we2;
-  wire [3:0]  w_wad1, w_wad2;
-  wire [31:0] w_wdt1, w_wdt2;
-  wire        lbs_we;
-  wire [31:0] lbs_ad, lbs_dt, ib_ad;
-  wire [31:0] mem_dt_op, mem_dt_if_h, mem_dt_if_l;
+module stm_sys #(                                       // シミュレーション用のシステム: CPU+レジスタファイル+メモリ (配線だけ) / simulation system: CPU + register file + memory (wiring only)
+  parameter MEM_AW   = 10,                              // メモリの語番地幅 (10 = 1024語 = 4KB) / memory word-address width (10 = 1024 words = 4 KB)
+  parameter INIT_HEX = ""                               // メモリの初期化ファイル (tbから+HEXで渡す) / memory init file (passed from the tb as +HEX)
+) (                                                     // パラメータの終わり, ポートの始まり / end of parameters, start of ports
+  input         clk,                                    // クロック: 全FFへ / clock: to every FF
+  input         rst,                                    // 同期リセット (stm_cntlだけが使う) / synchronous reset (used only by stm_cntl)
+  input  [31:0] RESET_PC,                               // リセット後の開始番地 / start address after reset
+  input         RANDOM_FOR_OPCLH,                       // オペランドキャッシュのヒット (tbの乱数でミスを模擬) / operand-cache hit (tb random = miss simulation)
+  input         RANDOM_FOR_IFRDY,                       // フェッチ要求の受け付け可 (乱数) / fetch request accepted (random)
+  input         RANDOM_FOR_IFCLH,                       // 命令データが届いた (乱数) / fetch data arrived (random)
+  output [31:0] PC                                      // 完了した命令のPC (080のFF) → tbが停止判定に使う / PC of completed insns (FF in 080) -> tb uses it to detect the stop
+);                                                      // ポート宣言の終わり / end of ports
+  wire [3:0]  dd_rad1, dd_rad2, dd_radb, b_ls_rads;     // レジスタ読み出し番号のネット (u_cntl→u_reg) / register read-number nets (u_cntl -> u_reg)
+  wire [31:0] gr_dt_1, gr_dt_2, gr_dt_b, gr_dt_s;       // レジスタ読み出しデータのネット (u_reg→u_cntl) / register read-data nets (u_reg -> u_cntl)
+  wire        w_we1, w_we2;                             // 書き込み許可のネット (090のFF→u_reg) / write-enable nets (FFs in 090 -> u_reg)
+  wire [3:0]  w_wad1, w_wad2;                           // 書き込み番号のネット / write-number nets
+  wire [31:0] w_wdt1, w_wdt2;                           // 書き込みデータのネット / write-data nets
+  wire        lbs_we;                                   // メモリ書き込み許可のネット (160のFF→u_mem) / memory write-enable net (FF in 160 -> u_mem)
+  wire [31:0] lbs_ad, lbs_dt, ib_ad;                    // メモリ番地/データとフェッチ番地のネット / memory address / data and fetch-address nets
+  wire [31:0] mem_dt_op, mem_dt_if_h, mem_dt_if_l;      // メモリ読み出しデータのネット (u_mem→u_cntl) / memory read-data nets (u_mem -> u_cntl)
 
-  stm_cntl u_cntl (
-    .clk              (clk),
-    .rst              (rst),
-    .RESET_PC         (RESET_PC),
-    .RANDOM_FOR_OPCLH (RANDOM_FOR_OPCLH),
-    .RANDOM_FOR_IFRDY (RANDOM_FOR_IFRDY),
-    .RANDOM_FOR_IFCLH (RANDOM_FOR_IFCLH),
-    .DD_RAD1          (dd_rad1),
-    .DD_RAD2          (dd_rad2),
-    .DD_RADB          (dd_radb),
-    .B_LS_RADS        (b_ls_rads),
-    .GR_DT_1          (gr_dt_1),
-    .GR_DT_2          (gr_dt_2),
-    .GR_DT_B          (gr_dt_b),
-    .GR_DT_S          (gr_dt_s),
-    .W_WE1            (w_we1),
-    .W_WE2            (w_we2),
-    .W_WAD1           (w_wad1),
-    .W_WAD2           (w_wad2),
-    .W_WDT1           (w_wdt1),
-    .W_WDT2           (w_wdt2),
-    .LBS_WE           (lbs_we),
-    .LBS_AD           (lbs_ad),
-    .LBS_DT           (lbs_dt),
-    .MEM_DT_OP        (mem_dt_op),
+  stm_cntl u_cntl (                                     // CPU本体のインスタンス (EXT_BUSは既定の0: 理想メモリ用) / CPU core instance (EXT_BUS default 0: for the ideal memory)
+    .clk              (clk),                            // クロック / clock
+    .rst              (rst),                            // リセット / reset
+    .RESET_PC         (RESET_PC),                       // 開始番地 → PCのFFのリセット値 / start address -> reset value of the PC FFs
+    .RANDOM_FOR_OPCLH (RANDOM_FOR_OPCLH),               // キャッシュヒット信号を直結 / cache-hit signal wired through
+    .RANDOM_FOR_IFRDY (RANDOM_FOR_IFRDY),               // フェッチ受け付け信号を直結 / fetch-ready signal wired through
+    .RANDOM_FOR_IFCLH (RANDOM_FOR_IFCLH),               // フェッチ到着信号を直結 / fetch-arrival signal wired through
+    .DD_RAD1          (dd_rad1),                        // D: R1の番号 (組合せ出力) / D: R1 number (combinational output)
+    .DD_RAD2          (dd_rad2),                        // D: R2の番号 / D: R2 number
+    .DD_RADB          (dd_radb),                        // D: RBの番号 / D: RB number
+    .B_LS_RADS        (b_ls_rads),                      // B: RSの番号 (FF出力) / B: RS number (FF output)
+    .GR_DT_1          (gr_dt_1),                        // R1のデータ ← u_reg / R1 data <- u_reg
+    .GR_DT_2          (gr_dt_2),                        // R2のデータ / R2 data
+    .GR_DT_B          (gr_dt_b),                        // RBのデータ / RB data
+    .GR_DT_S          (gr_dt_s),                        // RSのデータ / RS data
+    .W_WE1            (w_we1),                          // W: LS側書き込み許可 / W: LS write enable
+    .W_WE2            (w_we2),                          // W: EX側書き込み許可 / W: EX write enable
+    .W_WAD1           (w_wad1),                         // W: LS側書き込み番号 / W: LS write number
+    .W_WAD2           (w_wad2),                         // W: EX側書き込み番号 / W: EX write number
+    .W_WDT1           (w_wdt1),                         // W: LS側書き込みデータ / W: LS write data
+    .W_WDT2           (w_wdt2),                         // W: EX側書き込みデータ / W: EX write data
+    .LBS_WE           (lbs_we),                         // メモリ書き込み許可 / memory write enable
+    .LBS_AD           (lbs_ad),                         // オペランドの番地 / operand address
+    .LBS_DT           (lbs_dt),                         // 書き込みデータ / write data
+    .MEM_DT_OP        (mem_dt_op),                      // オペランドの読み出しデータ ← u_mem / operand read data <- u_mem
     .MEM_OP_ERR       (1'b0),         // 外部バス (EXT_BUS=1) 用。ここでは未使用
                                       // for the external bus (EXT_BUS=1); unused here
-    .IB_AD            (ib_ad),
-    .MEM_DT_IF_H      (mem_dt_if_h),
-    .MEM_DT_IF_L      (mem_dt_if_l),
+    .IB_AD            (ib_ad),                          // 命令フェッチの番地 / fetch address
+    .MEM_DT_IF_H      (mem_dt_if_h),                    // フェッチした1語目 / first fetched word
+    .MEM_DT_IF_L      (mem_dt_if_l),                    // フェッチした2語目 / second fetched word
     .IB_VALID         (),             // 外部バス (EXT_BUS=1) 用。ここでは未使用
                                       // for the external bus (EXT_BUS=1); unused here
-    .IB_AD_NXT        (),
-    .OP_B_NEW         (),
-    .OP_B_BUSREQ      (),
-    .PC               (PC)
-  );
+    .IB_AD_NXT        (),                               // 未接続: icache用の出力 (未使用ネットは合成で消える) / unconnected: icache output (unused, removed)
+    .OP_B_NEW         (),                               // 未接続: AXIマスタ用 / unconnected: for the AXI master
+    .OP_B_BUSREQ      (),                               // 未接続: AXIマスタ用 / unconnected: for the AXI master
+    .PC               (PC)                              // PCを外へ / PC out
+  );                                                    // u_cntlの終わり / end of u_cntl
 
-  stm_regfile u_reg (
-    .clk  (clk),
-    .we1  (w_we1),   .we2  (w_we2),
-    .wad1 (w_wad1),  .wad2 (w_wad2),
-    .wdt1 (w_wdt1),  .wdt2 (w_wdt2),
-    .rad1 (dd_rad1), .rad2 (dd_rad2), .radb (dd_radb), .rads (b_ls_rads),
-    .rdt1 (gr_dt_1), .rdt2 (gr_dt_2), .rdtb (gr_dt_b), .rdts (gr_dt_s)
-  );
+  stm_regfile u_reg (                                   // レジスタファイルのインスタンス / register file instance
+    .clk  (clk),                                        // クロック / clock
+    .we1  (w_we1),   .we2  (w_we2),                     // 書き込み許可2本 / two write enables
+    .wad1 (w_wad1),  .wad2 (w_wad2),                    // 書き込み番号2本 / two write numbers
+    .wdt1 (w_wdt1),  .wdt2 (w_wdt2),                    // 書き込みデータ2本 / two write data
+    .rad1 (dd_rad1), .rad2 (dd_rad2), .radb (dd_radb), .rads (b_ls_rads), // 読み出し番号4本 / four read numbers
+    .rdt1 (gr_dt_1), .rdt2 (gr_dt_2), .rdtb (gr_dt_b), .rdts (gr_dt_s) // 読み出しデータ4本 / four read data
+  );                                                    // u_regの終わり / end of u_reg
 
-  stm_memory #(.AW(MEM_AW), .INIT_HEX(INIT_HEX)) u_mem (
-    .clk   (clk),
-    .we    (lbs_we),
-    .opad  (lbs_ad),
-    .stdt  (lbs_dt),
-    .ifad  (ib_ad),
-    .opdt  (mem_dt_op),
-    .ifdth (mem_dt_if_h),
-    .ifdtl (mem_dt_if_l)
-  );
-endmodule
+  stm_memory #(.AW(MEM_AW), .INIT_HEX(INIT_HEX)) u_mem ( // メモリのインスタンス (パラメータを渡す) / memory instance (parameters passed down)
+    .clk   (clk),                                       // クロック / clock
+    .we    (lbs_we),                                    // 書き込み許可 / write enable
+    .opad  (lbs_ad),                                    // オペランドの番地 / operand address
+    .stdt  (lbs_dt),                                    // 書き込みデータ / write data
+    .ifad  (ib_ad),                                     // フェッチ番地 / fetch address
+    .opdt  (mem_dt_op),                                 // オペランドの読み出しデータ / operand read data
+    .ifdth (mem_dt_if_h),                               // フェッチの1語目 / first fetch word
+    .ifdtl (mem_dt_if_l)                                // フェッチの2語目 / second fetch word
+  );                                                    // u_memの終わり / end of u_mem
+endmodule                                               // モジュールの終わり / end of module

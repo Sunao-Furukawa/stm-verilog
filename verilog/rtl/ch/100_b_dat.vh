@@ -87,16 +87,16 @@
 //          EX result in B (when EX is first in the same pair) > ALU result in E > EX result in E
 //          > results in W > register file (GR_DT_S)
 //        (the old #if 0 version fetched again from W even during an E interlock)
-assign E_LS_OPS_DT_NEW = 
-	!E_INTLK & (B_LS_OPS_IS_GR & B_WE2 & (B_LS_RADS == B_WAD2))
-		&  B_FIRST_IS_EX ? B_EX_RES :
-	!E_INTLK & (B_LS_OPS_IS_GR & E_WE1 & (B_LS_RADS == E_WAD1)) ?
-								EE_ALU_OUTPUT :
-	!E_INTLK & (B_LS_OPS_IS_GR & E_WE2 & (B_LS_RADS == E_WAD2)) ? E_EX_RES :
-	!E_INTLK & (B_LS_OPS_IS_GR & W_WE1 & (B_LS_RADS == W_WAD1)) ? W_WDT1 :
-	!E_INTLK & (B_LS_OPS_IS_GR & W_WE2 & (B_LS_RADS == W_WAD2)) ? W_WDT2 :
-	!E_INTLK                                         ? GR_DT_S :
-  		 					     E_LS_OPS_DT;
+assign E_LS_OPS_DT_NEW =                                // Eへ渡すレジスタオペランド: 新しい順の7:1優先MUX (32bit) / register operand to E: 7:1 priority mux, newest first (32 bits)
+	!E_INTLK & (B_LS_OPS_IS_GR & B_WE2 & (B_LS_RADS == B_WAD2)) // ①同じ組で先のEX命令の結果 (4bit比較器 B_LS_RADS==B_WAD2) ... / (1) result of the earlier EX insn in the pair (4-bit compare) ...
+		&  B_FIRST_IS_EX ? B_EX_RES :           // ...→ B_EX_RES / ... -> B_EX_RES
+	!E_INTLK & (B_LS_OPS_IS_GR & E_WE1 & (B_LS_RADS == E_WAD1)) ? // ②EのLS命令の結果 (E_WAD1と比較) ... / (2) result of the E LS insn (compare with E_WAD1) ...
+								EE_ALU_OUTPUT : // ...→ 同じサイクルのALU出力 (E FF→ALU→このMUX→FFが長い経路) / ... -> this cycle's ALU output (E FF -> ALU -> mux -> FF is a long path)
+	!E_INTLK & (B_LS_OPS_IS_GR & E_WE2 & (B_LS_RADS == E_WAD2)) ? E_EX_RES : // ③EのEX命令の結果 / (3) result of the E EX insn
+	!E_INTLK & (B_LS_OPS_IS_GR & W_WE1 & (B_LS_RADS == W_WAD1)) ? W_WDT1 : // ④WのLS側の結果 / (4) LS result in W
+	!E_INTLK & (B_LS_OPS_IS_GR & W_WE2 & (B_LS_RADS == W_WAD2)) ? W_WDT2 : // ⑤WのEX側の結果 / (5) EX result in W
+	!E_INTLK                                         ? GR_DT_S : // ⑥依存が無ければレジスタファイルの値 (stm_regfileのrdts) ... / (6) no dependency: register file value (rdts of stm_regfile) ...
+  		 					     E_LS_OPS_DT; // ⑦Eが止まっていれば保持 (保持はCEへ). 比較器5個+32bit MUX / (7) hold while E stalls (hold -> CE). 5 comparators + 32-bit mux
 // ---- #endif ----
 
 // E-OPCLH-LCH should     be updated when LMD-INTLK,
@@ -111,8 +111,8 @@ assign E_LS_OPS_DT_NEW =
 //         (E_STB_INTLK) の間は上書きしない。
 // [Note] Keep the cache hit / interrupt result for E. Not overwritten while waiting for the
 //        store buffer (E_STB_INTLK).
-assign E_OPCLH_LCH_NEW = !E_STB_INTLK ? B_OPCLH 		: E_OPCLH_LCH;
-assign E_LS_INTCODE_NEW = !E_STB_INTLK ? OP_B_INTCODE 	: E_LS_INTCODE;
+assign E_OPCLH_LCH_NEW = !E_STB_INTLK ? B_OPCLH 		: E_OPCLH_LCH; // Eの「データが揃った」: STB待ちでなければB_OPCLHを取り込む (CE付きFF) / E "data ready": takes B_OPCLH unless waiting for STB (FF with CE)
+assign E_LS_INTCODE_NEW = !E_STB_INTLK ? OP_B_INTCODE 	: E_LS_INTCODE; // Sユニットの例外コードをEへ (CE付きFF 3本) / S-unit exception code to E (3 FFs with CE)
 // ---- #if 0 (元ソースで無効化) ----
 //      (#if 0: disabled in the original source)
 // E-LS-LD-DT   := !E-STB-INTLK & (B-LS-LD-V & STB-V & (B-LS-LOG-AD == STB-AD)) ?
@@ -133,9 +133,9 @@ assign E_LS_INTCODE_NEW = !E_STB_INTLK ? OP_B_INTCODE 	: E_LS_INTCODE;
 //        that is used; otherwise the cache value.
 //        With EXT_BUS=1 the forwarding is already done in OP_LBS_DATA (050_op_lb1.vh),
 //        so nothing is done here.
-assign BB_MEM_DATA = EXT_BUS ? OP_LBS_DATA :
-	(B_LS_LD_V & E_LS_ST_V & (B_LS_LOG_AD == E_LS_LOG_AD)) ? EE_ALU_OUTPUT :
-	(B_LS_LD_V & STB_V & (B_LS_LOG_AD == STB_AD)) ? STB_DT :
-	 OP_LBS_DATA;
-assign E_LS_LD_DT_NEW = !E_STB_INTLK ? BB_MEM_DATA 	: E_LS_LD_DT;
+assign BB_MEM_DATA = EXT_BUS ? OP_LBS_DATA :            // Bのロードデータ: EXT_BUS=1なら050で処理済みでOP_LBS_DATAそのもの (配線) ... / B load data: with EXT_BUS=1 just OP_LBS_DATA (wire), handled in 050 ...
+	(B_LS_LD_V & E_LS_ST_V & (B_LS_LOG_AD == E_LS_LOG_AD)) ? EE_ALU_OUTPUT : // ...EのストアとB番地が一致ならそのデータ (32bit比較器) ... / ... E store at the same address: its data (32-bit comparator) ...
+	(B_LS_LD_V & STB_V & (B_LS_LOG_AD == STB_AD)) ? STB_DT : // ...STBと一致ならSTB_DT (32bit比較器) ... / ... STB at the same address: STB_DT (32-bit comparator) ...
+	 OP_LBS_DATA;                                   // ...それ以外はキャッシュの値: 32bit 3:1 MUX / ... else cache data: 32-bit 3:1 mux
+assign E_LS_LD_DT_NEW = !E_STB_INTLK ? BB_MEM_DATA 	: E_LS_LD_DT; // ロードデータをEのFFへ (STB待ち中は保持=CE) → 090のALU / load data into E FFs (hold = CE while waiting for STB) -> ALU in 090
 // ---- #endif ----

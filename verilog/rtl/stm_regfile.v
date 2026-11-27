@@ -54,27 +54,27 @@
 //   - The 0-clear in the initial block becomes the FFs' initial value (INIT) on an FPGA.
 //     Unlike stm_cntl there is no reset input (the register contents survive a reset).
 // =====================================================================
-module stm_regfile (
-  input             clk,
-  input             we1, we2,
-  input      [3:0]  wad1, wad2,
-  input      [31:0] wdt1, wdt2,
-  input      [3:0]  rad1, rad2, radb, rads,
-  output     [31:0] rdt1, rdt2, rdtb, rdts
-);
-  reg [31:0] gr [0:15];
+module stm_regfile (                                    // 汎用レジスタ16本 (書き込み2/読み出し4ポート) / 16 general registers (2 write / 4 read ports)
+  input             clk,                                // クロック: 512本のFFのC端子へ / clock: to the C pin of the 512 FFs
+  input             we1, we2,                           // 書き込み許可 (1=LSパイプ, 2=EXパイプ) ← W_WE1/2のFF / write enables (1 LS pipe, 2 EX pipe) <- W_WE1/2 FFs
+  input      [3:0]  wad1, wad2,                         // 書き込み番号 → 4→16のデコーダ2個 / write numbers -> two 4-to-16 decoders
+  input      [31:0] wdt1, wdt2,                         // 書き込みデータ → 各FFのD入力の2:1 MUX / write data -> 2:1 mux on every FF's D
+  input      [3:0]  rad1, rad2, radb, rads,             // 読み出し番号: rad1/2/bはDの組合せ(030), radsはBのFF(130) / read numbers: rad1/2/b combinational from D (030), rads an FF of B (130)
+  output     [31:0] rdt1, rdt2, rdtb, rdts              // 読み出しデータ (非同期読み出し = 組合せ出力) / read data (asynchronous = combinational outputs)
+);                                                      // ポート宣言の終わり / end of ports
+  reg [31:0] gr [0:15];                                 // 16語x32bitの配列 → FDRE 512個 (gr_reg[番号][ビット]) / 16 x 32-bit array -> 512 FDREs (gr_reg[n][bit])
 
-  integer k;
-  initial for (k = 0; k < 16; k = k + 1) gr[k] = 32'd0;
+  integer k;                                            // initial文のループ変数 (回路にならない) / loop variable of the initial block (no hardware)
+  initial for (k = 0; k < 16; k = k + 1) gr[k] = 32'd0; // 全レジスタを0で始める → FFの初期値INIT=0 (リセットでは消えない) / start every register at 0 -> FF INIT=0 (not cleared by reset)
 
-  always @(posedge clk) begin
-    if (we1) gr[wad1] <= wdt1;
+  always @(posedge clk) begin                           // 書き込み: クロックの立ち上がりで / writes: on the rising clock edge
+    if (we1) gr[wad1] <= wdt1;                          // LS側の書き込み: wad1デコード&we1 がそのFFのCE / LS write: decoded wad1 & we1 is that FF's CE
     if (we2) gr[wad2] <= wdt2;   // 後に書いた方が優先 (C 版と同じ順序)
                                  // the later write wins (same order as the C version)
-  end
+  end                                                   // always の終わり / end of always
 
-  assign rdt1 = (we2 && wad2 == rad1) ? wdt2 : (we1 && wad1 == rad1) ? wdt1 : gr[rad1];
-  assign rdt2 = (we2 && wad2 == rad2) ? wdt2 : (we1 && wad1 == rad2) ? wdt1 : gr[rad2];
-  assign rdtb = (we2 && wad2 == radb) ? wdt2 : (we1 && wad1 == radb) ? wdt1 : gr[radb];
-  assign rdts = (we2 && wad2 == rads) ? wdt2 : (we1 && wad1 == rads) ? wdt1 : gr[rads];
-endmodule
+  assign rdt1 = (we2 && wad2 == rad1) ? wdt2 : (we1 && wad1 == rad1) ? wdt1 : gr[rad1]; // R1読み出し: 同じサイクルの書き込みを優先 (4bit比較器2個+32bit 3:1 MUX) + 16:1 MUX / R1 read: same-cycle write wins (2 comparators + 32-bit 3:1 mux) + 16:1 mux
+  assign rdt2 = (we2 && wad2 == rad2) ? wdt2 : (we1 && wad1 == rad2) ? wdt1 : gr[rad2]; // R2読み出し (同じ形) → GR_DT_2 → 140 / R2 read (same form) -> GR_DT_2 -> 140
+  assign rdtb = (we2 && wad2 == radb) ? wdt2 : (we1 && wad1 == radb) ? wdt1 : gr[radb]; // RB読み出し → GR_DT_B → 140 / RB read -> GR_DT_B -> 140
+  assign rdts = (we2 && wad2 == rads) ? wdt2 : (we1 && wad1 == rads) ? wdt1 : gr[rads]; // RS読み出し (Bサイクル) → GR_DT_S → 100 / RS read (B cycle) -> GR_DT_S -> 100
+endmodule                                               // モジュールの終わり / end of module

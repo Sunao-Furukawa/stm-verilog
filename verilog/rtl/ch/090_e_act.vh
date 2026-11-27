@@ -70,7 +70,7 @@
 // Bypass STB if address matches (Store-Load Bypass) ## move this part to SU?
 // 【解説】メモリから読んだデータ (ALU の第 2 入力)。
 // [Note] Data read from memory (second ALU input).
-assign EE_MEMOP = E_LS_LD_DT;
+assign EE_MEMOP = E_LS_LD_DT;                           // ALUの第2入力=ロードデータ: E_LS_LD_DTのFF出力の別名 (ゲート無し) / ALU input y = load data: alias of the E_LS_LD_DT FFs (no gate)
 // ---- #if 0 (元ソースで無効化) ----
 //      (#if 0: disabled in the original source)
 // EE-MEMOP = (E-LS-LD-V & STB-V & (E-LS-LOG-AD == STB-AD)) ? STB-DT : E-LS-LD-DT
@@ -79,7 +79,7 @@ assign EE_MEMOP = E_LS_LD_DT;
 // Bypass register if E-reg-num matches W-reg-num. (E-cyc to A-cyc Bypass)
 // 【解説】レジスタから読んだオペランド (ストアデータ / EX-RM の第 1 オペランド)。
 // [Note] Operand read from a register (store data / first operand of EX-RM).
-assign EE_OPS = E_LS_OPS_DT;
+assign EE_OPS = E_LS_OPS_DT;                            // ALUの第1入力=レジスタオペランド: E_LS_OPS_DTのFFの別名 / ALU input x = register operand: alias of the E_LS_OPS_DT FFs
 // ---- #if 0 (元ソースで無効化) ----
 //      (#if 0: disabled in the original source)
 //    (E-LS-OPS-IS-GR & E-WE2 & (E-LS-RADS == E-WAD2) & E-FIRST-IS-EX) ? E-EX-RES :
@@ -97,29 +97,29 @@ assign EE_OPS = E_LS_OPS_DT;
 // [Note] The ALU of the LS pipe. The opcode is E_LS_OPCODE made in 110_b_act.vh:
 //          0 (LDW) passes the load data through, 4 (STW) passes the store data through,
 //          16 and up extract/insert bytes and halfwords, 1-14 are EX-RM operations.
-stm_exu u_e_alu (
-  .opc  (E_LS_OPCODE),
-  .x    (EE_OPS),
-  .y    (EE_MEMOP),
-  .cc   (EE_ALU_CC),
-  .z    (EE_ALU_OUTPUT),
-  .intr (EE_ALU_INT)
-);
+stm_exu u_e_alu (                                       // LSパイプのALUのインスタンス: 合成ではstm_cntlの中に展開される (加算器/シフタ/サブワード整形) / instance of the LS-pipe ALU: flattened into stm_cntl by synthesis (adder / shifter / sub-word shaping)
+  .opc  (E_LS_OPCODE),                                  // 演算の種類 5bit (0=LDW,4=STW,16~=サブワード,1~14=EX-RM) ← E_LS_OPCODEのFF / 5-bit operation (0 LDW, 4 STW, 16+ sub-word, 1-14 EX-RM) <- E_LS_OPCODE FFs
+  .x    (EE_OPS),                                       // 第1オペランド 32bit (ストアデータ / RS) ← FF / operand x, 32 bits (store data / RS) <- FFs
+  .y    (EE_MEMOP),                                     // 第2オペランド 32bit (メモリの語) ← FF / operand y, 32 bits (memory word) <- FFs
+  .cc   (EE_ALU_CC),                                    // 結果のCC 2bit → W_CC, 210 (LSでBC解決) / result CC, 2 bits -> W_CC, 210 (BC solved by LS)
+  .z    (EE_ALU_OUTPUT),                                // 結果 32bit → W_WDT1, STB_DT, 050/100/140のバイパスMUX (組合せのまま) / result, 32 bits -> W_WDT1, STB_DT, bypass muxes in 050/100/140 (combinational)
+  .intr (EE_ALU_INT)                                    // オーバーフロー割り込みコード 3bit / overflow interrupt code, 3 bits
+);                                                      // インスタンスの終わり / end of instance
 // ---- #endif ----
 
 // Handling of interruption
 
 // 【解説】LS パイプの割り込み: S ユニットからの例外か、ALU のオーバーフロー。
 // [Note] Interrupts of the LS pipe: an exception from the S unit or an ALU overflow.
-assign EE_LS_INTCODE = (E_LS_INTCODE != 0) ? E_LS_INTCODE : EE_ALU_INT;
-assign EE_LS_INT_V = (EE_LS_INTCODE != 0);
-assign EE_EX_INT_V = (E_EX_INTCODE != 0);
+assign EE_LS_INTCODE = (E_LS_INTCODE != 0) ? E_LS_INTCODE : EE_ALU_INT; // LS側の割り込み: Sユニットの例外を優先, なければALUの例外 (3bit 2:1 MUX) / LS interrupt: S-unit exception first, else the ALU one (3-bit 2:1 mux)
+assign EE_LS_INT_V = (EE_LS_INTCODE != 0);              // LS側に割り込みあり: 3bit OR / LS interrupt present: 3-bit OR
+assign EE_EX_INT_V = (E_EX_INTCODE != 0);               // EX側に割り込みあり (Aで検出済みのFFを見る): 3bit OR / EX interrupt present (FF from A): 3-bit OR
 // 【解説】同じ組の先の命令が割り込んだら、後の命令の結果を隠す。
 //           E_FIRST_IS_EX = 1 なら EX パイプ側がプログラム順で先。
 // [Note] If the earlier instruction of the pair raised an interrupt, hide the result of the later one.
 //          E_FIRST_IS_EX = 1 means the EX-pipe side is earlier in program order.
-assign EE_HIDE_EX = !E_FIRST_IS_EX & EE_LS_INT_V;
-assign EE_HIDE_LS =  E_FIRST_IS_EX & EE_EX_INT_V;
+assign EE_HIDE_EX = !E_FIRST_IS_EX & EE_LS_INT_V;       // 先のLSが割り込むので後のEXの結果を隠す (AND) / earlier LS interrupts, so hide the later EX (AND)
+assign EE_HIDE_LS =  E_FIRST_IS_EX & EE_EX_INT_V;       // 先のEXが割り込むので後のLSの結果を隠す (AND) / earlier EX interrupts, so hide the later LS (AND)
 
 // 【解説】CC をどちらのパイプの結果で更新するか。両方が CC を変えるなら
 //         プログラム順で後の命令を採る (同時発行の段階で両方が CC を変える組は
@@ -127,30 +127,30 @@ assign EE_HIDE_LS =  E_FIRST_IS_EX & EE_EX_INT_V;
 // [Note] Which pipe's result updates CC. If both change CC, take the instruction later in
 //        program order (pairs where both change CC are never dual-issued, but the expression
 //        handles both cases).
-assign EE_SET_CC_FROM_LS = E_LS_SETCC & !EE_LS_INT_V & !EE_HIDE_LS
-			& !(E_EX_SETCC & !E_FIRST_IS_EX & !EE_EX_INT_V);
-assign EE_SET_CC_FROM_EX = E_EX_SETCC & !EE_EX_INT_V & !EE_HIDE_EX
-			& !(E_LS_SETCC &  E_FIRST_IS_EX & !EE_LS_INT_V);
+assign EE_SET_CC_FROM_LS = E_LS_SETCC & !EE_LS_INT_V & !EE_HIDE_LS // CCをLSの結果で更新: LSがSETCCで割り込み無し ... / update CC from LS: LS sets CC without interrupt ...
+			& !(E_EX_SETCC & !E_FIRST_IS_EX & !EE_EX_INT_V); // ...後のEXがCCを上書きしない場合 (LUT6 1個) / ... and a later EX does not overwrite it (one LUT6)
+assign EE_SET_CC_FROM_EX = E_EX_SETCC & !EE_EX_INT_V & !EE_HIDE_EX // CCをEXの結果で更新 ... / update CC from EX ...
+			& !(E_LS_SETCC &  E_FIRST_IS_EX & !EE_LS_INT_V); // ...後のLSが上書きしない場合 (LUT6 1個) / ... unless a later LS overwrites it (one LUT6)
 //##   Set w-tags
 //##   These tags can be always copied to W-cyc
   // 【解説】値の種類のタグは無条件に W へコピーしてよい (有効ビットで制御するため)。
   // [Note] Value tags may be copied to W unconditionally (the valid bits control them).
-  assign W_WAD1_NEW = E_WAD1;
-  assign W_WAD2_NEW = E_WAD2;
+  assign W_WAD1_NEW = E_WAD1;                           // LS側の書き込み番号をWへ: FF 4本 (D=E_WAD1, 保持無し) / LS write number to W: 4 FFs (D = E_WAD1, no hold)
+  assign W_WAD2_NEW = E_WAD2;                           // EX側の書き込み番号をWへ: FF 4本 / EX write number to W: 4 FFs
   // 【解説】(Verilog 版で追加, EXT_BUS=1) データアクセス例外 (バスエラー) のときは
   //         ロード結果の代わりにアクセス番地を渡し、W で XLA に保存させる。
   //         例外を起こした命令は GR に書かないので、この値は XLA にしか使われない。
   // [Note] (added in the Verilog version, EXT_BUS=1) On a data access exception (bus error),
   //        pass the access address instead of the load result, so W saves it in XLA.
   //        The instruction that raised the exception does not write GR, so this value is only used for XLA.
-  assign W_WDT1_NEW = (EXT_BUS && E_LS_INTCODE == INTCODE_TLB) ? E_LS_LOG_AD
-							      : EE_ALU_OUTPUT;
-  assign W_WDT2_NEW = E_EX_RES;
-  assign W_TGT_NEW = E_TGT;
-  assign W_IS_SUPERSCALAR_NEW = E_IS_SUPERSCALAR;
-  assign W_LATTER_IS_JB_NEW = E_LATTER_IS_JB;
-  assign W_FIRST_IS_EX_NEW = E_FIRST_IS_EX;
-  assign W_CC_NEW = ( EE_SET_CC_FROM_LS ? EE_ALU_CC : E_EX_CC );
+  assign W_WDT1_NEW = (EXT_BUS && E_LS_INTCODE == INTCODE_TLB) ? E_LS_LOG_AD // LS側の書き込みデータ: 通常はALU出力 ... / LS write data: normally the ALU output ...
+							      : EE_ALU_OUTPUT; // ...バスエラー時は番地(XLA用). EXT_BUS=0ならALU出力の配線→FF32本 / ... the address on a bus error (for XLA). EXT_BUS=0: just ALU output -> 32 FFs
+  assign W_WDT2_NEW = E_EX_RES;                         // EX側の結果 (Aで計算済み) をWへ: FF32本 / EX result (computed in A) to W: 32 FFs
+  assign W_TGT_NEW = E_TGT;                             // 分岐先をWへ: FF32本 → 080のMODIFIED_PC / branch target to W: 32 FFs -> MODIFIED_PC in 080
+  assign W_IS_SUPERSCALAR_NEW = E_IS_SUPERSCALAR;       // 2命令の組か → 080のPC増分 / is it a pair -> PC increment in 080
+  assign W_LATTER_IS_JB_NEW = E_LATTER_IS_JB;           // 組の後の命令が分岐か / is the latter insn of the pair a branch
+  assign W_FIRST_IS_EX_NEW = E_FIRST_IS_EX;             // 組の先の命令がEXか (割り込みの優先順) / is the first insn EX (interrupt order)
+  assign W_CC_NEW = ( EE_SET_CC_FROM_LS ? EE_ALU_CC : E_EX_CC ); // WへのCC: LS由来ならALUのCC, そうでなければEXのCC (2bit 2:1 MUX) / CC to W: ALU CC if from LS, else EX CC (2-bit 2:1 mux)
 
 // if (!E-FWD) # In next cycle, E-cyc won't release and W-cyc will be empty
 // 	      # except STB, which depends on INTLK.  Clear GR/CC/PC valids.
@@ -158,13 +158,13 @@ assign EE_SET_CC_FROM_EX = E_EX_SETCC & !EE_EX_INT_V & !EE_HIDE_EX
   //         (W は空になる)。割り込みを起こした命令は GR に書かない。
   // [Note] Valid bits are set only when E moves on (E_FWD), otherwise 0
   //        (W becomes empty). An instruction that raised an interrupt does not write GR.
-  assign W_WE1_NEW = E_FWD ?  E_WE1 & !EE_LS_INT_V & !EE_HIDE_LS   : 0;
-  assign W_WE2_NEW = E_FWD ?  E_WE2 & !EE_EX_INT_V & !EE_HIDE_EX   : 0;
-  assign W_SETCC_NEW = E_FWD ?  EE_SET_CC_FROM_LS | EE_SET_CC_FROM_EX   : 0;
-  assign W_COMPLETE_NEW = E_FWD ?  1   : 0;
-  assign W_PRIVCODE_NEW = E_FWD ?  E_PRIVCODE   : 0;
-  assign W_EX_INTCODE_NEW = E_FWD ?  E_EX_INTCODE   : 0;
-  assign W_LS_INTCODE_NEW = E_FWD ?  EE_LS_INTCODE	: 0;
+  assign W_WE1_NEW = E_FWD ?  E_WE1 & !EE_LS_INT_V & !EE_HIDE_LS   : 0; // LS側のGR書き込み許可: E_FWDとのAND (割り込み/隠しで0) → stm_regfileのwe1 / LS GR write enable: AND with E_FWD (0 on interrupt / hide) -> we1 of stm_regfile
+  assign W_WE2_NEW = E_FWD ?  E_WE2 & !EE_EX_INT_V & !EE_HIDE_EX   : 0; // EX側のGR書き込み許可 → we2 / EX GR write enable -> we2
+  assign W_SETCC_NEW = E_FWD ?  EE_SET_CC_FROM_LS | EE_SET_CC_FROM_EX   : 0; // WでCCを更新するか / does W update CC
+  assign W_COMPLETE_NEW = E_FWD ?  1   : 0;             // Wに命令がある(完了する) = E_FWD (FFにE_FWDを入れるだけ) / W holds a completing insn = E_FWD (the FF just latches E_FWD)
+  assign W_PRIVCODE_NEW = E_FWD ?  E_PRIVCODE   : 0;    // 特権命令の種類をWへ (E_FWDでAND) / privileged kind to W (ANDed with E_FWD)
+  assign W_EX_INTCODE_NEW = E_FWD ?  E_EX_INTCODE   : 0; // EX側の割り込みコードをWへ / EX interrupt code to W
+  assign W_LS_INTCODE_NEW = E_FWD ?  EE_LS_INTCODE	: 0; // LS側の割り込みコードをWへ / LS interrupt code to W
 
 // Set W-JB-V iff branch is taken.
 // Usually E-cyc ALU-CC is first latched in G-XXX and then
@@ -174,8 +174,8 @@ assign EE_SET_CC_FROM_EX = E_EX_SETCC & !EE_EX_INT_V & !EE_HIDE_EX
   //         この E サイクルで解決する場合は、ALU の CC を直接見て判定する。
   // [Note] Does W execute the branch (1 only for a taken branch)? If a BC that was unresolved
   //        is resolved in this E cycle, decide by looking at the ALU's CC directly.
-  assign W_JB_V_NEW = E_FWD ?  E_JB_V & (!E_JB_IS_BC | E_LS_SOLVING_BC
-		 & cc_match(EE_ALU_CC,G_BC_MASK) | G_BC_JUST_TAKEN) : 0;
+  assign W_JB_V_NEW = E_FWD ?  E_JB_V & (!E_JB_IS_BC | E_LS_SOLVING_BC // Wで分岐を実行: 無条件分岐 ... / execute the branch in W: unconditional ...
+		 & cc_match(EE_ALU_CC,G_BC_MASK) | G_BC_JUST_TAKEN) : 0; // ...このEで解決するBCはALUのCCで直接判定, 既に成立と分かったBC (LUT2段) / ... a BC solved in this E uses the ALU CC directly, or already taken (2 LUT levels)
 
 // 【解説】ストアバッファ: E のストアが進むときにアドレスとデータを入れ、
 //         S ユニットが ST2 を受け付けたら (WW_ST_GO) 空になる。
@@ -183,8 +183,8 @@ assign EE_SET_CC_FROM_EX = E_EX_SETCC & !EE_EX_INT_V & !EE_HIDE_EX
 // [Note] Store buffer: address and data go in when a store in E moves on, and it becomes empty
 //        when the S unit accepts the ST2 (WW_ST_GO).
 //        (EXT_BUS=1) A store whose read got a bus error is not written.
-assign STB_V_NEW = ( STB_V & !WW_ST_GO ) | E_LS_ST_V & E_FWD & !EE_HIDE_LS
-		 & !(EXT_BUS && E_LS_INTCODE == INTCODE_TLB);
+assign STB_V_NEW = ( STB_V & !WW_ST_GO ) | E_LS_ST_V & E_FWD & !EE_HIDE_LS // ストアバッファ有効: ST2が通るまで保持 ... / store buffer valid: held until ST2 is accepted ...
+		 & !(EXT_BUS && E_LS_INTCODE == INTCODE_TLB); // ...Eのストアが進むとセット (バスエラーのストアは除く) / ... set when an E store moves on (except bus-error stores)
 
-  assign STB_AD_NEW = E_FWD & E_LS_ST_V ? E_LS_LOG_AD    : STB_AD;
-  assign STB_DT_NEW = E_FWD & E_LS_ST_V ? EE_ALU_OUTPUT  : STB_DT;
+  assign STB_AD_NEW = E_FWD & E_LS_ST_V ? E_LS_LOG_AD    : STB_AD; // ストア番地: Eのストアが進む時だけ取り込む → CE付きFF32本 / store address: loaded only when an E store moves -> 32 FFs with CE
+  assign STB_DT_NEW = E_FWD & E_LS_ST_V ? EE_ALU_OUTPUT  : STB_DT; // ストアデータ(ALUで整形済み): CE付きFF32本 / store data (shaped by the ALU): 32 FFs with CE
