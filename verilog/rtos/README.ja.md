@@ -250,6 +250,26 @@ TASK1:   SETHI 9,%-FFF
 自分自身への無条件分岐 (`DSP_SPIN: B DSP_SPIN`, 実行はされない) を置いています。
 `check_bc.py` は、RFE の後ろ 8 命令 (無条件分岐はたどる) に条件分岐が無いことを調べます。
 
+## RTL のコメントで見る
+
+RTL (`rtl/*.v`, `rtl/ch/*.vh`) の各コード行の行末には、その行の意味と合成後の回路を
+コメントで書いてあります (書き方は [../README.ja.md 2 章「ソースのコメント」](../README.ja.md#ソースのコメント) 参照)。
+RTOS が使うハードウェアの動きは、次の行のコメントで追えます。
+
+| RTOS で使うもの | 見る場所 (ファイル: 信号) |
+|---|---|
+| `SVC` が違法命令例外になる | `015_d_i01.vh`: `I0_IS_LEGAL`, `030_d_sec.vh`: `DD_INTCODE` |
+| 割り込みに入る (PC ← TBR, XPC / XPSW に退避, ユーザモードを解除) | `080_w_act.vh`: `PC_NEW`, `XPC_NEW`, `XPSW_NEW`, `PSW_USER_NEW` |
+| RFE で戻る | `080_w_act.vh`: `PC_NEW`, `PSW_*_NEW` の RFE の行, `050_op_lb1.vh`: `CANCEL_BY_INT` |
+| WSR / RSR (TBR, SVR0, SVR1 など) | `080_w_act.vh`: `TBR_NEW`, `SVR0_NEW`, `SVR1_NEW`, `120_a_dat.vh`: `A_SR_READ_DATA`, `070_g_ilk.vh`: `D_PIPECLR_INTLK` |
+| I/O 領域 (UART Lite, GPIO) へのアクセス (AXI4 版) | `060_g_srq.vh`: `AA_IO_LD_HOLD`, `050_op_lb1.vh`: `OP_B_IO_ST`, `stm_axi_master.v`: `m_axi_arcache` / `m_axi_awcache`, `stm_icache.v`: `io_hit` |
+| 不具合 1 (取り消し中の命令の結果のバイパス) | `140_d_dat.vh`: `A_LS_OPB_DT_NEW`, `A_EX_OP1_DT_NEW`, `A_EX_OP2_DT_NEW` |
+| 不具合 2 (WSR, ストアがロードを待たない) | `060_g_srq.vh`: `A_EAB` |
+| 不具合 3 (RFE の後ろの条件分岐) | `210_g_bc.vh`: `G_BC_PENDING_NEW`, `050_op_lb1.vh`: `CANCEL_BY_INT` |
+
+コメントは今の (C 版とサイクルが一致する) 回路をそのまま説明したもので、上の 3 つの不具合は
+直していません。不具合の原因の行も「何をしているか」を書いてあるので、上の説明と合わせて読んでください。
+
 ## アセンブラ (`tools/asm.py`) の変更
 
 * **`SVC n`** 命令を追加 (`E00000nn`, n は 16 進 0〜FF)。

@@ -255,6 +255,27 @@ unconditional branch to itself right after RFE (`DSP_SPIN: B DSP_SPIN`, never ex
 `check_bc.py` checks that the 8 instructions after each RFE (following unconditional branches)
 contain no conditional branch.
 
+## Following it in the RTL comments
+
+Every code line of the RTL (`rtl/*.v`, `rtl/ch/*.vh`) ends with a comment that says what the line
+does and what it becomes after synthesis (see [../README.md §2 "Comments in the sources"](../README.md#comments-in-the-sources)).
+The hardware behaviour the RTOS relies on can be followed in these lines:
+
+| Used by the RTOS | Where to look (file: signal) |
+|---|---|
+| `SVC` raises an illegal-instruction exception | `015_d_i01.vh`: `I0_IS_LEGAL`, `030_d_sec.vh`: `DD_INTCODE` |
+| Entering an interrupt (PC <- TBR, save to XPC / XPSW, leave user mode) | `080_w_act.vh`: `PC_NEW`, `XPC_NEW`, `XPSW_NEW`, `PSW_USER_NEW` |
+| Returning with RFE | the RFE lines of `PC_NEW`, `PSW_*_NEW` in `080_w_act.vh`, `050_op_lb1.vh`: `CANCEL_BY_INT` |
+| WSR / RSR (TBR, SVR0, SVR1 ...) | `080_w_act.vh`: `TBR_NEW`, `SVR0_NEW`, `SVR1_NEW`, `120_a_dat.vh`: `A_SR_READ_DATA`, `070_g_ilk.vh`: `D_PIPECLR_INTLK` |
+| I/O region accesses (UART Lite, GPIO) in the AXI4 version | `060_g_srq.vh`: `AA_IO_LD_HOLD`, `050_op_lb1.vh`: `OP_B_IO_ST`, `stm_axi_master.v`: `m_axi_arcache` / `m_axi_awcache`, `stm_icache.v`: `io_hit` |
+| Bug 1 (results of cancelled instructions are bypassed) | `140_d_dat.vh`: `A_LS_OPB_DT_NEW`, `A_EX_OP1_DT_NEW`, `A_EX_OP2_DT_NEW` |
+| Bug 2 (WSR and stores do not wait for a load) | `060_g_srq.vh`: `A_EAB` |
+| Bug 3 (conditional branches after RFE) | `210_g_bc.vh`: `G_BC_PENDING_NEW`, `050_op_lb1.vh`: `CANCEL_BY_INT` |
+
+The comments describe the circuit as it is (cycle-exact with the C version); the three bugs above
+are not fixed. The lines that cause them are described by what they do, so read them together
+with the explanations above.
+
 ## Assembler changes (`tools/asm.py`)
 
 * Added the **`SVC n`** instruction (`E00000nn`, n in hex, 0–FF).
